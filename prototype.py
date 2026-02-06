@@ -15,30 +15,31 @@ CVEORG_BASE_URL = "https://cveawg.mitre.org/api/cve/"
 GITHUB_URL = "https://github.com/search?q={}%20&type=repositories"
 PACKETSTORM_URL = "https://packetstorm.news/download/" # ...file_id
 
+
 def main():
-    #res = httpx.get(CISA_KEV_URL)
-    #print(res.json()[0].keys())
+    # res = httpx.get(CISA_KEV_URL)
+    # print(res.json()[0].keys())
     with open(CISA_KEV_PATH, "r") as f:
         res: list = [json.load(f),]
-    
+
     kern_cve = []
-    #print(res[0]['vulnerabilities'][0].keys())
+    # print(res[0]['vulnerabilities'][0].keys())
     for vuln in res[0]['vulnerabilities']:
-        if vuln['product'] == "Kernel": # 26
-            kern_cve.append(vuln) 
+        if vuln['product'] == "Kernel":  # 26
+            kern_cve.append(vuln)
 
     d_urls_list = []
-    #for cve in kern_cve: print(cve.values())
+    # for cve in kern_cve: print(cve.values())
     for cve in kern_cve:
         cve_details = httpx.get(CVEORG_BASE_URL + cve["cveID"]).json()
-        #print(cve_details["containers"]["cna"]["references"][0]["url"])
+        # print(cve_details["containers"]["cna"]["references"][0]["url"])
         for refc in cve_details["containers"]["cna"]["references"]:
             if "packetstormsecurity.com/files" in refc["url"]:
                 print(refc["url"])
                 # save to data
                 d_url = PACKETSTORM_URL + refc["url"].split("/")[4]
                 d_urls_list.append(d_url)
-    
+
     with httpx.Client(cookies={"tos": "20250922"}) as cli:
         for url in d_urls_list:
             # idk why, but it takes both to d_urls_list
@@ -46,7 +47,7 @@ def main():
             rsp = cli.get(url)
             with open("./data/" + url.split("/")[-1], "wb") as f:
                 f.write(rsp.content)
-    fix_filename() # gcc cant find
+    fix_filename()  # gcc cant find
 
     return kern_cve
 
@@ -57,7 +58,7 @@ def compile_and_run(src="./data/xpl.c", out="./xpl/tmp.out"):
     os.makedirs(os.path.dirname(out), exist_ok=True)
 
     compiler = next((
-        shutil.which(c) for c in ("gcc","clang","cc")
+        shutil.which(c) for c in ("gcc", "clang", "cc")
         if shutil.which(c)), None)
     if compiler is None: return
 
@@ -69,11 +70,14 @@ def compile_and_run(src="./data/xpl.c", out="./xpl/tmp.out"):
     os.chmod(out, os.stat(out).st_mode | stat.S_IXUSR)
 
     try:
-        proc = subprocess.run([out], stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE, text=True, timeout=24)
+        proc = subprocess.run(
+            [out], stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE, text=True, timeout=24
+        )
         if proc.returncode != 0: return
     except Exception: return
     return proc.stdout, proc.stderr
+
 
 def fix_filename(directory='./data'):
     for filename in os.listdir(directory):
@@ -88,6 +92,7 @@ def fix_filename(directory='./data'):
             if ext:
                 os.rename(file_path, f"{file_path}{ext}")
 
+
 def get_description(filename):
     with open(filename, 'r', encoding='utf-8') as f:
         if f.read(2) != '/*': return ""
@@ -98,6 +103,7 @@ def get_description(filename):
                 return "".join(lines).strip()
             lines.append(line)
     return ""
+
 
 if __name__ == "__main__":
     kern_cve: List[dict] = main()
@@ -113,7 +119,7 @@ if __name__ == "__main__":
         "kernel_version": kern_version,
         "distribution": kern_build,
         "latest_version": "6.18.7",
-        "kev_data": kern_cve, # List[dict]
+        "kev_data": kern_cve,  # List[dict]
         "runs": []
     }
     st_c = 0; cmpl_c = 0
@@ -138,7 +144,8 @@ if __name__ == "__main__":
                     "status": "Error",
                     "stdout": stdout, "stderr": stderr,
                 })
-    result_s["started"]   = st_c
+    result_s["started"] = st_c
     result_s["complated"] = cmpl_c
+
     with open("report_data.json", "w") as f:
         json.dump(result_s, f, indent=4)
