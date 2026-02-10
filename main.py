@@ -15,7 +15,7 @@ def main_gui():
         page.window_width = 800
         page.window_height = 600
         # TODO: log service
-
+        
         def navigate_to_scan(_):
             page.clean()
             create_nav_bar()

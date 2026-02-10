@@ -1,7 +1,8 @@
 import os
 import json
 import platform
-from typing import List
+from datetime import datetime, timezone
+from typing import List, Dict, Any
 
 import httpx
 
@@ -15,6 +16,7 @@ GITHUB_URL = "https://github.com/search?q={q}%20&type=repositories"
 GITHUB_API_URL = "https://api.github.com/search/repositories?q={q}+language:c&sort=stars&order=desc"
 NIST_API_URL = "https://services.nvd.nist.gov/rest/json/cves/2.0?cpeName=cpe:2.3:o:linux:linux_kernel:{version}:*"
 OSV_API_URL = "https://api.osv.dev/v1/query"
+CH_API_URL = "https://cdn.kernel.org/pub/linux/kernel/v{major}.x/ChangeLog-{version}"
 
 
 class LocalRecon:
@@ -82,8 +84,31 @@ class LocalRecon:
 
     def get_kernel_version_simple(self):
         """kernel version string"""
-        return platform.release()
+        return str(platform.release()).split('+')[:1][0]
 
+    def get_kernel_build_date(self, version):
+        """get build date by git and simple version,
+        for now by changelog works well enough"""
+        major = version.split('.')[0]
+        response = httpx.get(
+            CH_API_URL.format(major=major, version=version)
+        )
+        response.raise_for_status()
+        
+        for line in response.text.split('\n')[:10]:
+            if line.startswith('Date:'):
+                date_str = line.replace('Date:', '').strip()
+                try:
+                    return int(datetime.strptime(
+                        date_str, '%a, %d %b %Y').timestamp())
+                except Exception:
+                    try:
+                        return int(datetime.strptime(
+                            date_str, '%a %b %d %H:%M:%S %Y %z'
+                        ).timestamp())
+                    except Exception:
+                        return None
+        
     # TODO: LinPEAS, lynis, Linux Exploit Suggester and etc
 
 
@@ -127,16 +152,96 @@ class ReconFeeds:
                 'stars': repo['stargazers_count'],
                 'language': repo['language']
             })
-
+        
         return repos
+    
+    def _filter_by_date(self, nist_result, min_ts: int) -> List[Dict]:
+        """ to filter vulns before release"""
+        min_dt = datetime.fromtimestamp(min_ts, tz=timezone.utc)
+        out: List[Dict] = []
+        for it in nist_result.get('vulnerabilities', []):
+            pub = it.get('cve', {}).get('published')
+            if not pub:
+                continue
+            dt = None
+            # ISO-like (with optional Z or +HH:MM)
+            try:
+                dt = datetime.fromisoformat(pub.replace('Z', '+00:00'))
+            except Exception:
+                pass
+            # RFC-like: "Thu Dec xx xx:xx:xx xxxx +0100"
+            if dt is None:
+                try:
+                    # %a %b %d %H:%M:%S %Y %z  (weekday, month, day, time, year, tz offset)
+                    dt = datetime.strptime(pub, '%a %b %d %H:%M:%S %Y %z')
+                except Exception:
+                    pass
+            # Fallback: drop fractional seconds and timezone, parse as '%Y-%m-%dT%H:%M:%S'
+            if dt is None:
+                try:
+                    base = pub.split('.')[0]
+                    dt = datetime.strptime(base, '%Y-%m-%dT%H:%M:%S')
+                    dt = dt.replace(tzinfo=timezone.utc)
+                except Exception:
+                    for fmt in ('%Y-%m-%d %H:%M:%S', '%d %b %Y %H:%M:%S', '%a, %d %b %Y %H:%M:%S %z'):
+                        try:
+                            dt = datetime.strptime(pub, fmt)
+                            break
+                        except Exception:
+                            continue
+            if dt is None:
+                continue
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            else:
+                dt = dt.astimezone(timezone.utc)
+            if dt >= min_dt:
+                out.append(it)
+        return out
 
-    def nist_search(self, kern_r_version):
-        pass
+    def nist_search(self, kern_r_version, date):
+        # Search for vulnerabilities in NIST database 
+        url = NIST_API_URL.format(version=kern_r_version)
+        try:
+            response = httpx.get(url)
+            response.raise_for_status()
+            res_filtered = self._filter_by_date(response.json(), date)
+            return res_filtered
+        except Exception as e:
+            print(f"NIST search error: {str(e)}")
+            return {}
 
     def osv_search(self, kern_r_version):
-        pass
+        # Search for vulnerabilities in OSV database 
+        payload = {
+            "version": kern_r_version,
+            "package": {
+                "name": "linux",
+                "ecosystem": "Linux"
+            }
+        }
+        try:
+            response = httpx.post(OSV_API_URL, json=payload)
+            response.raise_for_status()
+            return response.json()
+        except Exception as e:
+            print(f"OSV search error: {str(e)}")
+            return {}
 
 
 if __name__ == '__main__':
-    # just test
-    pass
+    # basic tests
+    lr = LocalRecon()
+    print(f"LocalRecon test - Kernel version: {lr.get_kernel_version_simple()},"
+          f" System: {lr.environment_info.get('system')}")
+    
+    rf = ReconFeeds()
+    kernel_version: str = lr.get_kernel_version_simple()
+    build_date: int = lr.get_kernel_build_date(kernel_version)
+
+    nist_result = rf.nist_search(kernel_version, build_date)
+    osv_result = rf.osv_search(kernel_version)
+    github_result = rf.github_search("CVE-2024-1086")
+    
+    print(f"ReconFeeds test - NIST: {nist_result},\n"
+          f" OSV: {osv_result}, \n GitHub: {github_result} results")
