@@ -89,6 +89,7 @@ class LocalRecon:
     def get_kernel_build_date(self, version):
         """get build date by git and simple version,
         for now by changelog works well enough"""
+        # TODO: use KernelCI or git ls instead later
         major = version.split('.')[0]
         response = httpx.get(
             CH_API_URL.format(major=major, version=version)
