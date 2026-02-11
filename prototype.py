@@ -16,7 +16,7 @@ GITHUB_URL = "https://github.com/search?q={}%20&type=repositories"
 PACKETSTORM_URL = "https://packetstorm.news/download/" # ...file_id
 
 
-def main():
+def get_vulns():
     # res = httpx.get(CISA_KEV_URL)
     # print(res.json()[0].keys())
     with open(CISA_KEV_PATH, "r") as f:
@@ -104,9 +104,8 @@ def get_description(filename):
             lines.append(line)
     return ""
 
-
-if __name__ == "__main__":
-    kern_cve: List[dict] = main()
+def main():
+    kern_cve: List[dict] = get_vulns()
     kern_version = subprocess.run(
         ["uname", "-r"], capture_output=True, text=True, check=True
     ).stdout.strip()
@@ -149,3 +148,6 @@ if __name__ == "__main__":
 
     with open("report_data.json", "w") as f:
         json.dump(result_s, f, indent=4)
+
+if __name__ == "__main__":
+    main()
