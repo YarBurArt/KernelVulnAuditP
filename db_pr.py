@@ -1,6 +1,5 @@
 import sqlite3
 import json
-from datetime import datetime
 from typing import List, Dict, Any, Optional
 from contextlib import contextmanager
 
@@ -10,14 +9,14 @@ class SimpleThreatDB:
         self.db_path = db_path
         self.conn = None
         self._init_db()
-    
+
     def _get_conn(self):
         if self.conn is None:
             self.conn = sqlite3.connect(self.db_path, check_same_thread=False)
             self.conn.row_factory = sqlite3.Row
             self.conn.execute("PRAGMA foreign_keys = ON")
         return self.conn
-    
+
     @contextmanager
     def transaction(self):
         """transaction context manager"""
@@ -28,11 +27,11 @@ class SimpleThreatDB:
         except Exception as e:
             conn.rollback()
             raise e
-    
+
     def _init_db(self):
         """create base schema"""
         conn = self._get_conn()
-        
+
         # base vuln table
         conn.execute("""
             CREATE TABLE IF NOT EXISTS vulnerabilities (
@@ -58,14 +57,14 @@ class SimpleThreatDB:
                 updated_at TEXT DEFAULT CURRENT_TIMESTAMP
             )
         """)
-        
+
         conn.execute("CREATE INDEX IF NOT EXISTS idx_cve ON vulnerabilities(cve_id)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_severity ON vulnerabilities(severity)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_cvss3 ON vulnerabilities(cvss_v3_score)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_kev ON vulnerabilities(in_cisa_kev)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_exploit ON vulnerabilities(has_exploit)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_criticality ON vulnerabilities(criticality_score)")
-        
+
         # Affected products/packages to further support vulns like in sudo, GNU utils
         conn.execute("""
             CREATE TABLE IF NOT EXISTS affected_products (
@@ -80,11 +79,11 @@ class SimpleThreatDB:
                 FOREIGN KEY (vulnerability_id) REFERENCES vulnerabilities(id) ON DELETE CASCADE
             )
         """)
-        
+
         conn.execute("CREATE INDEX IF NOT EXISTS idx_vuln_id ON affected_products(vulnerability_id)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_vendor_product ON affected_products(vendor, product)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_package ON affected_products(package_ecosystem, package_name)")
-        
+
         # References (all links in one table)
         conn.execute("""
             CREATE TABLE IF NOT EXISTS references (
@@ -96,10 +95,10 @@ class SimpleThreatDB:
                 FOREIGN KEY (vulnerability_id) REFERENCES vulnerabilities(id) ON DELETE CASCADE
             )
         """)
-        
+
         conn.execute("CREATE INDEX IF NOT EXISTS idx_ref_vuln ON references(vulnerability_id)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_ref_type ON references(ref_type)")
-        
+
         # CISA KEV data
         conn.execute("""
             CREATE TABLE IF NOT EXISTS cisa_kev (
@@ -114,9 +113,9 @@ class SimpleThreatDB:
                 FOREIGN KEY (vulnerability_id) REFERENCES vulnerabilities(id) ON DELETE CASCADE
             )
         """)
-        
+
         conn.execute("CREATE INDEX IF NOT EXISTS idx_kev_vuln ON cisa_kev(vulnerability_id)")
-        
+
         # known xpl table
         conn.execute("""
             CREATE TABLE IF NOT EXISTS exploits (
@@ -130,9 +129,9 @@ class SimpleThreatDB:
                 FOREIGN KEY (vulnerability_id) REFERENCES vulnerabilities(id) ON DELETE CASCADE
             )
         """)
-        
+
         conn.execute("CREATE INDEX IF NOT EXISTS idx_exploit_vuln ON exploits(vulnerability_id)")
-        
+
         # sandbox virt like runs table (minimal for isolate)
         conn.execute("""
             CREATE TABLE IF NOT EXISTS sandbox_runs (
@@ -152,15 +151,15 @@ class SimpleThreatDB:
                 FOREIGN KEY (vulnerability_id) REFERENCES vulnerabilities(id) ON DELETE CASCADE
             )
         """)
-        
+
         conn.execute("CREATE INDEX IF NOT EXISTS idx_sandbox_vuln ON sandbox_runs(vulnerability_id)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_sandbox_hash ON sandbox_runs(exploit_file_hash)")
-        
+
         conn.commit()
 
     def upsert_vulnerability(self, data: Dict[str, Any]) -> int:
-        """ 
-        update vuln by data: Dict with keys like cve_id, 
+        """
+        update vuln by data: Dict with keys like cve_id,
         description, cvss_v3_score, severity, etc.
         """
         conn = self._get_conn()
@@ -173,13 +172,13 @@ class SimpleThreatDB:
         cwe_ids = data.get('cwe_ids', [])
         if isinstance(cwe_ids, list):
             cwe_ids = json.dumps(cwe_ids)
-        
+
         raw_data = json.dumps(data.get('raw_data', {}))
-        
+
         if existing:
             # Update
             conn.execute("""
-                UPDATE vulnerabilities 
+                UPDATE vulnerabilities
                 SET description = ?, published_date = ?, last_modified_date = ?,
                     cvss_v2_score = ?, cvss_v3_score = ?, cvss_v3_vector = ?,
                     severity = ?, cwe_ids = ?, in_cisa_kev = ?, has_exploit = ?,
@@ -238,17 +237,21 @@ class SimpleThreatDB:
             ))
             conn.commit()
             return cursor.lastrowid
-    
-    def get_vulnerability(self, cve_id: str) -> Optional[Dict[str, Any]]:
+
+    def get_vulnerability(
+        self, cve_id: str
+    ) -> Optional[Dict[str, Any]]:
         conn = self._get_conn()
         cursor = conn.execute("SELECT * FROM vulnerabilities WHERE cve_id = ?", (cve_id,))
         row = cursor.fetchone()
-        
+
         if row:
             return self._row_to_dict(row)
         return None
-    
-    def add_affected_product(self, vuln_id: int, product_data: Dict[str, Any]):
+
+    def add_affected_product(
+        self, vuln_id: int, product_data: Dict[str, Any]
+    ):
         """affected product/package to further support vulns like in sudo, GNU utils"""
         conn = self._get_conn()
         conn.execute("""
@@ -265,8 +268,10 @@ class SimpleThreatDB:
             product_data.get('package_name')
         ))
         conn.commit()
-    
-    def get_affected_products(self, vuln_id: int) -> List[Dict[str, Any]]:
+
+    def get_affected_products(
+        self, vuln_id: int
+    ) -> List[Dict[str, Any]]:
         """all affected products for vuln"""
         conn = self._get_conn()
         cursor = conn.execute(
@@ -274,8 +279,11 @@ class SimpleThreatDB:
             (vuln_id,)
         )
         return [dict(row) for row in cursor.fetchall()]
-    
-    def add_reference(self, vuln_id: int, url: str, ref_type: str = "OTHER", source: str = None):
+
+    def add_reference(
+        self, vuln_id: int, url: str,
+        ref_type: str = "OTHER", source: str = None
+    ):
         """Add reference/link"""
         conn = self._get_conn()
         conn.execute("""
@@ -283,7 +291,7 @@ class SimpleThreatDB:
             VALUES (?, ?, ?, ?)
         """, (vuln_id, url, ref_type, source))
         conn.commit()
-    
+
     def get_references(self, vuln_id: int) -> List[Dict[str, Any]]:
         """all refs for vuln"""
         conn = self._get_conn()
@@ -292,7 +300,7 @@ class SimpleThreatDB:
             (vuln_id,)
         )
         return [dict(row) for row in cursor.fetchall()]
-    
+
     def add_exploit(self, vuln_id: int, exploit_data: Dict[str, Any]):
         conn = self._get_conn()
         conn.execute("""
@@ -308,16 +316,16 @@ class SimpleThreatDB:
             exploit_data.get('date_published')
         ))
         conn.commit()
-        
+
         # update exploit flags on main table
         conn.execute("""
-            UPDATE vulnerabilities 
+            UPDATE vulnerabilities
             SET has_exploit = 1,
                 exploit_count = (SELECT COUNT(*) FROM exploits WHERE vulnerability_id = ?)
             WHERE id = ?
         """, (vuln_id, vuln_id))
         conn.commit()
-    
+
     def get_exploits(self, vuln_id: int) -> List[Dict[str, Any]]:
         conn = self._get_conn()
         cursor = conn.execute(
@@ -325,12 +333,12 @@ class SimpleThreatDB:
             (vuln_id,)
         )
         return [dict(row) for row in cursor.fetchall()]
-    
+
     def add_cisa_kev(self, vuln_id: int, kev_data: Dict[str, Any]):
         conn = self._get_conn()
         conn.execute("""
-            INSERT OR REPLACE INTO cisa_kev 
-            (vulnerability_id, date_added, due_date, required_action, 
+            INSERT OR REPLACE INTO cisa_kev
+            (vulnerability_id, date_added, due_date, required_action,
              known_ransomware, vendor_project, product)
             VALUES (?, ?, ?, ?, ?, ?, ?)
         """, (
@@ -346,7 +354,7 @@ class SimpleThreatDB:
         # add KEV flag
         conn.execute("UPDATE vulnerabilities SET in_cisa_kev = 1 WHERE id = ?", (vuln_id,))
         conn.commit()
-    
+
     def get_cisa_kev(self, vuln_id: int) -> Optional[Dict[str, Any]]:
         """Get CISA KEV entry"""
         conn = self._get_conn()
@@ -356,20 +364,22 @@ class SimpleThreatDB:
         )
         row = cursor.fetchone()
         return dict(row) if row else None
-    
-    def add_sandbox_run(self, vuln_id: int, sandbox_data: Dict[str, Any]):
+
+    def add_sandbox_run(
+        self, vuln_id: int, sandbox_data: Dict[str, Any]
+    ):
         """Add isolated execution data"""
         conn = self._get_conn()
-        
+
         # convert list fields to JSON
         open_processes = sandbox_data.get('open_processes')
         if isinstance(open_processes, list):
             open_processes = json.dumps(open_processes)
-        
+
         open_files = sandbox_data.get('open_files')
         if isinstance(open_files, list):
             open_files = json.dumps(open_files)
-        
+
         conn.execute("""
             INSERT INTO sandbox_runs 
             (vulnerability_id, run_timestamp, sandbox_platform, exploit_file_hash,
@@ -391,7 +401,7 @@ class SimpleThreatDB:
             sandbox_data.get('notes')
         ))
         conn.commit()
-    
+
     def get_sandbox_runs(self, vuln_id: int) -> List[Dict[str, Any]]:
         """get all xpl runs for vuln"""
         conn = self._get_conn()
@@ -408,15 +418,16 @@ class SimpleThreatDB:
                         run_dict[field] = json.loads(run_dict[field])
                     except:
                         pass
-            
+
             # convert boolean flags
-            run_dict['execution_success'] = bool(run_dict.get('execution_success'))
-            
+            run_dict['execution_success'] = bool(
+                run_dict.get('execution_success'))
+
             runs.append(run_dict)
-        
+
         return runs
-    
-    def get_cisa_kev(self, vuln_id: int) -> Optional[Dict[str, Any]]:
+
+    def get_cisa_kev_n(self, vuln_id: int) -> Optional[Dict[str, Any]]:
         conn = self._get_conn()
         cursor = conn.execute(
             "SELECT * FROM cisa_kev WHERE vulnerability_id = ?",
@@ -424,21 +435,23 @@ class SimpleThreatDB:
         )
         row = cursor.fetchone()
         return dict(row) if row else None
-    
-    def get_full_vulnerability(self, cve_id: str) -> Optional[Dict[str, Any]]:
+
+    def get_full_vulnerability(
+        self, cve_id: str
+    ) -> Optional[Dict[str, Any]]:
         vuln = self.get_vulnerability(cve_id)
         if not vuln:
             return None
-        
+
         vuln_id = vuln['id']
         vuln['affected_products'] = self.get_affected_products(vuln_id)
         vuln['references'] = self.get_references(vuln_id)
         vuln['exploits'] = self.get_exploits(vuln_id)
         vuln['cisa_kev'] = self.get_cisa_kev(vuln_id)
         vuln['sandbox_runs'] = self.get_sandbox_runs(vuln_id)
-        
+
         return vuln
-    
+
     def search(
         self,
         min_cvss: float = None,
@@ -454,28 +467,28 @@ class SimpleThreatDB:
     ) -> List[Dict[str, Any]]:
         """Search vulnerabilities with filters"""
         conn = self._get_conn()
-        
+
         query = "SELECT DISTINCT v.* FROM vulnerabilities v"
         joins = []
         conditions = []
         params = []
-        
+
         if min_cvss is not None:
             conditions.append("v.cvss_v3_score >= ?")
             params.append(min_cvss)
-        
+
         if severity:
             conditions.append("v.severity = ?")
             params.append(severity)
-        
+
         if has_exploit: conditions.append("v.has_exploit = 1")
-        
+
         if in_cisa_kev: conditions.append("v.in_cisa_kev = 1")
-        
+
         if min_criticality is not None:
             conditions.append("v.criticality_score >= ?")
             params.append(min_criticality)
-        
+
         if vendor or product or package_ecosystem:
             joins.append("LEFT JOIN affected_products ap ON v.id = ap.vulnerability_id")
             if vendor:
@@ -487,37 +500,43 @@ class SimpleThreatDB:
             if package_ecosystem:
                 conditions.append("ap.package_ecosystem = ?")
                 params.append(package_ecosystem)
-        
+
         if joins: query += " " + " ".join(joins)
-        
+
         if conditions: query += " WHERE " + " AND ".join(conditions)
-        
+
         query += " ORDER BY v.criticality_score DESC, v.cvss_v3_score DESC LIMIT ? OFFSET ?"
         params.extend([limit, offset])
-        
+
         cursor = conn.execute(query, params)
         return [self._row_to_dict(row) for row in cursor.fetchall()]
-    
+
     def get_critical(self, limit: int = 50) -> List[Dict[str, Any]]:
         return self.search(min_criticality=60, limit=limit)
-    
-    def get_by_severity(self, severity: str, limit: int = 100) -> List[Dict[str, Any]]:
+
+    def get_by_severity(
+        self, severity: str, limit: int = 100
+    ) -> List[Dict[str, Any]]:
         return self.search(severity=severity, limit=limit)
-    
-    def get_with_exploits(self, limit: int = 100) -> List[Dict[str, Any]]:
+
+    def get_with_exploits(
+        self, limit: int = 100
+    ) -> List[Dict[str, Any]]:
         return self.search(has_exploit=True, limit=limit)
-    
-    def get_cisa_kev_list(self, limit: int = 100) -> List[Dict[str, Any]]:
+
+    def get_cisa_kev_list(
+        self, limit: int = 100
+    ) -> List[Dict[str, Any]]:
         return self.search(in_cisa_kev=True, limit=limit)
-    
+
     def get_statistics(self) -> Dict[str, Any]:
         """Get database statistics"""
         conn = self._get_conn()
         stats = {}
-        
+
         cursor = conn.execute("SELECT COUNT(*) FROM vulnerabilities")
         stats['total'] = cursor.fetchone()[0]
-        
+
         cursor = conn.execute("SELECT severity, COUNT(*) FROM vulnerabilities WHERE severity IS NOT NULL GROUP BY severity")
         stats['by_severity'] = dict(cursor.fetchall())
         cursor = conn.execute("SELECT COUNT(*) FROM vulnerabilities WHERE has_exploit = 1")
@@ -532,9 +551,9 @@ class SimpleThreatDB:
         result = cursor.fetchone()[0]
 
         stats['avg_cvss'] = round(result, 2) if result else 0
-        
+
         return stats
-     
+
     def _calculate_criticality(self, data: Dict[str, Any]) -> int:
         """criticality score (0-100)"""
         score = 0    
@@ -547,14 +566,14 @@ class SimpleThreatDB:
         if data.get('has_exploit'):
             score += 25
             score += min(data.get('exploit_count', 0) * 2, 10)
-        
+
         cvss = data.get('cvss_v3_score') or data.get('cvss_v2_score') or 0
         score += int(cvss * 2)    
         score += min(data.get('github_refs', 0) * 3, 15)
         score += min(data.get('exploitdb_refs', 0) * 3, 15)
-        
+
         return min(score, 100)
-    
+
     def _row_to_dict(self, row) -> Dict[str, Any]:
         d = dict(row)
         if d.get('sources'):
@@ -562,29 +581,31 @@ class SimpleThreatDB:
                 d['sources'] = json.loads(d['sources'])
             except:
                 d['sources'] = []
-        
+
         if d.get('cwe_ids'):
             try:
                 d['cwe_ids'] = json.loads(d['cwe_ids'])
             except:
                 d['cwe_ids'] = []
-        
+
         if d.get('raw_data'):
             try:
                 d['raw_data'] = json.loads(d['raw_data'])
             except:
                 d['raw_data'] = {}
-        
+
         # Convert boolean flags
         d['in_cisa_kev'] = bool(d.get('in_cisa_kev'))
         d['has_exploit'] = bool(d.get('has_exploit'))
-        
+
         return d
-    
-    def bulk_insert(self, vulnerabilities: List[Dict[str, Any]]) -> int:
+
+    def bulk_insert(
+        self, vulnerabilities: List[Dict[str, Any]]
+    ) -> int:
         """Bulk insert vulnerabilities (faster for large datasets)"""
         count = 0
-        with self.transaction() as conn:
+        with self.transaction():
             for vuln_data in vulnerabilities:
                 try:
                     self.upsert_vulnerability(vuln_data)
@@ -592,22 +613,22 @@ class SimpleThreatDB:
                 except Exception as e:
                     print(f"Error inserting {vuln_data.get('cve_id')}: {e}")
         return count
-    
+
     def close(self):
         if self.conn:
             self.conn.close()
             self.conn = None
-    
+
     def __enter__(self):
         return self
-    
+
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.close()
 
 
 if __name__ == "__main__":
     db = SimpleThreatDB()
-    
+
     # sample vulnerability
     vuln_id = db.upsert_vulnerability({
         'cve_id': 'CVE-2024-1234',
@@ -623,27 +644,27 @@ if __name__ == "__main__":
         'github_refs': 3,
         'sources': ['NIST_NVD', 'CISA_KEV', 'OSV']
     })
-    
+
     # add related data
     db.add_affected_product(vuln_id, {
         'vendor': 'Apache',
         'product': 'Struts',
         'version': '2.5.x'
     })
-    
+
     db.add_exploit(vuln_id, {
         'exploit_type': 'POC',
         'source': 'GitHub',
         'url': 'https://github.com/user/exploit',
         'verified': True
     })
-    
+
     db.add_cisa_kev(vuln_id, {
         'date_added': '2024-01-20',
         'required_action': 'Apply updates',
         'known_ransomware': True
     })
-    
+
     # sample isolate data
     db.add_sandbox_run(vuln_id, {
         'run_timestamp': '2024-01-21T10:30:00', 'sandbox_platform': 'virtme-ng',
@@ -661,11 +682,11 @@ if __name__ == "__main__":
         ],
         'notes': 'Confirmed RCE, spawns reverse shell'
     })
-    
+
     critical = db.get_critical(limit=10)
     print(f"Found {len(critical)} critical vulnerabilities")
-    
+
     stats = db.get_statistics()
     print(f"Stats: {stats}")
-    
+
     db.close()

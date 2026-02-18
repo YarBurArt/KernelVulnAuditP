@@ -36,7 +36,7 @@ def main_gui():
                         cell = str(v)
                     rows.append(ft.DataRow(
                         cells=[ft.DataCell(ft.Text(str(k))),
-                        ft.DataCell(ft.Text(cell))]
+                               ft.DataCell(ft.Text(cell))]
                     ))
                 table = ft.DataTable(
                     columns=[ft.DataColumn(ft.Text("Key")),
@@ -63,7 +63,8 @@ def main_gui():
             append_log("Starting local recon...")
             try:
                 kernel = lr.get_kernel_version_simple()
-                append_log({"kernel": kernel,
+                append_log({
+                    "kernel": kernel,
                     "system": lr.environment_info.get("system")})
                 build_date = lr.get_kernel_build_date(kernel)
                 append_log({"build_date": build_date})
@@ -98,11 +99,8 @@ def main_gui():
             create_nav_bar()
             page.add(ft.Text("Running vulnerability scan..."))
             log_container = ft.Container(
-                content=log,
-                height=360,           
-                padding=10,
-                expand=True,        
-                border=ft.border.all(1,),
+                content=log, height=360, padding=10,
+                expand=True, border=ft.border.all(1,),
             )
             page.add(log_container)
             page.add(ft.Row([
@@ -131,25 +129,106 @@ def main_gui():
     ft.app(target=main_page)
 
 
-
 def main_cli():
     """cli base router of app life"""
     parser = argparse.ArgumentParser(
         description="Kernel Vulnerability Auditor"
     )
-    parser.add_argument("--scan", "-s", action="store_true",
-                        help="Perform vulnerability scan")
-    parser.add_argument("--report", "-r", action="store_true",
-                        help="Generate report")
-    parser.add_argument("--verbose", "-v", action="store_true",
-                        help="Enable verbose output")
+    parser.add_argument(
+        "--scan", "-s", action="store_true",
+        help="Perform vulnerability scan")
+    parser.add_argument(
+        "--report", "-r", action="store_true",
+        help="Generate report")
+    parser.add_argument(
+        "--verbose", "-v", action="store_true",
+        help="Enable verbose output")
+    parser.add_argument(
+        "--cve", type=str, default="CVE-2024-1086",
+        help="CVE ID for GitHub PoC search (default: CVE-2024-1086)")
 
     args = parser.parse_args()
 
+    lr = LocalRecon()
+    rf = ReconFeeds()
+
     if args.scan:
-        pass
+        kernel = lr.get_kernel_version_simple()
+        build_date = lr.get_kernel_build_date(kernel)
+
+        print("Running local recon...\n"
+              f"  Kernel: {kernel}\n"
+              f"  System: {lr.environment_info.get('system')}\n"
+              f"  Build date: {build_date}\n")
+
+        print("Running ReconFeeds searches...")
+
+        nist_result = rf.nist_search(kernel, build_date)
+        if isinstance(nist_result, dict):
+            nist_count = len(nist_result.get('vulnerabilities', []))
+            print(f"  NIST vulnerabilities found: {nist_count}")
+            if args.verbose and nist_result:
+                for vuln in nist_result.get('vulnerabilities', [])[:5]:
+                    cve_id = vuln.get('cve', {}).get('cveId', 'N/A')
+                    desc = vuln.get(
+                        'cve', {}
+                    ).get('descriptions', [{}])[0].get('value', 'N/A')[:100]
+                    print(f"    - {cve_id}: {desc}...")
+        else:
+            print(f"  NIST: {nist_result}")
+
+        osv_result = rf.osv_search(kernel)
+        if isinstance(osv_result, dict):
+            osv_count = len(osv_result.get('vulns', []))
+            print(f"  OSV vulnerabilities found: {osv_count}")
+            if args.verbose and osv_result:
+                for vuln in osv_result.get('vulns', [])[:5]:
+                    vuln_id = vuln.get('id', 'N/A')
+                    summary = vuln.get('summary', 'N/A')[:100]
+                    print(f"    - {vuln_id}: {summary}...")
+        else:
+            print(f"  OSV: {osv_result}")
+
+        github_result = rf.github_search(args.cve)
+        if isinstance(github_result, list):
+            print(f"  GitHub repos found: {len(github_result)}")
+            if args.verbose and github_result:
+                for repo in github_result[:5]:
+                    name = repo.get('full_name', 'N/A')
+                    stars = repo.get('stars', 0)
+                    desc = repo.get('description', 'N/A') or 'No description'
+                    print(f"    - {name} ({stars} stars): {desc[:80]}...")
+        else:
+            print(f"  GitHub: {github_result}")
+
     elif args.report:
-        pass
+        kernel = lr.get_kernel_version_simple()
+        build_date = lr.get_kernel_build_date(kernel)
+
+        nist_data = rf.nist_search(kernel, build_date)
+        osv_data = rf.osv_search(kernel)
+        github_data = rf.github_search("CVE-2024-1086")
+
+        nist_count = len(nist_data.get(
+            'vulnerabilities', []
+        )) if isinstance(nist_data, dict) else 0
+        osv_count = len(osv_data.get(
+            'vulns', []
+        )) if isinstance(osv_data, dict) else 0
+        github_count = len(github_data) if isinstance(github_data, list) else 0
+
+        print("\n=== RW intermediate results ===\n"
+              f"Kernel: {kernel}\n"
+              f"System: {lr.environment_info.get('system')}\n"
+              f"Build Date: {build_date}\n\n"
+              "Vulnerabilities:\n"
+              f"  NIST: {nist_count}\n"
+              f"  OSV: {osv_count}\n"
+              f"  GitHub PoC: {github_count}\n\n"
+              "Report generated.")
+
+        # TODO: run sqxpl and run in isolate.py
+
     else:
         print("This tool checks the practical "
               "functionality of linux kernel exploits\n"

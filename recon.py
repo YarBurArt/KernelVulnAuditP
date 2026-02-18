@@ -2,21 +2,14 @@ import os
 import json
 import platform
 from datetime import datetime, timezone
-from typing import List, Dict, Any
+from typing import List, Dict
 
 import httpx
-
-
-CISA_KEV_URL = "https://www.cisa.gov/sites/default/files/feeds/" \
-               "known_exploited_vulnerabilities_schema.json"
-
-CISA_KEV_PATH = "known_exploited_vulnerabilities.json"
-CVEORG_BASE_URL = "https://cveawg.mitre.org/api/cve/"
-GITHUB_URL = "https://github.com/search?q={q}%20&type=repositories"
-GITHUB_API_URL = "https://api.github.com/search/repositories?q={q}+language:c&sort=stars&order=desc"
-NIST_API_URL = "https://services.nvd.nist.gov/rest/json/cves/2.0?cpeName=cpe:2.3:o:linux:linux_kernel:{version}:*"
-OSV_API_URL = "https://api.osv.dev/v1/query"
-CH_API_URL = "https://cdn.kernel.org/pub/linux/kernel/v{major}.x/ChangeLog-{version}"
+from config import (
+    CISA_KEV_PATH, CISA_KEV_URL, CH_API_URL,
+    CVEORG_BASE_URL, GITHUB_API_URL, NIST_API_URL,
+    OSV_API_URL
+)
 
 
 class LocalRecon:
@@ -95,7 +88,7 @@ class LocalRecon:
             CH_API_URL.format(major=major, version=version)
         )
         response.raise_for_status()
-        
+
         for line in response.text.split('\n')[:10]:
             if line.startswith('Date:'):
                 date_str = line.replace('Date:', '').strip()
@@ -109,7 +102,7 @@ class LocalRecon:
                         ).timestamp())
                     except Exception:
                         return None
-        
+
     # TODO: LinPEAS, lynis, Linux Exploit Suggester and etc
 
 
@@ -153,9 +146,9 @@ class ReconFeeds:
                 'stars': repo['stargazers_count'],
                 'language': repo['language']
             })
-        
+
         return repos
-    
+
     def _filter_by_date(self, nist_result, min_ts: int) -> List[Dict]:
         """ to filter vulns before release"""
         min_dt = datetime.fromtimestamp(min_ts, tz=timezone.utc)
@@ -173,18 +166,23 @@ class ReconFeeds:
             # RFC-like: "Thu Dec xx xx:xx:xx xxxx +0100"
             if dt is None:
                 try:
-                    # %a %b %d %H:%M:%S %Y %z  (weekday, month, day, time, year, tz offset)
+                    # %a %b %d %H:%M:%S %Y %z
+                    # (weekday, month, day, time, year, tz offset)
                     dt = datetime.strptime(pub, '%a %b %d %H:%M:%S %Y %z')
                 except Exception:
                     pass
-            # Fallback: drop fractional seconds and timezone, parse as '%Y-%m-%dT%H:%M:%S'
+            # Fallback: drop fractional seconds and timezone,
+            # parse as '%Y-%m-%dT%H:%M:%S'
             if dt is None:
                 try:
                     base = pub.split('.')[0]
                     dt = datetime.strptime(base, '%Y-%m-%dT%H:%M:%S')
                     dt = dt.replace(tzinfo=timezone.utc)
                 except Exception:
-                    for fmt in ('%Y-%m-%d %H:%M:%S', '%d %b %Y %H:%M:%S', '%a, %d %b %Y %H:%M:%S %z'):
+                    for fmt in (
+                        '%Y-%m-%d %H:%M:%S', '%d %b %Y %H:%M:%S',
+                        '%a, %d %b %Y %H:%M:%S %z'
+                    ):
                         try:
                             dt = datetime.strptime(pub, fmt)
                             break
@@ -201,7 +199,7 @@ class ReconFeeds:
         return out
 
     def nist_search(self, kern_r_version, date):
-        # Search for vulnerabilities in NIST database 
+        # Search for vulnerabilities in NIST database
         url = NIST_API_URL.format(version=kern_r_version)
         try:
             response = httpx.get(url)
@@ -213,7 +211,7 @@ class ReconFeeds:
             return {}
 
     def osv_search(self, kern_r_version):
-        # Search for vulnerabilities in OSV database 
+        # Search for vulnerabilities in OSV database
         payload = {
             "version": kern_r_version,
             "package": {
@@ -233,9 +231,10 @@ class ReconFeeds:
 if __name__ == '__main__':
     # basic tests
     lr = LocalRecon()
-    print(f"LocalRecon test - Kernel version: {lr.get_kernel_version_simple()},"
+    kern_vs: str = lr.get_kernel_version_simple()
+    print(f"LocalRecon test - Kernel version: {kern_vs},"
           f" System: {lr.environment_info.get('system')}")
-    
+
     rf = ReconFeeds()
     kernel_version: str = lr.get_kernel_version_simple()
     build_date: int = lr.get_kernel_build_date(kernel_version)
@@ -243,6 +242,6 @@ if __name__ == '__main__':
     nist_result = rf.nist_search(kernel_version, build_date)
     osv_result = rf.osv_search(kernel_version)
     github_result = rf.github_search("CVE-2024-1086")
-    
+
     print(f"ReconFeeds test - NIST: {nist_result},\n"
           f" OSV: {osv_result}, \n GitHub: {github_result} results")
