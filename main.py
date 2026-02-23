@@ -31,7 +31,8 @@ def main_gui():
                             f"{ik}: {iv}" for ik, iv in it.items()
                         ) for it in v])
                     elif isinstance(v, dict):
-                        cell = ", ".join(f"{ik}: {iv}" for ik, iv in v.items())
+                        cell = ", ".join(
+                            f"{ik}: {iv}" for ik, iv in v.items())
                     else:
                         cell = str(v)
                     rows.append(ft.DataRow(

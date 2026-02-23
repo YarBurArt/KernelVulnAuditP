@@ -12,7 +12,9 @@ class SimpleThreatDB:
 
     def _get_conn(self):
         if self.conn is None:
-            self.conn = sqlite3.connect(self.db_path, check_same_thread=False)
+            self.conn = sqlite3.connect(
+                self.db_path, check_same_thread=False
+            )
             self.conn.row_factory = sqlite3.Row
             self.conn.execute("PRAGMA foreign_keys = ON")
         return self.conn
@@ -210,7 +212,7 @@ class SimpleThreatDB:
         else:
             # Insert
             cursor = conn.execute("""
-                INSERT INTO vulnerabilities 
+                INSERT INTO vulnerabilities
                 (cve_id, description, published_date, last_modified_date,
                  cvss_v2_score, cvss_v3_score, cvss_v3_vector, severity, cwe_ids,
                  in_cisa_kev, has_exploit, exploit_count, github_refs, exploitdb_refs,
@@ -255,7 +257,7 @@ class SimpleThreatDB:
         """affected product/package to further support vulns like in sudo, GNU utils"""
         conn = self._get_conn()
         conn.execute("""
-            INSERT INTO affected_products 
+            INSERT INTO affected_products
             (vulnerability_id, vendor, product, version, cpe, package_ecosystem, package_name)
             VALUES (?, ?, ?, ?, ?, ?, ?)
         """, (
@@ -304,7 +306,7 @@ class SimpleThreatDB:
     def add_exploit(self, vuln_id: int, exploit_data: Dict[str, Any]):
         conn = self._get_conn()
         conn.execute("""
-            INSERT INTO exploits 
+            INSERT INTO exploits
             (vulnerability_id, exploit_type, source, url, verified, date_published)
             VALUES (?, ?, ?, ?, ?, ?)
         """, (
@@ -381,7 +383,7 @@ class SimpleThreatDB:
             open_files = json.dumps(open_files)
 
         conn.execute("""
-            INSERT INTO sandbox_runs 
+            INSERT INTO sandbox_runs
             (vulnerability_id, run_timestamp, sandbox_platform, exploit_file_hash,
              execution_success, exit_code, stdout, stderr, stdin,
              open_processes, open_files, notes)
@@ -544,7 +546,7 @@ class SimpleThreatDB:
         cursor = conn.execute("SELECT COUNT(*) FROM vulnerabilities WHERE in_cisa_kev = 1")
         stats['in_cisa_kev'] = cursor.fetchone()[0]
         cursor = conn.execute("SELECT COUNT(*) FROM cisa_kev WHERE known_ransomware = 1")
-        stats['ransomware_related'] = cursor.fetchone()[0]    
+        stats['ransomware_related'] = cursor.fetchone()[0]
         cursor = conn.execute("SELECT COUNT(*) FROM vulnerabilities WHERE criticality_score >= 60")
         stats['critical_count'] = cursor.fetchone()[0]
         cursor = conn.execute("SELECT AVG(cvss_v3_score) FROM vulnerabilities WHERE cvss_v3_score IS NOT NULL")
@@ -556,8 +558,8 @@ class SimpleThreatDB:
 
     def _calculate_criticality(self, data: Dict[str, Any]) -> int:
         """criticality score (0-100)"""
-        score = 0    
-        # CISA KEV 
+        score = 0
+        # CISA KEV
         if data.get('in_cisa_kev'):
             score += 40
             if data.get('known_ransomware'):
@@ -568,7 +570,7 @@ class SimpleThreatDB:
             score += min(data.get('exploit_count', 0) * 2, 10)
 
         cvss = data.get('cvss_v3_score') or data.get('cvss_v2_score') or 0
-        score += int(cvss * 2)    
+        score += int(cvss * 2) 
         score += min(data.get('github_refs', 0) * 3, 15)
         score += min(data.get('exploitdb_refs', 0) * 3, 15)
 
@@ -579,19 +581,19 @@ class SimpleThreatDB:
         if d.get('sources'):
             try:
                 d['sources'] = json.loads(d['sources'])
-            except:
+            except Exception:
                 d['sources'] = []
 
         if d.get('cwe_ids'):
             try:
                 d['cwe_ids'] = json.loads(d['cwe_ids'])
-            except:
+            except Exception:
                 d['cwe_ids'] = []
 
         if d.get('raw_data'):
             try:
                 d['raw_data'] = json.loads(d['raw_data'])
-            except:
+            except Exception:
                 d['raw_data'] = {}
 
         # Convert boolean flags
