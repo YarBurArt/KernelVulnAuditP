@@ -7,242 +7,332 @@ except (ImportError, ModuleNotFoundError):
     GUI_E = False
 
 from recon import LocalRecon, ReconFeeds
+from db import get_db
 
 
-def main_gui():
-    """gui base router of app life"""
-    def main_page(page: ft.Page):
+class AppServices:
+    """trying to get readable service logic"""
+    def __init__(self, db=None):
+        self.lr = LocalRecon()
+        self.rf = ReconFeeds()
+        self.db = db or get_db("memory")
+
+    def run_local_recon(self):
+        kernel = self.lr.get_kernel_version_simple()
+        build_date = self.lr.get_kernel_build_date(kernel)
+        return {
+            "kernel": kernel,
+            "system": self.lr.environment_info.get("system"),
+            "build_date": build_date
+        }
+
+    def run_full_recon(self, cve_id: str = "CVE-2024-1086"):
+        local = self.run_local_recon()
+        nist = self.rf.nist_search(
+            local["kernel"], local["build_date"]
+        )
+        osv = self.rf.osv_search(local["kernel"])
+        github = self.rf.github_search(cve_id)
+        return {**local, "nist": nist, "osv": osv, "github": github}
+
+    def save_recon_results(self, results: dict) -> int:
+        """write recon results to DB,
+        returns count of saved vulnerabilities."""
+        # TODO: upsert vulns from nist/osv,
+        # add github refs, return count
+        return 0
+
+    def get_cached_recon(self, kernel: str):
+        """Fetch cached recon results from DB by kernel version."""
+        # TODO: query DB for cached vulns by kernel version
+        return None
+
+    def generate_report(self, cve_id: str = "CVE-2024-1086"):
+        data = self.run_full_recon(cve_id)
+        return self._format_report(data)
+
+    def get_statistics(self):
+        """Return DB statistics for report."""
+        # TODO: return self.db.get_statistics()
+        return {
+            'total': 0,
+            'with_exploits': 0,
+            'in_cisa_kev': 0,
+            'ransomware_related': 0,
+            'avg_cvss': 0.0,
+        }
+
+    def _format_report(self, data: dict) -> dict:
+        nist = data.get("nist", {})
+        osv = data.get("osv", {})
+        github = data.get("github", [])
+        return {
+            "kernel": data["kernel"],
+            "system": data["system"],
+            "build_date": data["build_date"],
+            "nist_count": len(
+                nist.get('vulnerabilities', [])
+            ) if isinstance(nist, dict) else 0,
+            "osv_count": len(
+                osv.get('vulns', [])
+            ) if isinstance(osv, dict) else 0,
+            "github_count": len(
+                github
+            ) if isinstance(github, list) else 0,
+        }
+
+
+class GUIApp:
+    """GUI version"""
+
+    def __init__(self, db=None):
+        self.services = AppServices(db=db)
+        self.log = None
+        self.page = None
+
+    def run(self):
+        ft.app(target=self._main_page)
+
+    def _main_page(self, page: ft.Page):
+        self.page = page
         page.title = "Kernel Vulnerability Auditor"
         page.window_width = 800
         page.window_height = 600
 
-        log = ft.Column(scroll=ft.ScrollMode.AUTO)
-        lr = LocalRecon()
-        rf = ReconFeeds()
+        self.log = ft.Column(scroll=ft.ScrollMode.AUTO)
+        self._create_nav_bar()
+        page.add(ft.Text(
+            "Welcome to Kernel Vulnerability Auditor",
+            size=24
+        ))
 
-        def append_log(item):
-            if isinstance(item, str):
-                log.controls.append(ft.Text(item))
-            elif isinstance(item, dict):
-                rows = []
-                for k, v in item.items():
-                    if isinstance(v, list) and v and isinstance(v[0], dict):
-                        cell = "\n".join([", ".join(
-                            f"{ik}: {iv}" for ik, iv in it.items()
-                        ) for it in v])
-                    elif isinstance(v, dict):
-                        cell = ", ".join(
-                            f"{ik}: {iv}" for ik, iv in v.items())
-                    else:
-                        cell = str(v)
-                    rows.append(ft.DataRow(
-                        cells=[ft.DataCell(ft.Text(str(k))),
-                               ft.DataCell(ft.Text(cell))]
-                    ))
-                table = ft.DataTable(
-                    columns=[ft.DataColumn(ft.Text("Key")),
-                             ft.DataColumn(ft.Text("Value"))],
-                    rows=rows,)
-                log.controls.append(table)
-            elif isinstance(item, list) and item and isinstance(item[0], dict):
-                keys = sorted({k for r in item for k in r.keys()})
-                cols = [ft.DataColumn(ft.Text(k)) for k in keys]
-                rows = []
-                for r in item:
-                    cells = [ft.DataCell(
-                        ft.Text(str(r.get(k, "")))
-                    ) for k in keys]
-                    rows.append(ft.DataRow(cells=cells))
-                table = ft.DataTable(columns=cols, rows=rows)
-                log.controls.append(table)
-            else:
-                log.controls.append(ft.Text(str(item)))
-            page.update()
+    def _create_nav_bar(self):
+        nav_bar = ft.Row([
+            ft.Button("Scan", on_click=self._navigate_to_scan),
+            ft.Button("Report", on_click=self._navigate_to_report),
+        ])
+        self.page.add(nav_bar)
 
-        def start_local(_):
-            log.controls.clear()
-            append_log("Starting local recon...")
-            try:
-                kernel = lr.get_kernel_version_simple()
-                append_log({
-                    "kernel": kernel,
-                    "system": lr.environment_info.get("system")})
-                build_date = lr.get_kernel_build_date(kernel)
-                append_log({"build_date": build_date})
-                append_log("Local recon finished.")
-            except Exception as e:
-                append_log(f"Local recon error: {e}")
+    def _navigate_to_scan(self, _):
+        self.page.clean()
+        self._create_nav_bar()
+        self.page.add(ft.Text("Running vulnerability scan..."))
+        log_container = ft.Container(
+            content=self.log, height=360, padding=10,
+            expand=True, border=ft.border.all(1),
+        )
+        self.page.add(log_container)
+        self.page.add(ft.Row([
+            ft.Button("Start Local", on_click=self._start_local),
+            ft.Button("Recon ti feeds", on_click=self._start_recon),
+            # TODO: add save handler
+            ft.Button("Save to DB", on_click=self._save_to_db),
+        ], alignment=ft.MainAxisAlignment.START, spacing=10))
+        self.page.update()
 
-        def start_recon(_):
-            log.controls.clear()
-            append_log("Starting full recon (local -> feeds)...")
-            try:
-                append_log("Running local recon step...")
-                kernel = lr.get_kernel_version_simple()
-                build_date = lr.get_kernel_build_date(kernel)
-                append_log({"kernel": kernel, "build_date": build_date})
-                append_log("Running ReconFeeds searches...")
-                nist_result = rf.nist_search(kernel, build_date)
-                append_log({"nist": nist_result} if isinstance(
-                    nist_result, dict) else nist_result)
-                osv_result = rf.osv_search(kernel)
-                append_log({"osv": osv_result} if isinstance(
-                    osv_result, dict) else osv_result)
-                github_result = rf.github_search("CVE-2024-1086")
-                append_log({"github": github_result} if isinstance(
-                    github_result, dict) else github_result)
-                append_log("Recon feeds finished.")
-            except Exception as e:
-                append_log(f"Recon feeds error: {e}")
+    def _navigate_to_report(self, _):
+        self.page.clean()
+        self._create_nav_bar()
+        self.page.add(ft.Text("Generating vulnerability report..."))
+        # TODO: fetch and display DB stats
+        self.page.add(ft.Text("Report generated..."))
 
-        def navigate_to_scan(_):
-            page.clean()
-            create_nav_bar()
-            page.add(ft.Text("Running vulnerability scan..."))
-            log_container = ft.Container(
-                content=log, height=360, padding=10,
-                expand=True, border=ft.border.all(1,),
-            )
-            page.add(log_container)
-            page.add(ft.Row([
-                ft.Button("Start Local", on_click=start_local),
-                ft.Button("Recon ti feeds", on_click=start_recon),
-            ], alignment=ft.MainAxisAlignment.START, spacing=10))
-            page.add(ft.Text("Scan controls above."))
-            page.update()
+    def _start_local(self, _):
+        self.log.controls.clear()
+        self._append_log("Starting local recon...")
+        try:
+            result = self.services.run_local_recon()
+            self._append_log(result)
+            self._append_log("Local recon finished.")
+        except Exception as e:
+            self._append_log(f"Local recon error: {e}")
 
-        def navigate_to_report(_):
-            page.clean()
-            create_nav_bar()
-            page.add(ft.Text("Generating vulnerability report..."))
-            page.add(ft.Text("Report generated..."))
+    def _start_recon(self, _):
+        self.log.controls.clear()
+        self._append_log("Starting full recon (local -> feeds)...")
+        try:
+            result = self.services.run_full_recon()
+            self._append_log({
+                "kernel": result["kernel"], "build_date": result["build_date"]
+            })
+            self._append_log({
+                "nist": result["nist"]} if isinstance(
+                    result["nist"], dict) else result["nist"])
+            self._append_log({
+                "osv": result["osv"]} if isinstance(
+                    result["osv"], dict) else result["osv"])
+            self._append_log({
+                "github": result["github"]} if isinstance(
+                    result["github"], dict) else result["github"])
+            self._append_log("Recon feeds finished.")
+            # TODO: user prompt to save results to DB
+        except Exception as e:
+            self._append_log(f"Recon feeds error: {e}")
 
-        def create_nav_bar():
-            nav_bar = ft.Row([
-                ft.Button("Scan", on_click=navigate_to_scan),
-                ft.Button("Report", on_click=navigate_to_report),
-            ])
-            page.add(nav_bar)
+    def _save_to_db(self, _):
+        """Save current recon results to DB."""
+        # TODO: call services.save_recon_results() and log count
+        pass
 
-        create_nav_bar()
-        page.add(ft.Text("Welcome to Kernel Vulnerability Auditor", size=24))
-
-    ft.app(target=main_page)
+    def _append_log(self, item):
+        if isinstance(item, str):
+            self.log.controls.append(ft.Text(item))
+        elif isinstance(item, dict):
+            rows = []
+            for k, v in item.items():
+                if isinstance(v, list) and v and isinstance(v[0], dict):
+                    cell = "\n".join([", ".join(
+                        f"{ik}: {iv}" for ik, iv in it.items()
+                    ) for it in v])
+                elif isinstance(v, dict):
+                    cell = ", ".join(f"{ik}: {iv}" for ik, iv in v.items())
+                else:
+                    cell = str(v)
+                rows.append(ft.DataRow(
+                    cells=[ft.DataCell(ft.Text(str(k))),
+                           ft.DataCell(ft.Text(cell))]
+                ))
+            table = ft.DataTable(
+                columns=[ft.DataColumn(ft.Text("Key")),
+                         ft.DataColumn(ft.Text("Value"))],
+                rows=rows,)
+            self.log.controls.append(table)
+        elif isinstance(item, list) and item and isinstance(item[0], dict):
+            keys = sorted({k for r in item for k in r.keys()})
+            cols = [ft.DataColumn(ft.Text(k)) for k in keys]
+            rows = []
+            for r in item:
+                cells = [ft.DataCell(
+                    ft.Text(str(r.get(k, "")))
+                ) for k in keys]
+                rows.append(ft.DataRow(cells=cells))
+            table = ft.DataTable(columns=cols, rows=rows)
+            self.log.controls.append(table)
+        else:
+            self.log.controls.append(ft.Text(str(item)))
+        self.page.update()
 
 
-def main_cli():
-    """cli base router of app life"""
-    parser = argparse.ArgumentParser(
-        description="Kernel Vulnerability Auditor"
-    )
-    parser.add_argument(
-        "--scan", "-s", action="store_true",
-        help="Perform vulnerability scan")
-    parser.add_argument(
-        "--report", "-r", action="store_true",
-        help="Generate report")
-    parser.add_argument(
-        "--verbose", "-v", action="store_true",
-        help="Enable verbose output")
-    parser.add_argument(
-        "--cve", type=str, default="CVE-2024-1086",
-        help="CVE ID for GitHub PoC search (default: CVE-2024-1086)")
+class CLIApp:
+    """CLI version"""
 
-    args = parser.parse_args()
+    def __init__(self, verbose: bool = False, db=None):
+        self.services = AppServices(db=db)
+        self.verbose = verbose
 
-    lr = LocalRecon()
-    rf = ReconFeeds()
+    def run_scan(self, cve_id: str = "CVE-2024-1086", save: bool = False):
+        # TODO: check cache first
+        result = self.services.run_full_recon(cve_id)
+        self._print_scan_result(result)
+        # TODO: save to DB if requested
 
-    if args.scan:
-        kernel = lr.get_kernel_version_simple()
-        build_date = lr.get_kernel_build_date(kernel)
+    def run_report(self, cve_id: str = "CVE-2024-1086"):
+        report = self.services.generate_report(cve_id)
+        # TODO: fetch and merge DB stats
+        print("\n=== RW intermediate results ===\n"
+              f"Kernel: {report['kernel']}\n"
+              f"System: {report['system']}\n"
+              f"Build Date: {report['build_date']}\n\n"
+              "Vulnerabilities:\n"
+              f"  NIST: {report['nist_count']}\n"
+              f"  OSV: {report['osv_count']}\n"
+              f"  GitHub PoC: {report['github_count']}\n\n"
+              "Report generated.")
+        # TODO: print DB stats
 
+    def _print_scan_result(self, result: dict):
         print("Running local recon...\n"
-              f"  Kernel: {kernel}\n"
-              f"  System: {lr.environment_info.get('system')}\n"
-              f"  Build date: {build_date}\n")
+              f"  Kernel: {result['kernel']}\n"
+              f"  System: {result['system']}\n"
+              f"  Build date: {result['build_date']}\n")
 
         print("Running ReconFeeds searches...")
 
-        nist_result = rf.nist_search(kernel, build_date)
-        if isinstance(nist_result, dict):
-            nist_count = len(nist_result.get('vulnerabilities', []))
-            print(f"  NIST vulnerabilities found: {nist_count}")
-            if args.verbose and nist_result:
-                for vuln in nist_result.get('vulnerabilities', [])[:5]:
+        nist = result.get("nist")
+        if isinstance(nist, dict):
+            count = len(nist.get('vulnerabilities', []))
+            print(f"  NIST vulnerabilities found: {count}")
+            if self.verbose and nist:
+                for vuln in nist.get('vulnerabilities', [])[:5]:
                     cve_id = vuln.get('cve', {}).get('cveId', 'N/A')
-                    desc = vuln.get(
-                        'cve', {}
-                    ).get('descriptions', [{}])[0].get('value', 'N/A')[:100]
+                    desc = vuln.get('cve', {}).get(
+                        'descriptions', [{}]
+                    )[0].get('value', 'N/A')[:100]
                     print(f"    - {cve_id}: {desc}...")
         else:
-            print(f"  NIST: {nist_result}")
+            print(f"  NIST: {nist}")
 
-        osv_result = rf.osv_search(kernel)
-        if isinstance(osv_result, dict):
-            osv_count = len(osv_result.get('vulns', []))
-            print(f"  OSV vulnerabilities found: {osv_count}")
-            if args.verbose and osv_result:
-                for vuln in osv_result.get('vulns', [])[:5]:
+        osv = result.get("osv")
+        if isinstance(osv, dict):
+            count = len(osv.get('vulns', []))
+            print(f"  OSV vulnerabilities found: {count}")
+            if self.verbose and osv:
+                for vuln in osv.get('vulns', [])[:5]:
                     vuln_id = vuln.get('id', 'N/A')
                     summary = vuln.get('summary', 'N/A')[:100]
                     print(f"    - {vuln_id}: {summary}...")
         else:
-            print(f"  OSV: {osv_result}")
+            print(f"  OSV: {osv}")
 
-        github_result = rf.github_search(args.cve)
-        if isinstance(github_result, list):
-            print(f"  GitHub repos found: {len(github_result)}")
-            if args.verbose and github_result:
-                for repo in github_result[:5]:
+        github = result.get("github")
+        if isinstance(github, list):
+            print(f"  GitHub repos found: {len(github)}")
+            if self.verbose and github:
+                for repo in github[:5]:
                     name = repo.get('full_name', 'N/A')
                     stars = repo.get('stars', 0)
                     desc = repo.get('description', 'N/A') or 'No description'
                     print(f"    - {name} ({stars} stars): {desc[:80]}...")
         else:
-            print(f"  GitHub: {github_result}")
+            print(f"  GitHub: {github}")
 
+
+def main_cli():
+    parser = argparse.ArgumentParser(
+        description="Kernel Vulnerability Auditor")
+    parser.add_argument(
+        "--scan", "-s", action="store_true", help="Perform vulnerability scan")
+    parser.add_argument(
+        "--report", "-r", action="store_true", help="Generate report")
+    parser.add_argument(
+        "--verbose", "-v", action="store_true", help="Enable verbose output")
+    parser.add_argument(
+        "--cve", type=str, default="CVE-2024-1086",
+        help="CVE ID for GitHub PoC search")
+    parser.add_argument(
+        "--save", action="store_true", help="Save results to DB")
+    parser.add_argument(
+        "--db", type=str, default="simple",
+        choices=["simple", "orm", "memory"],
+        help="DB backend type and way, sqlite, redis, or just in memory")
+
+    args = parser.parse_args()
+
+    db = get_db("memory")  # faster for test, for real better orm
+    app = CLIApp(verbose=args.verbose, db=db)
+
+    if args.scan:
+        app.run_scan(args.cve, save=args.save)
     elif args.report:
-        kernel = lr.get_kernel_version_simple()
-        build_date = lr.get_kernel_build_date(kernel)
-
-        nist_data = rf.nist_search(kernel, build_date)
-        osv_data = rf.osv_search(kernel)
-        github_data = rf.github_search("CVE-2024-1086")
-
-        nist_count = len(nist_data.get(
-            'vulnerabilities', []
-        )) if isinstance(nist_data, dict) else 0
-        osv_count = len(osv_data.get(
-            'vulns', []
-        )) if isinstance(osv_data, dict) else 0
-        github_count = len(github_data) if isinstance(github_data, list) else 0
-
-        print("\n=== RW intermediate results ===\n"
-              f"Kernel: {kernel}\n"
-              f"System: {lr.environment_info.get('system')}\n"
-              f"Build Date: {build_date}\n\n"
-              "Vulnerabilities:\n"
-              f"  NIST: {nist_count}\n"
-              f"  OSV: {osv_count}\n"
-              f"  GitHub PoC: {github_count}\n\n"
-              "Report generated.")
-
-        # TODO: run sqxpl and run in isolate.py
-
+        app.run_report(args.cve)
     else:
-        print("This tool checks the practical "
-              "functionality of linux kernel exploits\n"
+        print("This tool checks the practical functionality of"
+              " linux kernel exploits\n"
               "Use --help for available options")
+
+    # TODO: close DB connections after report cuz in memory
 
 
 def main():
-    """tries GUI first, falls back to CLI if Flet unavailable"""
     if "--gui" in sys.argv and GUI_E:
-        sys.argv.remove("--gui")  # rem from argparse
-        main_gui()
+        sys.argv.remove("--gui")
+        db = get_db("memory")
+        try:
+            GUIApp(db=db).run()
+        finally:
+            db.close()
     elif GUI_E:
-        main_gui()
+        GUIApp().run()
     else:
         main_cli()
 

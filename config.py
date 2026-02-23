@@ -8,3 +8,6 @@ GITHUB_API_URL = "https://api.github.com/search/repositories?q={q}+language:c&so
 NIST_API_URL = "https://services.nvd.nist.gov/rest/json/cves/2.0?cpeName=cpe:2.3:o:linux:linux_kernel:{version}:*"
 OSV_API_URL = "https://api.osv.dev/v1/query"
 CH_API_URL = "https://cdn.kernel.org/pub/linux/kernel/v{major}.x/ChangeLog-{version}"
+
+REQUIREMENTS_RE = r'(?:requirements?|prerequisites?|dependencies|kernel version|affected versions?)[\s:]+([^\n#]+(?:\n(?!#)[^\n]+)*)'
+VERSIONS_RE = r'(?:tested on|works on|vulnerable)[\s:]+([^\n#]+)'

@@ -77,6 +77,7 @@ class LocalRecon:
 
     def get_kernel_version_simple(self):
         """kernel version string"""
+        # FIXME: more tests
         return str(platform.release()).split('+')[:1][0]
 
     def get_kernel_build_date(self, version):
