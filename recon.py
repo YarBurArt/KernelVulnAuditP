@@ -1,4 +1,5 @@
 import os
+import re
 import json
 import platform
 from datetime import datetime, timezone
@@ -77,8 +78,8 @@ class LocalRecon:
 
     def get_kernel_version_simple(self):
         """kernel version string"""
-        # FIXME: more tests
-        return str(platform.release()).split('+')[:1][0]
+        return ".".join(re.split(r"[+-]",
+                        platform.release())[0].split(".")[:3])
 
     def get_kernel_build_date(self, version):
         """get build date by git and simple version,
@@ -131,10 +132,10 @@ class ReconFeeds:
     def cve_org_details(self, cveID):
         return httpx.get(CVEORG_BASE_URL + cveID).json()
 
-    def github_search(self, cveID):
-        """ search PoC on the github by CVE """
+    def github_search(self, kern_version):
+        """ search PoC on the github by kernel version """
         data = httpx.get(
-            GITHUB_API_URL.format(q=cveID)
+            GITHUB_API_URL.format(q="cve " + kern_version)
         ).json()
 
         repos: List[dict] = []
@@ -242,7 +243,7 @@ if __name__ == '__main__':
 
     nist_result = rf.nist_search(kernel_version, build_date)
     osv_result = rf.osv_search(kernel_version)
-    github_result = rf.github_search("CVE-2024-1086")
+    github_result = rf.github_search("6.18.2")
 
     print(f"ReconFeeds test - NIST: {nist_result},\n"
           f" OSV: {osv_result}, \n GitHub: {github_result} results")

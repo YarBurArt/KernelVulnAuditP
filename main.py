@@ -1,5 +1,7 @@
 import sys
 import argparse
+from datetime import datetime, timezone
+from typing import Any
 try:
     import flet as ft
     GUI_E = True
@@ -17,7 +19,7 @@ class AppServices:
         self.rf = ReconFeeds()
         self.db = db or get_db("memory")
 
-    def run_local_recon(self):
+    def run_local_recon(self) -> dict:
         kernel = self.lr.get_kernel_version_simple()
         build_date = self.lr.get_kernel_build_date(kernel)
         return {
@@ -26,13 +28,13 @@ class AppServices:
             "build_date": build_date
         }
 
-    def run_full_recon(self, cve_id: str = "CVE-2024-1086"):
-        local = self.run_local_recon()
+    def run_full_recon(self, kern_ver: str = "6.1.0") -> dict:
+        local: dict = self.run_local_recon()
         nist = self.rf.nist_search(
             local["kernel"], local["build_date"]
         )
-        osv = self.rf.osv_search(local["kernel"])
-        github = self.rf.github_search(cve_id)
+        osv: dict = self.rf.osv_search(local["kernel"])
+        github: dict = self.rf.github_search(local["kernel"])
         return {**local, "nist": nist, "osv": osv, "github": github}
 
     def save_recon_results(self, results: dict) -> int:
@@ -47,8 +49,8 @@ class AppServices:
         # TODO: query DB for cached vulns by kernel version
         return None
 
-    def generate_report(self, cve_id: str = "CVE-2024-1086"):
-        data = self.run_full_recon(cve_id)
+    def generate_report(self, kern_v: str = "6.18.0"):
+        data = self.run_full_recon(kern_v)
         return self._format_report(data)
 
     def get_statistics(self):
@@ -96,8 +98,9 @@ class GUIApp:
     def _main_page(self, page: ft.Page):
         self.page = page
         page.title = "Kernel Vulnerability Auditor"
-        page.window_width = 800
+        page.window_width = 650
         page.window_height = 600
+        page.theme_mode = ft.ThemeMode.DARK
 
         self.log = ft.Column(scroll=ft.ScrollMode.AUTO)
         self._create_nav_bar()
@@ -106,10 +109,26 @@ class GUIApp:
             size=24
         ))
 
+    def _toggle_theme(self, _):
+        # theme fix
+        if self.page.theme_mode == ft.ThemeMode.DARK:
+            self.page.theme_mode = ft.ThemeMode.LIGHT
+        else:
+            self.page.theme_mode = ft.ThemeMode.DARK
+        self.page.update()
+
     def _create_nav_bar(self):
+        is_dark = self.page.theme_mode == ft.ThemeMode.DARK
+        theme_icon = ft.icons.Icons.LIGHT_MODE if is_dark else ft.icons.Icons.DARK_MODE
+
         nav_bar = ft.Row([
             ft.Button("Scan", on_click=self._navigate_to_scan),
             ft.Button("Report", on_click=self._navigate_to_report),
+            ft.Container(expand=True),
+            ft.Button(
+                content=ft.Icon(theme_icon, size=20),
+                on_click=self._toggle_theme
+            )
         ])
         self.page.add(nav_bar)
 
@@ -142,6 +161,9 @@ class GUIApp:
         self._append_log("Starting local recon...")
         try:
             result = self.services.run_local_recon()
+            result['build_date'] = datetime.fromtimestamp(
+                result['build_date'], tz=timezone.utc
+            ).strftime('%Y-%m-%d %H:%M:%S %Z')  # format time
             self._append_log(result)
             self._append_log("Local recon finished.")
         except Exception as e:
@@ -174,20 +196,24 @@ class GUIApp:
         # TODO: call services.save_recon_results() and log count
         pass
 
+    def _get_cell_text(self, v: Any) -> str:
+        if isinstance(v, list) and v and isinstance(v[0], dict):
+            cell = "\n".join([", ".join(
+                f"{ik}: {iv}" for ik, iv in it.items()
+            ) for it in v])
+        elif isinstance(v, dict):
+            cell = ", ".join(f"{ik}: {iv}" for ik, iv in v.items())
+        else:
+            cell = str(v)
+        return cell
+
     def _append_log(self, item):
         if isinstance(item, str):
             self.log.controls.append(ft.Text(item))
         elif isinstance(item, dict):
             rows = []
             for k, v in item.items():
-                if isinstance(v, list) and v and isinstance(v[0], dict):
-                    cell = "\n".join([", ".join(
-                        f"{ik}: {iv}" for ik, iv in it.items()
-                    ) for it in v])
-                elif isinstance(v, dict):
-                    cell = ", ".join(f"{ik}: {iv}" for ik, iv in v.items())
-                else:
-                    cell = str(v)
+                cell: str = self._get_cell_text(v)
                 rows.append(ft.DataRow(
                     cells=[ft.DataCell(ft.Text(str(k))),
                            ft.DataCell(ft.Text(cell))]
@@ -220,13 +246,15 @@ class CLIApp:
         self.services = AppServices(db=db)
         self.verbose = verbose
 
-    def run_scan(self, cve_id: str = "CVE-2024-1086", save: bool = False):
+    def run_scan(
+        self, kern_cve_id_ver: str = "6.1.0", save: bool = False
+    ) -> None:
         # TODO: check cache first
-        result = self.services.run_full_recon(cve_id)
+        result = self.services.run_full_recon(kern_cve_id_ver)
         self._print_scan_result(result)
         # TODO: save to DB if requested
 
-    def run_report(self, cve_id: str = "CVE-2024-1086"):
+    def run_report(self, cve_id: str = "6.1.0"):
         report = self.services.generate_report(cve_id)
         # TODO: fetch and merge DB stats
         print("\n=== RW intermediate results ===\n"
@@ -297,8 +325,8 @@ def main_cli():
     parser.add_argument(
         "--verbose", "-v", action="store_true", help="Enable verbose output")
     parser.add_argument(
-        "--cve", type=str, default="CVE-2024-1086",
-        help="CVE ID for GitHub PoC search")
+        "--cve", type=str, default="6.1.0",
+        help="CVE ID for GitHub PoC search by kernel version")
     parser.add_argument(
         "--save", action="store_true", help="Save results to DB")
     parser.add_argument(
@@ -324,8 +352,17 @@ def main_cli():
 
 
 def main():
-    if "--gui" in sys.argv and GUI_E:
-        sys.argv.remove("--gui")
+    cli_flag = "--cli" in sys.argv
+    gui_flag = "--gui" in sys.argv and GUI_E
+
+    # to downstream arg parsing isn't affected
+    for flag in ("--cli", "--gui"):
+        if flag in sys.argv:
+            sys.argv.remove(flag)
+
+    if cli_flag:
+        main_cli()
+    elif gui_flag:
         db = get_db("memory")
         try:
             GUIApp(db=db).run()

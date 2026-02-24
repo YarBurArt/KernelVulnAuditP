@@ -93,7 +93,7 @@ dependencies = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "flet", specifier = ">=0.80.5" }]
+requires-dist = [{ name = "flet" }]
 
 [[package]]
 name = "msgpack"
