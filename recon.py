@@ -467,20 +467,19 @@ if __name__ == '__main__':
     print(f"LocalRecon test - Kernel version: {kern_vs},"
           f" System: {lr.environment_info.get('system')}")
 
-    rf = ReconFeeds()
     kernel_version: str = lr.get_kernel_version_simple()
     build_date: int = lr.get_kernel_build_date(kernel_version)
-
-    nist_result = rf.nist_search(kernel_version, build_date)
-    osv_result = rf.osv_search(kernel_version)
-    github_result = rf.github_search("6.18.2")
-
-    print(f"ReconFeeds test - NIST: {nist_result},\n"
-          f" OSV: {osv_result}, \n GitHub: {github_result} results")
-
     lynis_result: List[Dict] = lr.get_lynis_scan_details()
     linpeas_result: dict = lr.get_linpeas_scan_details()
 
     print("Local tools")
     print(json.dumps(lynis_result, indent=2))
     print(json.dumps(linpeas_result, indent=2))
+
+    rf = ReconFeeds()
+    nist_result: List[Dict] = rf.nist_search(kernel_version, build_date)
+    osv_result: List[Dict] = rf.osv_search(kernel_version)
+    github_result: List[Dict] = rf.github_search("6.18.2")
+
+    print(f"ReconFeeds test - NIST: {nist_result},\n"
+          f" OSV: {osv_result}, \n GitHub: {github_result} results")

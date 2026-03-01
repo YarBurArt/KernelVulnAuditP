@@ -1,3 +1,4 @@
+from typing import List
 import sys
 import argparse
 from datetime import datetime, timezone
@@ -20,22 +21,29 @@ class AppServices:
         self.db = db or get_db("memory")
 
     def run_local_recon(self) -> dict:
-        kernel = self.lr.get_kernel_version_simple()
-        build_date = self.lr.get_kernel_build_date(kernel)
+        kernel: str = self.lr.get_kernel_version_simple()
+        build_date: str = self.lr.get_kernel_build_date(kernel)
+        lynis_result: List[dict] = self.lr.get_lynis_scan_details()
+        linpeas_result: dict = self.lr.get_linpeas_scan_details()
+
         return {
             "kernel": kernel,
             "system": self.lr.environment_info.get("system"),
-            "build_date": build_date
+            "build_date": build_date,
+            "kernel_audit": lynis_result,
+            "kernel_lpe": linpeas_result
         }
 
     def run_full_recon(self, kern_ver: str = "6.1.0") -> dict:
-        local: dict = self.run_local_recon()
-        nist = self.rf.nist_search(
-            local["kernel"], local["build_date"]
-        )
-        osv: dict = self.rf.osv_search(local["kernel"])
-        github: dict = self.rf.github_search(local["kernel"])
-        return {**local, "nist": nist, "osv": osv, "github": github}
+        """ local + online recon in to dict object"""
+        kernel: str = self.lr.get_kernel_version_simple()
+        build_date: str = self.lr.get_kernel_build_date(kernel)
+
+        nist = self.rf.nist_search(kernel, build_date)
+        osv: dict = self.rf.osv_search(kernel)
+        github: dict = self.rf.github_search(kernel)
+
+        return {"nist": nist, "osv": osv, "github": github}
 
     def save_recon_results(self, results: dict) -> int:
         """write recon results to DB,
@@ -140,6 +148,7 @@ class GUIApp:
         log_container = ft.Container(
             content=self.log, height=360, padding=10,
             expand=True, border=ft.border.all(1),
+            alignment=ft.Alignment.CENTER_LEFT,
         )
         self.page.add(log_container)
         self.page.add(ft.Row([
@@ -161,7 +170,7 @@ class GUIApp:
         self.log.controls.clear()
         self._append_log("Starting local recon...")
         try:
-            result = self.services.run_local_recon()
+            result: dict = self.services.run_local_recon()
             result['build_date'] = datetime.fromtimestamp(
                 result['build_date'], tz=timezone.utc
             ).strftime('%Y-%m-%d %H:%M:%S %Z')  # format time
@@ -172,7 +181,7 @@ class GUIApp:
 
     def _start_recon(self, _):
         self.log.controls.clear()
-        self._append_log("Starting full recon (local -> feeds)...")
+        self._append_log("Starting TI feeds recon (local -> feeds)...")
         try:
             result = self.services.run_full_recon()
             self._append_log({
@@ -208,35 +217,74 @@ class GUIApp:
             cell = str(v)
         return cell
 
+    def _build_control(self, data):
+        """dict[dict, ...] render based on data type"""
+        if isinstance(data, dict):
+            return self._build_dict(data)
+
+        if isinstance(data, list):
+            return self._build_list(data)
+
+        return self._build_value(data)
+
+    def _build_value(self, value):
+        """ render values like str, int, bool, etc"""
+        return ft.Text(
+            str(value), selectable=True,
+            text_align=ft.TextAlign.LEFT,
+        )
+
+    def _build_dict(self, data: dict):
+        """ render dict as expansion tiles"""
+        tiles = []
+        for key, value in data.items():
+            tile = ft.ExpansionTile(title=ft.Text(
+                str(key),
+                weight=ft.FontWeight.BOLD,
+                text_align=ft.TextAlign.LEFT,
+            ), controls=[self._build_control(value)],)
+            tiles.append(tile)
+
+        return ft.Column(controls=tiles, tight=True, expand=True,)
+
+    def _build_list(self, data: list):
+        """ list to flet list, or list[dict] to DataTable"""
+        if not data:
+            return self._build_value("[]")
+        # List of dictionaries → table
+        if all(isinstance(item, dict) for item in data):
+            return self._build_table(data)
+        # recursive parse dict in dict
+        return ft.Column(
+            controls=[self._build_control(item) for item in data],
+            tight=True,
+        )
+
+    def _build_table(self, data: list[dict]):
+        """ dict to flet table """
+        keys = sorted({k for row in data for k in row.keys()})
+
+        columns = [
+            ft.DataColumn(label=ft.Text(
+                    key, weight=ft.FontWeight.BOLD,
+                    text_align=ft.TextAlign.LEFT,
+                ), numeric=False,
+            ) for key in keys]
+        rows = []
+        for row in data:
+            cells = [ft.DataCell(ft.Text(
+                str(row.get(key, "")), selectable=True,
+                text_align=ft.TextAlign.LEFT,
+            )) for key in keys]
+            rows.append(ft.DataRow(cells=cells))
+
+        return ft.DataTable(
+            columns=columns, rows=rows, expand=True, column_spacing=20,
+        )
+
     def _append_log(self, item):
-        if isinstance(item, str):
-            self.log.controls.append(ft.Text(item))
-        elif isinstance(item, dict):
-            rows = []
-            for k, v in item.items():
-                cell: str = self._get_cell_text(v)
-                rows.append(ft.DataRow(
-                    cells=[ft.DataCell(ft.Text(str(k))),
-                           ft.DataCell(ft.Text(cell))]
-                ))
-            table = ft.DataTable(
-                columns=[ft.DataColumn(ft.Text("Key")),
-                         ft.DataColumn(ft.Text("Value"))],
-                rows=rows,)
-            self.log.controls.append(table)
-        elif isinstance(item, list) and item and isinstance(item[0], dict):
-            keys = sorted({k for r in item for k in r.keys()})
-            cols = [ft.DataColumn(ft.Text(k)) for k in keys]
-            rows = []
-            for r in item:
-                cells = [ft.DataCell(
-                    ft.Text(str(r.get(k, "")))
-                ) for k in keys]
-                rows.append(ft.DataRow(cells=cells))
-            table = ft.DataTable(columns=cols, rows=rows)
-            self.log.controls.append(table)
-        else:
-            self.log.controls.append(ft.Text(str(item)))
+        control = self._build_control(item)
+        self.log.controls.append(control)
         self.page.update()
 
 
