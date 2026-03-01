@@ -119,7 +119,8 @@ class GUIApp:
 
     def _create_nav_bar(self):
         is_dark = self.page.theme_mode == ft.ThemeMode.DARK
-        theme_icon = ft.icons.Icons.LIGHT_MODE if is_dark else ft.icons.Icons.DARK_MODE
+        theme_icon = ft.icons.Icons.LIGHT_MODE  \
+            if is_dark else ft.icons.Icons.DARK_MODE
 
         nav_bar = ft.Row([
             ft.Button("Scan", on_click=self._navigate_to_scan),

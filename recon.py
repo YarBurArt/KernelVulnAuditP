@@ -1,3 +1,6 @@
+import shutil
+from pathlib import Path
+import subprocess
 import os
 import re
 import json
@@ -9,14 +12,18 @@ import httpx
 from config import (
     CISA_KEV_PATH, CISA_KEV_URL, CH_API_URL,
     CVEORG_BASE_URL, GITHUB_API_URL, NIST_API_URL,
-    OSV_API_URL
+    OSV_API_URL, LYNIS_REPORT_FILE, LYNIS_BINARY,
+    LYNIS_LOG_FILE, LINPEAS_OUT_JSON, PATH_LINPEAS
 )
+
+from lib_tools.peas2json import parse_peass
 
 
 class LocalRecon:
     """
     get kernel version from different sources
     get information about its environment
+    get & filter information by audit tools
     """
 
     def __init__(self):
@@ -105,7 +112,230 @@ class LocalRecon:
                     except Exception:
                         return None
 
-    # TODO: LinPEAS, lynis, Linux Exploit Suggester and etc
+    # TODO: Linux Exploit Suggester and etc
+    def run_lynis_audit(self) -> bool:
+        cmd = [
+            LYNIS_BINARY, "audit", "system",
+            "-Q", "-q", "--no-colors",  # minimal scan
+            "--report-file", LYNIS_REPORT_FILE,
+            "--log-file", LYNIS_LOG_FILE,
+        ]
+
+        try:
+            subprocess.run(cmd, check=True)
+            return True
+        except Exception:
+            return False
+
+    def _dat_parse_key(self, raw_key: str):
+        match = re.fullmatch(r"([^\[]+)(?:\[(.*?)\])?", raw_key)
+        if not match:
+            return raw_key, None
+        return match.group(1), match.group(2)
+
+    def _dat_ensure_list(self, container, key, value):
+        if key not in container:
+            container[key] = [value]
+        else:
+            if not isinstance(container[key], list):
+                container[key] = [container[key]]
+            container[key].append(value)
+
+    def _dat_assign_value(
+        self, results: dict, base: str,
+        inner: str | None, value: str
+    ) -> None:
+        """Assign value to results dict by inner key type"""
+        if inner is None:  # key=value
+            if base in results:
+                self._dat_ensure_list(results, base, value)
+            else:
+                results[base] = value
+        elif inner == "":  # key[]=value
+            self._dat_ensure_list(results, base, value)
+        else:  # key[name]=value
+            if base not in results:
+                results[base] = {}
+            if not isinstance(results[base], dict):
+                raise ValueError(
+                    f"Key '{base}' used both as scalar/list and dict")
+            results[base][inner] = value
+
+    def parse_lynis_dat_report(self, report_path) -> Dict:
+        """
+        Parse Lynis .dat file (key=value per line or key[]=v1|v2)
+        Returns nested dict structure.
+        """
+        results = {}
+        path = Path(report_path)
+
+        if not path.exists():
+            raise FileNotFoundError(
+                f"Lynis report not found at {report_path}")
+
+        with path.open("r", encoding="utf-8", errors="ignore") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                raw_key, value = line.split("=", 1)
+                raw_key = raw_key.strip()
+                value = value.strip()
+                base, inner = self._dat_parse_key(raw_key)
+
+                self._dat_assign_value(results, base, inner, value)
+
+        return results
+
+    def _parse_lynis_datl_entry(
+        self, entry: str, category_prefix: str
+    ) -> dict | None:
+        """
+        Parse a single dat entry into a dict
+        Returns None if entry is invalid or doesn't match prefix
+        """
+        parts = entry.split("|")
+        if len(parts) < 3:
+            return None
+
+        test_id, category, kv_blob = parts[0], parts[1], parts[2]
+        if not test_id.startswith(category_prefix + "-"):
+            return None
+
+        item = {"test_id": test_id, "category": category}
+        # Parse key:value;key:value;
+        for pair in kv_blob.split(";"):
+            if ":" in pair:
+                key, value = pair.split(":", 1)
+                item[key.strip()] = value.strip()
+
+        return item
+
+    def extract_lynis_kernel_details(
+        self, parsed_data: dict, category_prefix: str = "KRNL",
+        type_ent: str = "details"
+    ) -> List[Dict]:
+        """
+        Parse dat entries by category and filters it
+        """
+        results = []
+        entries = parsed_data.get(type_ent, [])
+        if not isinstance(entries, list):
+            entries = [entries]
+
+        for entry in entries:
+            item = self._parse_lynis_datl_entry(entry, category_prefix)
+            if item:
+                results.append(item)
+
+        return results
+
+    def _find_linpeas(self) -> str | None:
+        """Find linpeas.sh custom script"""
+        if path := PATH_LINPEAS:
+            if os.path.isfile(path) and os.access(path, os.X_OK):
+                return path
+        # try common locations
+        for loc in [
+            "/opt/linpeas/linpeas.sh", "./linpeas.sh",
+            "linpeas.sh", "/tmp/linpeas.sh"
+        ]:
+            if os.path.isfile(loc) and os.access(loc, os.X_OK):
+                return loc
+        if path := shutil.which("linpeas.sh"):
+            return path
+        return None
+
+    def run_linpeas(
+        self, output_path: str = LINPEAS_OUT_JSON
+    ) -> Path:
+        """Run linpeas and save output to specified path"""
+        linpeas = self._find_linpeas()
+        if not linpeas:
+            return None
+        cmd = [linpeas, "-q", "-N"]  # FIXME: -N
+
+        with open(output_path, "w", encoding="utf-8") as f:
+            subprocess.run(
+                cmd, stdout=f, stderr=subprocess.DEVNULL, check=True
+            )
+
+        return Path(output_path)
+
+    def convert_linpeas_to_dict(
+        self, output_path: Path, json_path: Path
+    ) -> dict:
+        return parse_peass(str(output_path), None)
+
+    def _extract_basic_info_peas(self, data: dict) -> dict:
+        info = {}
+        for line in data.get("Basic information", {}).get("lines", []):
+            text = line.get("clean_text", "").strip()
+            colors = line.get("colors", {})
+            if text.startswith("OS:"):
+                info["os"] = text.replace("OS:", "").strip()
+            elif text.startswith("User & Groups:"):
+                info["user_groups"] = text.replace(
+                    "User & Groups:", "").strip()
+            elif text.startswith("Hostname:"):
+                info["hostname"] = text.replace("Hostname:", "").strip()
+            elif any(c in colors for c in ("RED", "REDYELLOW")):
+                info.setdefault("findings", []).append(text)
+        return info
+
+    def _extract_cves_from_peas(self, sys_info: dict) -> dict:
+        cves_list = []
+        ker = sys_info.get("sections", {}).get("Kernel Exploit Registry", {})
+        matched = ker.get("sections", {}).get("Matched CVEs", {})
+        for line in matched.get("lines", []):
+            text = line.get("clean_text", "")
+            if text.startswith("CVE-"):
+                cves_list.append(text)
+        return {"cves": cves_list} if cves_list else {}
+
+    def _extract_kernel_modules_peas(self, sys_info: dict) -> dict:
+        mods_info = {}
+        kmi = sys_info.get("sections", {}).get(
+            "Kernel Modules Information", {})
+        for mod_name, mod_data in kmi.get("sections", {}).items():
+            for line in mod_data.get("lines", []):
+                text = line.get("clean_text", "")
+                colors = line.get("colors", {})
+                if text and any(c in colors for c in ("RED", "REDYELLOW")):
+                    mods_info[mod_name] = text
+        return {"kernel_modules": mods_info} if mods_info else {}
+
+    def extract_useful_info_peas(self, data: dict) -> dict:
+        useful = {}
+        useful.update(self._extract_basic_info_peas(data))
+        sys_info = data.get("System Information", {})
+        if sys_info:
+            useful.update(self._extract_cves_from_peas(sys_info))
+            useful.update(self._extract_kernel_modules_peas(sys_info))
+        return useful
+
+    def get_lynis_scan_details(
+        self, report_path: str = LYNIS_REPORT_FILE
+    ) -> List[Dict]:
+        """ lynis facade and filter"""
+        if not Path(report_path).exists():
+            self.run_lynis_audit()
+        parsed: dict = self.parse_lynis_dat_report(report_path)
+        return self.extract_lynis_kernel_details(parsed)
+
+    def get_linpeas_scan_details(
+        self,  output_path: str = "/tmp/linpeas_report.txt",
+        json_path: str = "/tmp/linpeas_report.json"  # FIXME:
+    ) -> dict:
+        """ linpeas facade """
+        linpeas = self._find_linpeas()
+        if not linpeas:
+            return {}
+
+        Path(output_path).unlink(missing_ok=True)
+        self.run_linpeas(output_path)
+        data: dict = self.convert_linpeas_to_dict(Path(output_path), None)
+        return self.extract_useful_info_peas(data)
 
 
 class ReconFeeds:
@@ -247,3 +477,10 @@ if __name__ == '__main__':
 
     print(f"ReconFeeds test - NIST: {nist_result},\n"
           f" OSV: {osv_result}, \n GitHub: {github_result} results")
+
+    lynis_result: List[Dict] = lr.get_lynis_scan_details()
+    linpeas_result: dict = lr.get_linpeas_scan_details()
+
+    print("Local tools")
+    print(json.dumps(lynis_result, indent=2))
+    print(json.dumps(linpeas_result, indent=2))
