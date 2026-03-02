@@ -473,50 +473,16 @@ class Isolate:
 
 def main():
     """ only for testing """
-    import argparse
-
-    parser = argparse.ArgumentParser(
-        description='test mode for binary isolation'
-    )
-    parser.add_argument(
-        'source', type=Path, help='C source file to compile and run')
-    parser.add_argument(
-        '--timeout', type=int, default=30, help='Execution timeout in seconds')
-    parser.add_argument(
-        '--compile-flags', nargs='*', help='Additional GCC flags')
-    parser.add_argument(
-        '--allow-host', action='store_true',
-        help='Allow host execution without prompt')
-    parser.add_argument(
-        '--json', action='store_true', help='Output results as JSON')
-    args = parser.parse_args()
-
-    isolate = Isolate(timeout=args.timeout)
-    isolate.allow_host_execution = args.allow_host
+    source = Path(input("enter path/realpath to test xpl: "))
+    isolate = Isolate(timeout=60)
+    isolate.allow_host_execution = False  # TODO: prompt in gui
+    print(f"Source: {source}\n")
 
     try:
-        result = isolate.compile_and_run(args.source, args.compile_flags)
-
-        if args.json:
-            print(result.to_json())
-        else:
-            print(f'\n=== Execution Mode: {result.execution_mode} ===\n'
-                  f'Duration: {result.duration_ms:.2f}ms\n'
-                  f'Return Code: {result.returncode}\n'
-                  f'Crashed: {result.crashed}')
-
-            if result.logs:
-                print('\n=== Logs ===')
-                for key, value in result.logs.items():
-                    print(f'{key}: {value}')
-            print('\n=== STDOUT ===\n', result.stdout)
-            if result.stderr:
-                print('\n=== STDERR ===\n', result.stderr)
-        sys.exit(result.returncode)
-
+        result = isolate.compile_and_run(source)
+        print(result.to_json())
     except Exception as e:
-        print(f'Error: {e}', file=sys.stderr)
-        sys.exit(1)
+        print(f"Error: {e}")
 
 
 if __name__ == '__main__':

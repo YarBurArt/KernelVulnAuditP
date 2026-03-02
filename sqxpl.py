@@ -1,14 +1,31 @@
 #!/usr/bin/env python3
 """
 Search and collect CVE Linux kernel xpls in C, Ruby, Python
+
+Example output: [
+{
+    "url": "https://github.com/LLfam/CVE-2024-1086",
+    "language": "C",
+    "description": null,  # cant from that readme
+    "stars": 21,
+    "compile_cmd": "gcc exp.c -o exp -lnftnl -lmnl",
+    "test_cmd": "./exp",
+    "requirements": null,  # not in the readme
+    "notes": "CPU: 0 PID: 218 at mm/
+        slab_common.c:935 free_large_kmalloc+0x5e/0x90",
+    "cve_id": "CVE-2024-1086"
+},]
 """
-from config import VERSIONS_RE, REQUIREMENTS_RE
-import httpx
+import subprocess
+import shutil
 import json
 import re
 import base64
 from typing import List, Dict, Any, Optional
 from pathlib import Path
+import httpx
+
+from config import VERSIONS_RE, REQUIREMENTS_RE, POCS_BASE_PATH
 
 
 # TODO: logging
@@ -56,7 +73,7 @@ class GitHubExploitSearcher:
         # check template first
         template = self.get_template(cve_id)
         if template:
-            print(f"[+] Found template for {cve_id}")
+            # print(f"template for {cve_id}")
             return template.get("github_repos", [])
         # FIXME: lang filters
         # lang_filters = " OR ".join(
@@ -73,16 +90,13 @@ class GitHubExploitSearcher:
             )
             if response.status_code == 200:
                 data = response.json()
-                total_count = data.get("total_count", 0)
-                print(f"[+] Found {total_count} repositories")
 
                 for repo in data.get("items", [])[:max_results]:
                     repo_info = self._extract_repo_info(repo, cve_id)
                     if repo_info:
                         results.append(repo_info)
-        except Exception as e:
-            print(f"[!] Search error: {e}")
-
+        except Exception as e:  # FIXME
+            print(e)
         return results
 
     def _extract_repo_info(
@@ -213,6 +227,7 @@ class GitHubExploitSearcher:
             if matches:
                 cmd = matches[0].strip()
                 cmd = cmd.replace('```', '').replace('`', '')
+                cmd = cmd.split("\n")[0]
                 return cmd
 
     def _extract_requirements(self, readme: str) -> Optional[str]:
@@ -294,45 +309,53 @@ class GitHubExploitSearcher:
 
         self._save_templates()
 
-    def print_list_templates(self):
-        templates = self.templates.get("templates", [])
+    def load_xpls(expls: List[Dict[str, any]]) -> List[Dict[str, any]]:
+        """ download PoCs into /tmp/kernauditp/CVE-id/username_repo """
+        base_dir = Path(POCS_BASE_PATH)
+        base_dir.mkdir(parents=True, exist_ok=True)
+        downloaded_l = []
 
-        if not templates:
-            print("[-] No templates found")
-            return
+        for xpl in expls:
+            url = xpl.get("url")
+            cve_id = xpl.get("cve_id")
+            if not url or not cve_id:
+                continue
+            # extract username and repo from URL for path
+            parts = url.rstrip("/").split("/")
+            if len(parts) < 2:  # invalid url
+                continue
+            username = parts[-2]
+            repo = parts[-1].replace(".", "_").lower()
+            repo_name = f"{username}_{repo}"
+            target_dir = base_dir / cve_id / repo_name
 
-        print(f"\n[+] Found {len(templates)} templates:")
-        for tmpl in templates:
-            kev_marker = "[KEV]" if tmpl.get("in_cisa_kev") else ""
-            print(f"\n{tmpl['cve_id']} - {tmpl['name']} {kev_marker}")
-            print(f"  {tmpl['description']}")
-            print(f"  Repos: {len(tmpl.get('github_repos', []))}")
-
-            for repo in tmpl.get('github_repos', []):
-                print(f"    - {repo['url']} ({repo['language']})")
-                if repo.get('compile_cmd'):
-                    print(f"      Compile: {repo['compile_cmd']}")
-                if repo.get('test_cmd'):
-                    print(f"      Test: {repo['test_cmd']}")
+            # clean existing folder
+            if target_dir.exists():
+                shutil.rmtree(target_dir)
+            target_dir.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                subprocess.run(
+                    ["git", "clone", url, str(target_dir)],
+                    check=True,
+                    capture_output=True
+                )
+                xpl["local_path"] = str(target_dir)
+                downloaded_l.append(xpl)
+            except subprocess.CalledProcessError:
+                continue  # FIXME:
+        return downloaded_l
 
 
 def main():
-    """CLI interface just for test"""
-    import sys
-
+    """ just for test """
     searcher = GitHubExploitSearcher()
-
-    if len(sys.argv) < 2:
-        return
-
-    command = sys.argv[1]
-
-    if command.lower() == "list":
-        searcher.print_list_templates()
-        return
-
-    cve_id = command.upper()
-    searcher.search_repositories(cve_id, max_results=100)
+    templ: List[dict] = searcher.templates.get("templates", [])
+    print("saved templates: ", json.dumps(templ, indent=2))
+    repos: List[dict] = searcher.search_repositories(
+        "CVE-2024-1086", max_results=100
+    )
+    print("found cve repos: ", json.dumps(repos, indent=2))
+    # pocs_downloaded = searcher.load_xpls(repos)
 
 
 if __name__ == "__main__":

@@ -18,3 +18,4 @@ LYNIS_LOG_FILE = "/tmp/lynis.log"
 LINPEAS_OUT_JSON = "/tmp/linpeas_report.json"
 # check here https://github.com/peass-ng/PEASS-ng/tree/master/linPEAS/builder
 PATH_LINPEAS = "/tmp/linpeas_kernel.sh"
+POCS_BASE_PATH = "/tmp/kernauditp"
