@@ -124,7 +124,8 @@ class LocalRecon:
         try:
             subprocess.run(cmd, check=True)
             return True
-        except Exception:
+        except Exception as e:
+            print(e)
             return False
 
     def _dat_parse_key(self, raw_key: str):
@@ -318,8 +319,7 @@ class LocalRecon:
         self, report_path: str = LYNIS_REPORT_FILE
     ) -> List[Dict]:
         """ lynis facade and filter"""
-        if not Path(report_path).exists():
-            self.run_lynis_audit()
+        self.run_lynis_audit()
         parsed: dict = self.parse_lynis_dat_report(report_path)
         return self.extract_lynis_kernel_details(parsed)
 
@@ -362,6 +362,7 @@ class ReconFeeds:
     def cve_org_details(self, cveID):
         return httpx.get(CVEORG_BASE_URL + cveID).json()
 
+    # TODO: KEV check by build date
     def github_search(self, kern_version):
         """ search PoC on the github by kernel version """
         data = httpx.get(

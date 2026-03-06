@@ -1,4 +1,5 @@
 from typing import List
+from dataclasses import asdict
 import sys
 import argparse
 from datetime import datetime, timezone
@@ -11,6 +12,9 @@ except (ImportError, ModuleNotFoundError):
 
 from recon import LocalRecon, ReconFeeds
 from db import get_db
+from schemas import (
+    ReconResult, LocalReconResult, FeedsReconResult
+)
 
 
 class AppServices:
@@ -26,16 +30,14 @@ class AppServices:
         lynis_result: List[dict] = self.lr.get_lynis_scan_details()
         linpeas_result: dict = self.lr.get_linpeas_scan_details()
 
-        return {
-            "kernel": kernel,
-            "system": self.lr.environment_info.get("system"),
-            "build_date": build_date,
-            "kernel_audit": lynis_result,
-            "kernel_lpe": linpeas_result
-        }
+        return LocalReconResult(
+            system=self.lr.environment_info.get("system", ""),
+            build_date=build_date, kernel_audit=lynis_result,
+            kernel_lpe=linpeas_result, kernel=kernel
+        )
 
-    def run_full_recon(self, kern_ver: str = "6.1.0") -> dict:
-        """ local + online recon in to dict object"""
+    def run_feeds_recon(self) -> dict:
+        """only get feeds and filter by kern version"""
         kernel: str = self.lr.get_kernel_version_simple()
         build_date: str = self.lr.get_kernel_build_date(kernel)
 
@@ -43,7 +45,13 @@ class AppServices:
         osv: dict = self.rf.osv_search(kernel)
         github: dict = self.rf.github_search(kernel)
 
-        return {"nist": nist, "osv": osv, "github": github}
+        return FeedsReconResult(nist=nist, osv=osv, github=github)
+
+    def run_full_recon(self) -> dict:
+        """ local + online recon in to dict object"""
+        local_r = self.run_local_recon()
+        feeds_r = self.run_feeds_recon()
+        return ReconResult(local=local_r, feeds=feeds_r)
 
     def save_recon_results(self, results: dict) -> int:
         """write recon results to DB,
@@ -153,7 +161,8 @@ class GUIApp:
         self.page.add(log_container)
         self.page.add(ft.Row([
             ft.Button("Start Local", on_click=self._start_local),
-            ft.Button("Recon ti feeds", on_click=self._start_recon),
+            ft.Button("Recon ti feeds", on_click=self._start_feeds),
+            ft.Button("Full Recon", on_click=self._start_recon),
             # TODO: add save handler
             ft.Button("Save to DB", on_click=self._save_to_db),
         ], alignment=ft.MainAxisAlignment.START, spacing=10))
@@ -174,28 +183,27 @@ class GUIApp:
             result['build_date'] = datetime.fromtimestamp(
                 result['build_date'], tz=timezone.utc
             ).strftime('%Y-%m-%d %H:%M:%S %Z')  # format time
-            self._append_log(result)
+            self._append_log(asdict(result))
             self._append_log("Local recon finished.")
         except Exception as e:
             self._append_log(f"Local recon error: {e}")
+
+    def _start_feeds(self, _):
+        self.log.controls.clear()
+        self._append_log("Starting TI feeds recon...")
+        try:
+            result = self.services.run_feeds_recon()
+            self._append_log(asdict(result))
+            self._append_log("Feeds recon finished.")
+        except Exception as e:
+            self._append_log(f"Feeds recon error: {e}")
 
     def _start_recon(self, _):
         self.log.controls.clear()
         self._append_log("Starting TI feeds recon (local -> feeds)...")
         try:
             result = self.services.run_full_recon()
-            self._append_log({
-                "kernel": result["kernel"], "build_date": result["build_date"]
-            })
-            self._append_log({
-                "nist": result["nist"]} if isinstance(
-                    result["nist"], dict) else result["nist"])
-            self._append_log({
-                "osv": result["osv"]} if isinstance(
-                    result["osv"], dict) else result["osv"])
-            self._append_log({
-                "github": result["github"]} if isinstance(
-                    result["github"], dict) else result["github"])
+            self._append_log(asdict(result))
             self._append_log("Recon feeds finished.")
             # TODO: user prompt to save results to DB
         except Exception as e:
@@ -300,7 +308,7 @@ class CLIApp:
     ) -> None:
         # TODO: check cache first
         result = self.services.run_full_recon(kern_cve_id_ver)
-        self._print_scan_result(result)
+        self._print_scan_result(asdict(result))
         # TODO: save to DB if requested
 
     def run_report(self, cve_id: str = "6.1.0"):
