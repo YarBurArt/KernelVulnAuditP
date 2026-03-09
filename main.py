@@ -29,11 +29,13 @@ class AppServices:
         build_date: str = self.lr.get_kernel_build_date(kernel)
         lynis_result: List[dict] = self.lr.get_lynis_scan_details()
         linpeas_result: dict = self.lr.get_linpeas_scan_details()
+        les_result: List[dict] = self.lr.get_les_scan_details()
 
         return LocalReconResult(
             system=self.lr.environment_info.get("system", ""),
             build_date=build_date, kernel_audit=lynis_result,
-            kernel_lpe=linpeas_result, kernel=kernel
+            kernel_lpe=linpeas_result, kernel=kernel,
+            possible_cves=les_result
         )
 
     def run_feeds_recon(self) -> dict:
@@ -179,11 +181,12 @@ class GUIApp:
         self.log.controls.clear()
         self._append_log("Starting local recon...")
         try:
-            result: dict = self.services.run_local_recon()
+            result_dt: LocalReconResult = self.services.run_local_recon()
+            result = asdict(result_dt)
             result['build_date'] = datetime.fromtimestamp(
                 result['build_date'], tz=timezone.utc
             ).strftime('%Y-%m-%d %H:%M:%S %Z')  # format time
-            self._append_log(asdict(result))
+            self._append_log(result)
             self._append_log("Local recon finished.")
         except Exception as e:
             self._append_log(f"Local recon error: {e}")

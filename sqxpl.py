@@ -28,7 +28,7 @@ import httpx
 from config import VERSIONS_RE, REQUIREMENTS_RE, POCS_BASE_PATH
 
 
-# TODO: logging
+# TODO: logging, add class with tools like searchsploit
 
 class GitHubExploitSearcher:
     """base search GitHub for CVE xpls/pocs"""

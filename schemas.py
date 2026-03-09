@@ -21,12 +21,24 @@ class KernelLPE:
 
 
 @dataclass
+class LesCVEItem:
+    cve_id: str = ""
+    title: str = ""
+    details: str = ""
+    exposure: str = ""
+    tags: List[str] = field(default_factory=list)
+    download_urls: List[str] = field(default_factory=list)
+    comments: str = ""
+
+
+@dataclass
 class LocalReconResult:
     kernel: str = ""
     system: str = ""
     build_date: int = 0
     kernel_audit: List[KernelAuditItem] = field(default_factory=list)
     kernel_lpe: KernelLPE = field(default_factory=KernelLPE)
+    possible_cves: List[LesCVEItem] = field(default_factory=list)
 
 
 @dataclass

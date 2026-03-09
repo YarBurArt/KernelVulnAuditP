@@ -13,7 +13,8 @@ from config import (
     CISA_KEV_PATH, CISA_KEV_URL, CH_API_URL,
     CVEORG_BASE_URL, GITHUB_API_URL, NIST_API_URL,
     OSV_API_URL, LYNIS_REPORT_FILE, LYNIS_BINARY,
-    LYNIS_LOG_FILE, LINPEAS_OUT_JSON, PATH_LINPEAS
+    LYNIS_LOG_FILE, LINPEAS_OUT_JSON, PATH_LINPEAS,
+    LES_PATH, LES_REPORT_PATH
 )
 
 from lib_tools.peas2json import parse_peass
@@ -71,7 +72,8 @@ class LocalRecon:
         env_info['os_environ'] = dict(os.environ)
 
         env_info['current_directory'] = os.getcwd()
-
+        # TODO: check privileges via user IDs, capabilities,
+        # ns, supplementary groups, and SELinux context
         username_default = os.environ.get('USERNAME', 'user')
         username = os.environ.get('USER', username_default)
         env_info['username'] = username
@@ -112,7 +114,6 @@ class LocalRecon:
                     except Exception:
                         return None
 
-    # TODO: Linux Exploit Suggester and etc
     def run_lynis_audit(self) -> bool:
         cmd = [
             LYNIS_BINARY, "audit", "system",
@@ -337,6 +338,91 @@ class LocalRecon:
         data: dict = self.convert_linpeas_to_dict(Path(output_path), None)
         return self.extract_useful_info_peas(data)
 
+    def get_les_scan_details(
+        self, report_path: str = LES_REPORT_PATH
+    ) -> list[Dict]:
+        self.run_les(report_path)
+        parsed = self.parse_les_report(report_path)
+        return parsed  # already extracted
+
+    def run_les(self, report_path: str = None) -> bool:
+        """ run Linux Exploit Suggester"""
+        cmd = [str(LES_PATH)]  # no additional flags
+        dest = Path(report_path)
+        try:
+            proc = subprocess.run(
+                cmd, check=True, text=True, capture_output=True)
+            dest.write_text(proc.stdout, encoding="utf-8")
+            return True
+        except Exception as e:
+            print(e)
+            return False
+
+    def parse_les_report(self, report=None) -> list[Dict]:
+        """ Parse LES plain-text output into a list of findings """
+        path = Path(report)
+        if path.exists():
+            text = path.read_text(encoding="utf-8", errors="ignore")
+        else:
+            raise FileNotFoundError("you must fix LES report path")
+        results = []
+        current = None
+        current_id = None
+        for raw_line in text.splitlines():
+            line = raw_line.strip()
+            if not line:
+                continue
+            key, value = self._les_parse_line(line)
+            if key == "header":
+                if current_id:
+                    results.append(current)
+                current_id = value["id"]
+                current = {"cve_id": value["id"], "title": value["title"]}
+                continue
+
+            if current_id is None or key is None:
+                continue
+            self._les_assign_value(current, key, value)
+        if current_id:
+            results.append(current)
+
+        return results
+
+    def _les_strip_ansi(self, text: str) -> str:
+        ansi_pattern = re.compile(r'\x1b\[[0-9;]*m')
+        return ansi_pattern.sub('', text)
+
+    def _les_parse_line(self, line_c):
+        """ identify line type and return (key, value)"""
+        line = self._les_strip_ansi(line_c)
+        if line.startswith("[+] ["):
+            match = re.match(r"^\[\+\]\s*\[([^\]]+)\]\s*(.+)$", line)
+            if match:
+                return "header", {
+                    "id": match.group(1).strip(),
+                    "title": match.group(2).strip(),
+                }
+            return None, None
+        if ":" not in line:
+            return None, None
+
+        key, value = line.split(":", 1)
+        return key.strip().lower(), value.strip()
+
+    def _les_assign_value(self, current, base, value):
+        if base == "details":
+            current["details"] = value
+        elif base == "exposure":
+            current["exposure"] = value
+        elif base == "tags":
+            current["tags"] = [
+                t.strip() for t in value.split(",") if t.strip()
+            ]
+        elif base in ("download url", "ext-url"):
+            current.setdefault("download_urls", []).append(value)
+        elif base == "comments":
+            current["comments"] = value
+
 
 class ReconFeeds:
     """
@@ -362,7 +448,7 @@ class ReconFeeds:
     def cve_org_details(self, cveID):
         return httpx.get(CVEORG_BASE_URL + cveID).json()
 
-    # TODO: KEV check by build date
+    # TODO: KEV check with build date
     def github_search(self, kern_version):
         """ search PoC on the github by kernel version """
         data = httpx.get(
@@ -472,10 +558,12 @@ if __name__ == '__main__':
     build_date: int = lr.get_kernel_build_date(kernel_version)
     lynis_result: List[Dict] = lr.get_lynis_scan_details()
     linpeas_result: dict = lr.get_linpeas_scan_details()
+    les_result: List[Dict] = lr.get_les_scan_details()
 
     print("Local tools")
     print(json.dumps(lynis_result, indent=2))
     print(json.dumps(linpeas_result, indent=2))
+    print(json.dumps(les_result, indent=2))
 
     rf = ReconFeeds()
     nist_result: List[Dict] = rf.nist_search(kernel_version, build_date)

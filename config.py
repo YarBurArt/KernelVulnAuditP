@@ -19,3 +19,6 @@ LINPEAS_OUT_JSON = "/tmp/linpeas_report.json"
 # check here https://github.com/peass-ng/PEASS-ng/tree/master/linPEAS/builder
 PATH_LINPEAS = "/tmp/linpeas_kernel.sh"
 POCS_BASE_PATH = "/tmp/kernauditp"
+
+LES_PATH = "/tmp/linux-exploit-suggester/linux-exploit-suggester.sh"
+LES_REPORT_PATH = "/tmp/les_report.txt"
