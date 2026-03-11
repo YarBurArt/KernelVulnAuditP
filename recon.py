@@ -445,9 +445,6 @@ class ReconFeeds:
             if vuln['product'] == "Kernel":
                 self.kev_kern_vuln.append(vuln)
 
-    def cve_org_details(self, cveID):
-        return httpx.get(CVEORG_BASE_URL + cveID).json()
-
     # TODO: KEV check with build date
     def github_search(self, kern_version):
         """ search PoC on the github by kernel version """
@@ -468,8 +465,13 @@ class ReconFeeds:
 
         return repos
 
+    def _cve_org_details(self, cveID):
+        return httpx.get(CVEORG_BASE_URL + cveID).json()
+
     def _filter_by_date(self, nist_result, min_ts: int) -> List[Dict]:
         """ to filter vulns before release"""
+        if min_ts is None:
+            return nist_result.get('vulnerabilities', [])
         min_dt = datetime.fromtimestamp(min_ts, tz=timezone.utc)
         out: List[Dict] = []
         for it in nist_result.get('vulnerabilities', []):
@@ -545,6 +547,31 @@ class ReconFeeds:
         except Exception as e:
             print(f"OSV search error: {str(e)}")
             return {}
+
+    def get_cve_details(self, cve_id: str) -> dict[str]:
+        """filter CVE metadata using the configured API, need for db"""
+        try:
+            data = self._cve_org_details(cve_id)
+        except Exception:
+            return {}
+        cve_obj = data.get("cve", {})
+        descriptions = cve_obj.get("descriptions", [])
+        description = next((
+            item.get("value") for item in descriptions
+            if item.get("lang") == "en"
+        ), None)
+        if not description and descriptions:
+            description = descriptions[0].get("value")
+        metrics = cve_obj.get("metrics", {})
+        metric = metrics.get("cvssMetricV31", [{}])[0]
+        cvss_data = metric.get("cvssData", {})
+        return {
+            "description": description,
+            "cvss_v3_score": cvss_data.get("baseScore"),
+            "severity": cvss_data.get("baseSeverity"),
+            "raw": data,
+            "nist_url": f"{CVEORG_BASE_URL}{cve_id}",
+        }
 
 
 if __name__ == '__main__':

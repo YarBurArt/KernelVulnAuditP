@@ -48,3 +48,16 @@ echo "Built: $OUTPUT"
 echo "CHANGEME in config.py for:"
 ls -lh "$OUTPUT"
 
+echo
+if command -v vng >/dev/null 2>&1; then
+    echo "virtme-ng found, checking for kernel image..."
+    if [ ! -f /boot/vmlinuz-$(uname -r) ] && [ ! -f /boot/vmlinuz ]; then
+        echo "You may need to install kernel headers or build a kernel"
+        echo "For kernel build, see: https://github.com/arighi/virtme-ng"
+    else
+        echo "Host kernel found - virtme-ng ready to use"
+    fi
+else
+    echo "virtme-ng not found in PATH, try qemu way"
+fi
+

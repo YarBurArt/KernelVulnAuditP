@@ -80,11 +80,11 @@ class VirtmeNGEnvironment(IsolationEnvironment):
             f'{self.binary_path.absolute()}',
             '--quiet', '--memory', '512M',
         ]
-        self._log('command', ' '.join(cmd))  # log stdin
+        self._log('command', ' '.join(cmd))
 
         try:
             result = subprocess.run(
-                cmd, capture_output=True,
+                cmd, cwd="./cache_kernel", capture_output=True,
                 text=True, timeout=self.timeout
             )
 

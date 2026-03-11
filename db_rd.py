@@ -17,13 +17,12 @@ def _calculate_criticality(data: Dict[str, Any]) -> int:
             score += 20
     if data.get('has_exploit'):
         score += 25
-        score += min(data.get('exploit_count', 0) * 2, 10)
+        score += min((data.get('exploit_count') or 0) * 2, 10)
 
     cvss = data.get('cvss_v3_score') or data.get('cvss_v2_score') or 0
     score += int(cvss * 2)
-    score += min(data.get('github_refs', 0) * 3, 15)
-    score += min(data.get('exploitdb_refs', 0) * 3, 15)
-
+    score += min((data.get('github_refs') or 0) * 3, 15)
+    score += min((data.get('exploitdb_refs') or 0) * 3, 15)
     return min(score, 100)
 
 
@@ -63,7 +62,7 @@ class InMemoryThreatDB(ThreatDB):
                 'created_at': now,  'updated_at': now,
             }
             vuln.update(data)
-            vuln['id'] = self._next_id  # never let caller overwrite id
+            vuln['id'] = self._next_id
             self._vulns[cve_id] = vuln
             self._next_id += 1
 

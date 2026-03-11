@@ -102,12 +102,12 @@ class Vulnerability(Base):
                 score += 20
         if self.has_exploit:
             score += 25
-            score += min(self.exploit_count * 2, 10)
+            score += min((self.exploit_count or 0) * 2, 10)
 
         cvss = self.cvss_v3_score or self.cvss_v2_score or 0
         score += int(cvss * 2)
-        score += min(self.github_refs * 3, 15)
-        score += min(self.exploitdb_refs * 3, 15)
+        score += min((self.github_refs or 0) * 3, 15)
+        score += min((self.exploitdb_refs or 0) * 3, 15)
 
         self.criticality_score = min(score, 100)
         return self.criticality_score
