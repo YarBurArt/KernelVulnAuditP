@@ -208,3 +208,4 @@ __marimo__/
 
 ti.db
 cache_kernel
+known_exploited_vulnerabilities.json

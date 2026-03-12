@@ -1,5 +1,5 @@
 CISA_KEV_URL = "https://www.cisa.gov/sites/default/files/feeds/" \
-               "known_exploited_vulnerabilities_schema.json"
+               "known_exploited_vulnerabilities.json"
 
 CISA_KEV_PATH = "known_exploited_vulnerabilities.json"
 CVEORG_BASE_URL = "https://cveawg.mitre.org/api/cve/"

@@ -68,8 +68,7 @@ class Vulnerability(Base):
     def to_dict(self) -> Dict[str, Any]:
         """convert to dictionary for json and report"""
         pd = self.published_date.isoformat() if self.published_date else None
-        last_mod_iso = self.last_modified_date.isoformat()
-        pmd = last_mod_iso if self.last_modified_date else None
+        pmd = self.last_modified_date.isoformat() if self.last_modified_date else None
         crt_at = self.created_at.isoformat() if self.created_at else None
         upd_at = self.updated_at.isoformat() if self.updated_at else None
         return {
@@ -284,6 +283,37 @@ class SandboxRun(Base):
         }
 
 
+class SecurityRecommendation(Base):
+    """security recommendations from lynis/hardening checks"""
+    __tablename__ = 'security_recommendations'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    test_id = Column(String(50), nullable=False, index=True)
+    category = Column(String(100), index=True)
+    description = Column(Text)
+    field_name = Column(String(200))
+    expected_value = Column(Text)
+    actual_value = Column(Text)
+    status = Column(String(50), index=True)
+    severity = Column(String(50), index=True)
+    source = Column(String(100))
+    raw_data = Column(JSON)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            'id': self.id, 'test_id': self.test_id,
+            'category': self.category, 'description': self.description,
+            'field_name': self.field_name,
+            'expected_value': self.expected_value,
+            'actual_value': self.actual_value,
+            'status': self.status, 'severity': self.severity,
+            'source': self.source, 'raw_data': self.raw_data or {},
+            'created_at': self.created_at.isoformat()
+            if self.created_at else None
+        }
+
+
 class ThreatIntelligenceORM:
     """db manager"""
 
@@ -454,16 +484,24 @@ class ThreatIntelligenceORM:
             vuln = session.query(
                 Vulnerability
             ).filter_by(cve_id=cve_id).first()
-            if not vuln: return
-            # Remove existing KEV entry if any
+            if not vuln:
+                return None
+
+            # Check for existing KEV entry
             existing = session.query(
                 CISAKEVEntry
             ).filter_by(vulnerability_id=vuln.id).first()
-            if existing:
-                session.delete(existing)
 
-            kev = CISAKEVEntry(vulnerability_id=vuln.id, **kev_data)
-            session.add(kev)
+            if existing:
+                # Update existing entry
+                for key, value in kev_data.items():
+                    if hasattr(existing, key):
+                        setattr(existing, key, value)
+                kev = existing
+            else:
+                # Create new entry
+                kev = CISAKEVEntry(vulnerability_id=vuln.id, **kev_data)
+                session.add(kev)
 
             # Update flags
             vuln.in_cisa_kev = True
@@ -633,6 +671,92 @@ class ThreatIntelligenceORM:
         except Exception as e:
             session.rollback()
             raise e
+        finally:
+            session.close()
+
+    def add_security_recommendation(
+        self, rec_data: Dict[str, Any]
+    ) -> SecurityRecommendation:
+        """add security recommendation"""
+        session = self.get_session()
+        try:
+            rec = SecurityRecommendation(**rec_data)
+            session.add(rec)
+            session.commit()
+            session.refresh(rec)
+            return rec
+        except Exception as e:
+            session.rollback()
+            raise e
+        finally:
+            session.close()
+
+    def bulk_insert_recommendations(
+        self, recommendations: List[Dict[str, Any]]
+    ) -> int:
+        """bulk insert security recommendations"""
+        count = 0
+        for rec in recommendations:
+            try:
+                self.add_security_recommendation(rec)
+                count += 1
+            except Exception as e:
+                print(f"Error inserting rec {rec.get('test_id')}: {e}")
+        return count
+
+    def get_security_recommendations(
+        self, category: str = None, status: str = None,
+        limit: int = 100, offset: int = 0
+    ) -> List[Dict[str, Any]]:
+        """get security recommendations with filters"""
+        session = self.get_session()
+        try:
+            query = session.query(SecurityRecommendation)
+            if category:
+                query = query.filter_by(category=category)
+            if status:
+                query = query.filter_by(status=status)
+            query = query.order_by(
+                SecurityRecommendation.severity.desc(),
+                SecurityRecommendation.test_id.asc()
+            )
+            results = query.limit(limit).offset(offset).all()
+            return [r.to_dict() for r in results]
+        finally:
+            session.close()
+
+    def get_recommendations_stats(self) -> Dict[str, Any]:
+        """get security recommendations statistics"""
+        session = self.get_session()
+        try:
+            stats = {}
+            stats['total'] = session.query(SecurityRecommendation).count()
+
+            cat_q = session.query(
+                SecurityRecommendation.category,
+                func.count(SecurityRecommendation.id)
+            ).filter(
+                SecurityRecommendation.category.isnot(None)
+            ).group_by(SecurityRecommendation.category).all()
+            stats['by_category'] = dict(cat_q)
+
+            stat_q = session.query(
+                SecurityRecommendation.status,
+                func.count(SecurityRecommendation.id)
+            ).filter(
+                SecurityRecommendation.status.isnot(None)
+            ).group_by(SecurityRecommendation.status).all()
+            stats['by_status'] = dict(stat_q)
+
+            sev_q = session.query(
+                SecurityRecommendation.severity,
+                func.count(SecurityRecommendation.id)
+            ).filter(
+                SecurityRecommendation.severity.isnot(None)
+            ).group_by(SecurityRecommendation.severity).all()
+            stats['by_severity'] = dict(sev_q)
+
+            return stats
         finally:
             session.close()
 

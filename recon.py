@@ -433,16 +433,42 @@ class ReconFeeds:
         self.kev_kern_vuln = []
 
     def get_kev(self):
-        res = httpx.get(CISA_KEV_URL)
+        """download CISA KEV catalog"""
+        res = httpx.get(
+            CISA_KEV_URL,
+            follow_redirects=True,
+            headers={"User-Agent": "Mozilla/5.0"}
+        )
+        res.raise_for_status()
         with open(CISA_KEV_PATH, 'wb') as f:
             f.write(res.content)
+        print(f"Downloaded KEV catalog: {len(res.content)} bytes")
 
     def load_kev(self):
-        with open(CISA_KEV_PATH, "r") as f:
-            res: list = [json.load(f),]
+        """load CISA KEV catalog and filter for Kernel products"""
+        if not os.path.exists(CISA_KEV_PATH):
+            print("KEV catalog not found, downloading...")
+            self.get_kev()
 
-        for vuln in res[0]['vulnerabilities']:
-            if vuln['product'] == "Kernel":
+        with open(CISA_KEV_PATH, "r") as f:
+            data = json.load(f)
+
+        # CISA KEV format: {"title": "...", "vulnerabilities": [...]}
+        if isinstance(data, dict):
+            vulns = data.get('vulnerabilities', [])
+        elif isinstance(data, list):
+            vulns = data
+        else:
+            print(f"Unexpected KEV format: {type(data)}")
+            return
+
+        self.kev_kern_vuln = []
+        for vuln in vulns:
+            product = vuln.get('product', '')
+            vendor = vuln.get('vendorProject', '')
+            if product and 'kernel' in product.lower():
+                self.kev_kern_vuln.append(vuln)
+            elif vendor and 'linux' in vendor.lower():
                 self.kev_kern_vuln.append(vuln)
 
     # TODO: KEV check with build date
@@ -562,13 +588,28 @@ class ReconFeeds:
         ), None)
         if not description and descriptions:
             description = descriptions[0].get("value")
+
+        # try CVSS v3.1, then v3.0, then v2
         metrics = cve_obj.get("metrics", {})
-        metric = metrics.get("cvssMetricV31", [{}])[0]
-        cvss_data = metric.get("cvssData", {})
+        cvss_score = None
+        cvss_severity = None
+        cvss_vector = None
+        # FIXME
+        for metric_key in ["cvssMetricV31", "cvssMetricV30", "cvssMetricV2"]:
+            metric_list = metrics.get(metric_key, [])
+            if metric_list:
+                metric = metric_list[0]
+                cvss_data = metric.get("cvssData", {})
+                cvss_score = cvss_data.get("baseScore")
+                cvss_severity = cvss_data.get("baseSeverity")
+                cvss_vector = cvss_data.get("vectorString")
+                break
+
         return {
             "description": description,
-            "cvss_v3_score": cvss_data.get("baseScore"),
-            "severity": cvss_data.get("baseSeverity"),
+            "cvss_v3_score": cvss_score,
+            "cvss_v3_vector": cvss_vector,
+            "severity": cvss_severity,
             "raw": data,
             "nist_url": f"{CVEORG_BASE_URL}{cve_id}",
         }

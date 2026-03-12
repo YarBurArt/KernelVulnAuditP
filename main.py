@@ -16,7 +16,8 @@ except (ImportError, ModuleNotFoundError):
 from recon import LocalRecon, ReconFeeds
 from db import get_db
 from schemas import (
-    ReconResult, LocalReconResult, FeedsReconResult
+    ReconResult, LocalReconResult, FeedsReconResult,
+    SecurityRecommendation
 )
 from isolate import Isolate
 from sqxpl import GitHubExploitSearcher
@@ -28,17 +29,31 @@ class AppServices:
     def __init__(self, db: str = None):
         self.lr = LocalRecon()
         self.rf = ReconFeeds()
-        self.db = db or get_db("memory")
+        self.db = db or get_db("orm")
         self.poc_searcher = GitHubExploitSearcher()
         self.isolate = Isolate(timeout=ISOLATION_TIMEOUT_SEC)
         self.isolate.allow_host_execution = True
 
-    def run_local_recon(self) -> dict:
+    def store_security_recommendations(
+        self, recommendations: List[dict]
+    ) -> int:
+        """store security recommendations in DB"""
+        return self.db.bulk_insert_recommendations(recommendations)
+
+    def run_local_recon(self, store_recs: bool = False) -> dict:
+        """run local recon and optionally store recommendations"""
         kernel: str = self.lr.get_kernel_version_simple()
         build_date: str = self.lr.get_kernel_build_date(kernel)
         lynis_result: List[dict] = self.lr.get_lynis_scan_details()
         linpeas_result: dict = self.lr.get_linpeas_scan_details()
         les_result: List[dict] = self.lr.get_les_scan_details()
+
+        if store_recs and lynis_result:
+            recs = [
+                SecurityRecommendation.from_dict(item).raw_data
+                for item in lynis_result
+            ]
+            self.store_security_recommendations(recs)
 
         return LocalReconResult(
             system=self.lr.environment_info.get("system", ""),
@@ -47,16 +62,81 @@ class AppServices:
             possible_cves=les_result
         )
 
-    def run_feeds_recon(self) -> dict:
-        """only get feeds and filter by kern version"""
+    def run_feeds_recon(self, store_kev: bool = True) -> dict:
+        """get feeds and optionally store CISA KEV data"""
         kernel: str = self.lr.get_kernel_version_simple()
         build_date: str = self.lr.get_kernel_build_date(kernel)
+
+        # Load and store CISA KEV catalog
+        if store_kev:
+            self._load_and_store_kev()
 
         nist = self.rf.nist_search(kernel, build_date)
         osv: dict = self.rf.osv_search(kernel)
         github: dict = self.rf.github_search(kernel)
 
         return FeedsReconResult(nist=nist, osv=osv, github=github)
+
+    def _load_and_store_kev(self) -> None:
+        """load CISA KEV catalog and store in DB"""
+        try:
+            self.rf.get_kev()
+            self.rf.load_kev()
+            print(f"Loaded {len(self.rf.kev_kern_vuln)} kernel-related KEV entries")
+        except Exception as e:
+            print(f"KEV load error: {e}")
+            import traceback
+            traceback.print_exc()
+            return
+
+        stored = 0
+        skipped = 0
+        for kev_item in self.rf.kev_kern_vuln:
+            cve_id = kev_item.get('cveID')
+            if not cve_id:
+                continue
+
+            # Parse date strings to datetime objects for ORM
+            date_added = None
+            due_date = None
+            try:
+                date_str = kev_item.get('dateAdded')
+                if date_str:
+                    date_added = datetime.strptime(date_str, '%Y-%m-%d')
+                due_str = kev_item.get('dueDate')
+                if due_str:
+                    due_date = datetime.strptime(due_str, '%Y-%m-%d')
+            except Exception:
+                pass
+
+            kev_data = {
+                "date_added": date_added,
+                "due_date": due_date,
+                "required_action": kev_item.get('requiredAction'),
+                "known_ransomware": kev_item.get('knownRansomwareCampaignUse') == 'Known',
+                "vendor_project": kev_item.get('vendorProject'),
+                "product": kev_item.get('product'),
+                "notes": kev_item.get('notes', '')
+            }
+
+            vuln_data = {
+                "cve_id": cve_id,
+                "description": kev_item.get('shortDescription', ''),
+                "in_cisa_kev": True,
+                "sources": ["CISA_KEV"]
+            }
+
+            try:
+                self.db.upsert_vulnerability(vuln_data)
+                self.db.add_cisa_kev(cve_id, kev_data)
+                stored += 1
+            except Exception as e:
+                if "UNIQUE constraint failed" in str(e):
+                    skipped += 1
+                else:
+                    print(f"Error storing {cve_id}: {e}")
+
+        print(f"Stored {stored} CISA KEV entries, {skipped} already existed")
 
     def run_full_recon(self) -> dict:
         """ local + online recon in to dict object"""
@@ -293,7 +373,23 @@ class AppServices:
 
     def get_statistics(self):
         """Return aggregated statistics from the DB."""
-        return self.db.get_statistics()
+        stats = self.db.get_statistics()
+        rec_stats = self.db.get_recommendations_stats()
+        stats['security_recommendations'] = rec_stats
+        return stats
+
+    def get_security_recommendations(
+        self, category: str = None, status: str = None,
+        limit: int = 100
+    ) -> List[dict]:
+        """Get security recommendations with optional filters"""
+        return self.db.get_security_recommendations(
+            category=category, status=status, limit=limit
+        )
+
+    def get_cisa_kev_entries(self, limit: int = 100) -> List[dict]:
+        """Get CISA KEV entries from DB"""
+        return self.db.get_cisa_kev_list(limit=limit)
 
     def generate_report(self, kern_v: str = "6.18.0"):
         data = self.run_full_recon(kern_v)
@@ -328,7 +424,7 @@ class GUIApp:
         self.page = None
 
     def run(self):
-        ft.app(target=self._main_page)
+        ft.run(main=self._main_page)
 
     def _main_page(self, page: ft.Page):
         self.page = page
@@ -336,6 +432,17 @@ class GUIApp:
         page.window_width = 650
         page.window_height = 600
         page.theme_mode = ft.ThemeMode.DARK
+        page.padding = 20
+        page.spacing = 15
+
+        # Set button style - less rounded corners
+        page.theme = ft.Theme(
+            button_theme=ft.ButtonTheme(
+                style=ft.ButtonStyle(
+                    shape=ft.RoundedRectangleBorder(radius=4)
+                )
+            )
+        )
 
         self.log = ft.Column(scroll=ft.ScrollMode.AUTO)
         self._create_nav_bar()
@@ -383,7 +490,6 @@ class GUIApp:
             ft.Button("Full Recon", on_click=self._start_recon),
             ft.Button(
                 "Run Execution Tests", on_click=self._run_execution_tests),
-            # TODO: add save handler
             ft.Button("Save to DB", on_click=self._save_to_db),
         ], alignment=ft.MainAxisAlignment.START, spacing=10))
         self.page.update()
@@ -422,18 +528,17 @@ class GUIApp:
 
     def _start_recon(self, _):
         self.log.controls.clear()
-        self._append_log("Starting TI feeds recon (local -> feeds)...")
+        self._append_log("Starting TI feeds recon (local → feeds)...")
         try:
             result = self.services.run_full_recon()
             self._append_log(asdict(result))
             self._append_log("Recon feeds finished.")
-            # TODO: user prompt to save results to DB
         except Exception as e:
             self._append_log(f"Recon feeds error: {e}")
 
     def _run_execution_tests(self, _):
         self.log.controls.clear()
-        self._append_log("Running execution tests (LES + PoC + sandbox)...")
+        self._append_log("Running execution tests (LES → PoC → sandbox)...")
         try:
             report = self.services.run_execution_tests()
             self._append_log(report)
@@ -545,7 +650,9 @@ class CLIApp:
 
     def run_report(self, cve_id: str = "6.1.0"):
         report = self.services.generate_report(cve_id)
-        # TODO: fetch and merge DB stats
+        stats = self.services.get_statistics()
+        kev_count = stats.get('in_cisa_kev', 0)
+
         print("\n=== RW intermediate results ===\n"
               f"Kernel: {report['kernel']}\n"
               f"System: {report['system']}\n"
@@ -553,9 +660,9 @@ class CLIApp:
               "Vulnerabilities:\n"
               f"  NIST: {report['nist_count']}\n"
               f"  OSV: {report['osv_count']}\n"
-              f"  GitHub PoC: {report['github_count']}\n\n"
+              f"  GitHub PoC: {report['github_count']}\n"
+              f"  CISA KEV: {kev_count}\n\n"
               "Report generated.")
-        # TODO: print DB stats
 
     def _print_scan_result(self, result: dict):
         print("Running local recon...\n"
@@ -564,6 +671,14 @@ class CLIApp:
               f"  Build date: {result['build_date']}\n")
 
         print("Running ReconFeeds searches...")
+
+        # Print KEV stats
+        stats = self.services.get_statistics()
+        kev_count = stats.get('in_cisa_kev', 0)
+        ransomware_count = stats.get('ransomware_related', 0)
+        print(f"  CISA KEV catalog: {kev_count} entries")
+        if ransomware_count:
+            print(f"    Ransomware related: {ransomware_count}")
 
         nist = result.get("nist")
         if isinstance(nist, dict):
@@ -622,6 +737,8 @@ def main_cli():
     parser.add_argument(
         "--save", action="store_true", help="Save results to DB")
     parser.add_argument(
+        "--list-kev", action="store_true", help="List CISA KEV entries")
+    parser.add_argument(
         "--db", type=str, default="simple",
         choices=["simple", "orm", "memory"],
         help="DB backend type and way, sqlite, redis, or just in memory")
@@ -631,7 +748,21 @@ def main_cli():
     db = get_db("memory")  # faster for test, for real better orm
     app = CLIApp(verbose=args.verbose, db=db)
 
-    if args.exec_tests:
+    if args.list_kev:
+        kev_entries = app.services.get_cisa_kev_entries(limit=50)
+        print(f"\n=== CISA KEV Catalog ({len(kev_entries)} entries) ===\n")
+        for idx, entry in enumerate(kev_entries[:20], 1):
+            cve_id = entry.get('cve_id', 'N/A')
+            desc = entry.get('description', '')[:80]
+            date = entry.get('cisa_kev', {}).get('date_added', 'N/A')
+            ransomware = entry.get('cisa_kev', {}).get('known_ransomware', False)
+            print(f"  {idx}. {cve_id}")
+            print(f"     {desc}...")
+            print(f"     Added: {date} | Ransomware: {ransomware}")
+            print()
+        if len(kev_entries) > 20:
+            print(f"  ... and {len(kev_entries) - 20} more")
+    elif args.exec_tests:
         report = app.run_execution_tests()
         print(f"Kernel: {report['kernel']}")
         if report.get("build_date"):

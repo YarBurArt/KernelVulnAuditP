@@ -40,6 +40,7 @@ class InMemoryThreatDB(ThreatDB):
         self._refs: Dict[str, List[Dict[str, Any]]] = {}
         self._kev: Dict[str, Dict[str, Any]] = {}
         self._sandbox: Dict[str, List[Dict[str, Any]]] = {}
+        self._recommendations: List[Dict[str, Any]] = []
         self._next_id: int = 1
 
     def upsert_vulnerability(self, data: Dict[str, Any]) -> int:
@@ -214,6 +215,67 @@ class InMemoryThreatDB(ThreatDB):
                 1 for v in vulns if (v.get('criticality_score') or 0) >= 60),
             'avg_cvss': round(cvss_sum / cvss_count, 2) if cvss_count else 0,
         }
+
+    def add_security_recommendation(
+        self, rec_data: Dict[str, Any]
+    ) -> int:
+        rec = dict(rec_data)
+        rec['id'] = len(self._recommendations) + 1
+        self._recommendations.append(rec)
+        return rec['id']
+
+    def bulk_insert_recommendations(
+        self, recommendations: List[Dict[str, Any]]
+    ) -> int:
+        count = 0
+        for rec in recommendations:
+            try:
+                self.add_security_recommendation(rec)
+                count += 1
+            except Exception as e:
+                print(f"Error inserting rec {rec.get('test_id')}: {e}")
+        return count
+
+    def get_security_recommendations(
+        self, category: str = None, status: str = None,
+        limit: int = 100, offset: int = 0
+    ) -> List[Dict[str, Any]]:
+        results = []
+        for rec in self._recommendations:
+            if category and rec.get('category') != category:
+                continue
+            if status and rec.get('status') != status:
+                continue
+            results.append(dict(rec))
+        results.sort(
+            key=lambda r: (
+                r.get('severity', '') or '', r.get('test_id', '') or ''
+            ),
+            reverse=True
+        )
+        return results[offset:offset + limit]
+
+    def get_recommendations_stats(self) -> Dict[str, Any]:
+        stats = {'total': len(self._recommendations)}
+        by_category: Dict[str, int] = {}
+        by_status: Dict[str, int] = {}
+        by_severity: Dict[str, int] = {}
+
+        for rec in self._recommendations:
+            cat = rec.get('category')
+            if cat:
+                by_category[cat] = by_category.get(cat, 0) + 1
+            stat = rec.get('status')
+            if stat:
+                by_status[stat] = by_status.get(stat, 0) + 1
+            sev = rec.get('severity')
+            if sev:
+                by_severity[sev] = by_severity.get(sev, 0) + 1
+
+        stats['by_category'] = by_category
+        stats['by_status'] = by_status
+        stats['by_severity'] = by_severity
+        return stats
 
     def bulk_insert(self, vulnerabilities: List[Dict[str, Any]]) -> int:
         count = 0

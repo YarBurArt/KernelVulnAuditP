@@ -79,6 +79,25 @@ class ThreatDB(ABC):
     def get_statistics(self) -> Dict[str, Any]: ...
 
     @abstractmethod
+    def add_security_recommendation(
+        self, rec_data: Dict[str, Any]
+    ) -> int: ...
+
+    @abstractmethod
+    def bulk_insert_recommendations(
+        self, recommendations: List[Dict[str, Any]]
+    ) -> int: ...
+
+    @abstractmethod
+    def get_security_recommendations(
+        self, category: str = None, status: str = None,
+        limit: int = 100, offset: int = 0
+    ) -> List[Dict[str, Any]]: ...
+
+    @abstractmethod
+    def get_recommendations_stats(self) -> Dict[str, Any]: ...
+
+    @abstractmethod
     def bulk_insert(
         self, vulnerabilities: List[Dict[str, Any]]
     ) -> int: ...
@@ -94,20 +113,15 @@ class ThreatDB(ABC):
 
 
 class SimpleThreatDBAdapter(ThreatDB):
-    """Wraps SimpleThreatDB (db_pr.py) behind ThreatDB.
-    db_pr uses integer vulnerability_id in add_* methods,
-    so we resolve cve_id -> int before delegating."""
+    """
+    Wraps SimpleThreatDB (db_pr.py) behind ThreatDB interface
+    Public API methods accept cve_id strings
+    Internal methods use integer vuln_id
+    """
 
-    def __init__(self, db_path: str = "threat_intel_simple.db"):
+    def __init__(self, db_path: str = "ti.db"):
         from db_pr import SimpleThreatDB
         self._db = SimpleThreatDB(db_path)
-
-    def _resolve_id(self, cve_id: str) -> int:
-        """resolve cve_id to internal integer id"""
-        vuln = self._db.get_vulnerability(cve_id)
-        if vuln is None:
-            raise ValueError(f"Vulnerability {cve_id} not found")
-        return vuln['id']
 
     def upsert_vulnerability(self, data: Dict[str, Any]) -> int:
         return self._db.upsert_vulnerability(data)
@@ -121,15 +135,15 @@ class SimpleThreatDBAdapter(ThreatDB):
         return self._db.get_vulnerability_with_details(cve_id)
 
     def add_exploit(self, cve_id: str, exploit_data: Dict[str, Any]) -> None:
-        self._db.add_exploit(self._resolve_id(cve_id), exploit_data)
+        self._db.add_exploit(cve_id, exploit_data)
 
     def add_cisa_kev(self, cve_id: str, kev_data: Dict[str, Any]) -> None:
-        self._db.add_cisa_kev(self._resolve_id(cve_id), kev_data)
+        self._db.add_cisa_kev(cve_id, kev_data)
 
     def add_sandbox_run(
         self, cve_id: str, sandbox_data: Dict[str, Any]
     ) -> None:
-        self._db.add_sandbox_run(self._resolve_id(cve_id), sandbox_data)
+        self._db.add_sandbox_run(cve_id, sandbox_data)
 
     def get_sandbox_runs(self, cve_id: str) -> List[Dict[str, Any]]:
         return self._db.get_sandbox_runs(cve_id)
@@ -138,7 +152,7 @@ class SimpleThreatDBAdapter(ThreatDB):
         self, cve_id: str, url: str,
         ref_type: str = "OTHER", source: str = None
     ) -> None:
-        self._db.add_reference(self._resolve_id(cve_id), url, ref_type, source)
+        self._db.add_reference(cve_id, url, ref_type, source)
 
     def search(
         self, min_cvss: float = None, severity: str = None,
@@ -164,6 +178,28 @@ class SimpleThreatDBAdapter(ThreatDB):
 
     def get_statistics(self) -> Dict[str, Any]:
         return self._db.get_statistics()
+
+    def add_security_recommendation(
+        self, rec_data: Dict[str, Any]
+    ) -> int:
+        return self._db.add_security_recommendation(rec_data)
+
+    def bulk_insert_recommendations(
+        self, recommendations: List[Dict[str, Any]]
+    ) -> int:
+        return self._db.bulk_insert_recommendations(recommendations)
+
+    def get_security_recommendations(
+        self, category: str = None, status: str = None,
+        limit: int = 100, offset: int = 0
+    ) -> List[Dict[str, Any]]:
+        return self._db.get_security_recommendations(
+            category=category, status=status,
+            limit=limit, offset=offset
+        )
+
+    def get_recommendations_stats(self) -> Dict[str, Any]:
+        return self._db.get_recommendations_stats()
 
     def bulk_insert(self, vulnerabilities: List[Dict[str, Any]]) -> int:
         return self._db.bulk_insert(vulnerabilities)
@@ -238,6 +274,28 @@ class ThreatIntelligenceORMAdapter(ThreatDB):
 
     def get_statistics(self) -> Dict[str, Any]:
         return self._db.get_statistics()
+
+    def add_security_recommendation(
+        self, rec_data: Dict[str, Any]
+    ) -> int:
+        return self._db.add_security_recommendation(rec_data)
+
+    def bulk_insert_recommendations(
+        self, recommendations: List[Dict[str, Any]]
+    ) -> int:
+        return self._db.bulk_insert_recommendations(recommendations)
+
+    def get_security_recommendations(
+        self, category: str = None, status: str = None,
+        limit: int = 100, offset: int = 0
+    ) -> List[Dict[str, Any]]:
+        return self._db.get_security_recommendations(
+            category=category, status=status,
+            limit=limit, offset=offset
+        )
+
+    def get_recommendations_stats(self) -> Dict[str, Any]:
+        return self._db.get_recommendations_stats()
 
     def bulk_insert(self, vulnerabilities: List[Dict[str, Any]]) -> int:
         return self._db.bulk_insert(vulnerabilities)
