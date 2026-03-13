@@ -3,6 +3,8 @@ import json
 from typing import List, Dict, Any, Optional
 from contextlib import contextmanager
 
+from core import calculate_criticality_score
+
 
 class SimpleThreatDB:
     def __init__(self, db_path: str = "ti.db"):
@@ -616,24 +618,7 @@ class SimpleThreatDB:
         return stats
 
     def _calculate_criticality(self, data: Dict[str, Any]) -> int:
-        """criticality score (0-100)"""
-        score = 0
-        # CISA KEV
-        if data.get('in_cisa_kev'):
-            score += 40
-            if data.get('known_ransomware'):
-                score += 20
-        # loaded xpl
-        if data.get('has_exploit'):
-            score += 25
-            score += min(data.get('exploit_count', 0) * 2, 10)
-
-        cvss = data.get('cvss_v3_score') or data.get('cvss_v2_score') or 0
-        score += int(cvss * 2) 
-        score += min(data.get('github_refs', 0) * 3, 15)
-        score += min(data.get('exploitdb_refs', 0) * 3, 15)
-
-        return min(score, 100)
+        return calculate_criticality_score(data)
 
     def _row_to_dict(self, row) -> Dict[str, Any]:
         d = dict(row)

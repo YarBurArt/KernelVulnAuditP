@@ -26,9 +26,11 @@ from pathlib import Path
 import httpx
 
 from config import VERSIONS_RE, REQUIREMENTS_RE, POCS_BASE_PATH
-
-
-# TODO: logging, add class with tools like searchsploit
+from core import (
+    extract_section_by_header,
+    extract_code_block_commands,
+    clean_command_string
+)
 
 class GitHubExploitSearcher:
     """base search GitHub for CVE xpls/pocs"""
@@ -174,36 +176,29 @@ class GitHubExploitSearcher:
         return compile_cmd, test_cmd, requirements
 
     def _extract_c_compile(self, readme: str) -> Optional[str]:
-        """extract C compilation commands"""
         patterns = [
             r'gcc\s+[^\n]+',
             r'make\s*(?:all)?',
             r'cc\s+[^\n]+',
             r'clang\s+[^\n]+'
         ]
-
-        for pattern in patterns:
-            matches = re.findall(
-                pattern, readme, re.IGNORECASE | re.MULTILINE
-            )
-            if matches:
-                cmd = matches[0].strip()
-                cmd = cmd.replace('```', '').replace('`', '')
-                return cmd
-        # look in md code blocks
-        code_blocks = re.findall(
-            r'```(?:bash|sh|shell)?\n(.*?)```', readme, re.DOTALL
+        
+        commands = extract_code_block_commands(
+            readme, patterns, languages=['bash', 'sh', 'shell', '']
         )
-        for block in code_blocks:
-            for pattern in patterns:
-                matches = re.findall(pattern, block, re.IGNORECASE)
-                if matches:
-                    return matches[0].strip()
+        if commands:
+            return clean_command_string(commands[0])
+        
+        for pattern in patterns:
+            matches = re.findall(pattern, readme, re.IGNORECASE | re.MULTILINE)
+            if matches:
+                return clean_command_string(matches[0])
+        
+        return None
 
     def _extract_test_command(
         self, readme: str, language: str
     ) -> Optional[str]:
-        """Extract test/run command"""
         patterns = []
 
         if language == "C":
@@ -225,27 +220,16 @@ class GitHubExploitSearcher:
         for pattern in patterns:
             matches = re.findall(pattern, readme, re.MULTILINE)
             if matches:
-                cmd = matches[0].strip()
-                cmd = cmd.replace('```', '').replace('`', '')
-                cmd = cmd.split("\n")[0]
-                return cmd
+                return clean_command_string(matches[0])
+        
+        return None
 
     def _extract_requirements(self, readme: str) -> Optional[str]:
-        """Extract requirements/conditions to run"""
-        # for sections about requirements
         req_patterns = [REQUIREMENTS_RE, VERSIONS_RE]
-
-        for pattern in req_patterns:
-            matches = re.findall(pattern, readme, re.IGNORECASE | re.MULTILINE)
-            if matches:
-                req = matches[0].strip()
-                # clean it
-                req = re.sub(r'\[.*?\]\(.*?\)', '', req)  # markdown links
-                req = req.replace('*', '').replace('`', '')
-                req = ' '.join(req.split())  # whitespace
-                if len(req) > 10 and len(req) < 500:
-                    return req
-        # any kernel version mentions
+        extracted = extract_section_by_header(readme, req_patterns, max_length=500)
+        if extracted:
+            return extracted
+        
         kernel_pattern = r'kernel\s+(?:version\s+)?[\d.]+(?:\s*-\s*[\d.]+)?'
         kernel_matches = re.findall(kernel_pattern, readme, re.IGNORECASE)
         if kernel_matches:

@@ -3,6 +3,7 @@ import argparse
 import os
 import shlex
 import tempfile
+import subprocess
 from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -22,6 +23,7 @@ from schemas import (
 from isolate import Isolate
 from sqxpl import GitHubExploitSearcher
 from config import DB_BACKEND, ISOLATION_TIMEOUT_SEC
+from core import flatten_dict_value, format_timestamp
 
 
 class AppServices:
@@ -169,9 +171,7 @@ class AppServices:
         stats = self.db.get_statistics()
         p_build = None
         if build_date is not None:
-            p_build = datetime.fromtimestamp(
-                build_date, tz=timezone.utc
-            ).strftime('%Y-%m-%d %H:%M:%S %Z')
+            p_build = format_timestamp(build_date)
         return {
             "kernel": kernel,
             "build_date": p_build,
@@ -495,11 +495,74 @@ class GUIApp:
         self.page.update()
 
     def _navigate_to_report(self, _):
+        """generate and show report, try streamlit then CLI"""
         self.page.clean()
         self._create_nav_bar()
         self.page.add(ft.Text("Generating vulnerability report..."))
-        # TODO: fetch and display DB stats
-        self.page.add(ft.Text("Report generated..."))
+        
+        try:
+            # try to run streamlit report
+            report_path = Path(__file__).parent / "report.py"
+            if not report_path.exists():
+                raise FileNotFoundError("report.py not found")
+            
+            # check if streamlit is available
+            streamlit_available = False
+            try:
+                import streamlit
+                streamlit_available = True
+            except (ImportError, ModuleNotFoundError):
+                pass
+            
+            if streamlit_available:
+                # try to launch streamlit
+                self._append_log("Launching Streamlit report...")
+                try:
+                    # run streamlit as subprocess
+                    proc = subprocess.Popen(
+                        [sys.executable, "-m", "streamlit", "run", str(report_path)],
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        text=True
+                    )
+                    self._append_log(
+                        "Streamlit report launched in browser at http://localhost:8501")
+                    self._append_log(
+                        "Close this window to stop the report server")
+                except Exception as e:
+                    self._append_log(f"Streamlit launch failed: {e}")
+                    self._append_log("Falling back to CLI report...")
+                    self._run_cli_report()
+            else:
+                # no streamlit, run CLI
+                self._append_log("Streamlit not available, running CLI report...")
+                self._run_cli_report()
+                
+        except Exception as e:
+            self._append_log(f"Report error: {e}")
+            self._run_cli_report()
+        
+        self.page.update()
+
+    def _run_cli_report(self):
+        """run report in CLI mode and show output"""
+        try:
+            from report import build_report_data, CLIReportRenderer
+            from db import get_db
+            
+            db = get_db("orm")
+            data = build_report_data(db)
+            db.close()
+            
+            # render to CLI-style output
+            renderer = CLIReportRenderer(data, verbose=True)
+            output = renderer._build_full_report()
+            self._append_log(output)
+            self._append_log("Report generated (CLI mode)")
+        except Exception as e:
+            self._append_log(f"CLI report error: {e}")
+            import traceback
+            self._append_log(traceback.format_exc())
 
     def _start_local(self, _):
         self.log.controls.clear()
@@ -508,9 +571,7 @@ class GUIApp:
             result_dt: LocalReconResult = self.services.run_local_recon()
             result = asdict(result_dt)
             if result['build_date'] is not None:
-                result['build_date'] = datetime.fromtimestamp(
-                    result['build_date'], tz=timezone.utc
-                ).strftime('%Y-%m-%d %H:%M:%S %Z')
+                result['build_date'] = format_timestamp(result['build_date'])
             self._append_log(result)
             self._append_log("Local recon finished.")
         except Exception as e:
@@ -552,15 +613,28 @@ class GUIApp:
         pass
 
     def _get_cell_text(self, v: Any) -> str:
-        if isinstance(v, list) and v and isinstance(v[0], dict):
-            cell = "\n".join([", ".join(
-                f"{ik}: {iv}" for ik, iv in it.items()
-            ) for it in v])
-        elif isinstance(v, dict):
-            cell = ", ".join(f"{ik}: {iv}" for ik, iv in v.items())
-        else:
-            cell = str(v)
-        return cell
+        return flatten_dict_value(v)
+
+    def _is_url(self, text: str) -> bool:
+        """check if text is a URL"""
+        if not isinstance(text, str):
+            return False
+        return text.startswith(('http://', 'https://')) and len(text) > 8
+
+    def _make_link(self, url: str) -> ft.Container:
+        """create clickable link using Container with ink"""
+        def open_url(e):
+            if self.page:
+                self.page.launch_url(url)
+        return ft.Container(
+            content=ft.Text(
+                url, selectable=True, text_align=ft.TextAlign.LEFT,
+                color=ft.Colors.BLUE,
+                style=ft.TextStyle(decoration=ft.TextDecoration.UNDERLINE),
+            ),
+            ink=True,
+            on_click=open_url,  # FIXME
+        )
 
     def _build_control(self, data):
         """dict[dict, ...] render based on data type"""
@@ -606,7 +680,7 @@ class GUIApp:
         )
 
     def _build_table(self, data: list[dict]):
-        """ dict to flet table """
+        """dict to flet table, URLs clickable"""
         keys = sorted({k for row in data for k in row.keys()})
 
         columns = [
@@ -617,10 +691,17 @@ class GUIApp:
             ) for key in keys]
         rows = []
         for row in data:
-            cells = [ft.DataCell(ft.Text(
-                self._get_cell_text(row.get(key, "")), selectable=True,
-                text_align=ft.TextAlign.LEFT,
-            )) for key in keys]
+            cells = []
+            for key in keys:
+                val = row.get(key, "")
+                # check for URL
+                if self._is_url(val):
+                    cells.append(ft.DataCell(self._make_link(val)))
+                else:
+                    cells.append(ft.DataCell(ft.Text(
+                        self._get_cell_text(val), selectable=True,
+                        text_align=ft.TextAlign.LEFT,
+                    )))
             rows.append(ft.DataRow(cells=cells))
 
         return ft.DataTable(

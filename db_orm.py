@@ -11,6 +11,8 @@ from sqlalchemy.pool import StaticPool
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 
+from core import calculate_criticality_score
+
 
 Base = declarative_base()
 
@@ -93,22 +95,10 @@ class Vulnerability(Base):
         }
 
     def calculate_criticality(self):
-        """ internal calc crit """
-        score = 0
-        if self.in_cisa_kev:
-            score += 40
-            if self.cisa_kev and self.cisa_kev.known_ransomware:
-                score += 20
-        if self.has_exploit:
-            score += 25
-            score += min((self.exploit_count or 0) * 2, 10)
-
-        cvss = self.cvss_v3_score or self.cvss_v2_score or 0
-        score += int(cvss * 2)
-        score += min((self.github_refs or 0) * 3, 15)
-        score += min((self.exploitdb_refs or 0) * 3, 15)
-
-        self.criticality_score = min(score, 100)
+        data = self.to_dict()
+        if self.cisa_kev:
+            data['known_ransomware'] = self.cisa_kev.known_ransomware
+        self.criticality_score = calculate_criticality_score(data)
         return self.criticality_score
 
 

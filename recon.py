@@ -16,6 +16,12 @@ from config import (
     LYNIS_LOG_FILE, LINPEAS_OUT_JSON, PATH_LINPEAS,
     LES_PATH, LES_REPORT_PATH
 )
+from core import (
+    parse_date_string, filter_items_by_date,
+    strip_ansi_sequences,
+    parse_key_with_brackets, ensure_list_in_dict, assign_value_by_key_type,
+    parse_key_value_pairs
+)
 
 from lib_tools.peas2json import parse_peass
 
@@ -91,28 +97,32 @@ class LocalRecon:
                         platform.release())[0].split(".")[:3])
 
     def get_kernel_build_date(self, version):
-        """get build date by git and simple version,
-        for now by changelog works well enough"""
-        # TODO: use KernelCI or git ls instead later
-        major = version.split('.')[0]
-        response = httpx.get(
-            CH_API_URL.format(major=major, version=version)
-        )
-        response.raise_for_status()
+        """get build date by changelog, returns None on error"""
+        try:
+            major = version.split('.')[0]
+            response = httpx.get(
+                CH_API_URL.format(major=major, version=version),
+                timeout=10.0
+            )
+            response.raise_for_status()
 
-        for line in response.text.split('\n')[:10]:
-            if line.startswith('Date:'):
-                date_str = line.replace('Date:', '').strip()
-                try:
-                    return int(datetime.strptime(
-                        date_str, '%a, %d %b %Y').timestamp())
-                except Exception:
+            for line in response.text.split('\n')[:10]:
+                if line.startswith('Date:'):
+                    date_str = line.replace('Date:', '').strip()
                     try:
                         return int(datetime.strptime(
-                            date_str, '%a %b %d %H:%M:%S %Y %z'
-                        ).timestamp())
+                            date_str, '%a, %d %b %Y').timestamp())
                     except Exception:
-                        return None
+                        try:
+                            return int(datetime.strptime(
+                                date_str, '%a %b %d %H:%M:%S %Y %z'
+                            ).timestamp())
+                        except Exception:
+                            return None
+            return None
+        except Exception as e:
+            print(f"get_kernel_build_date error: {e}")
+            return None
 
     def run_lynis_audit(self) -> bool:
         cmd = [
@@ -130,38 +140,16 @@ class LocalRecon:
             return False
 
     def _dat_parse_key(self, raw_key: str):
-        match = re.fullmatch(r"([^\[]+)(?:\[(.*?)\])?", raw_key)
-        if not match:
-            return raw_key, None
-        return match.group(1), match.group(2)
+        return parse_key_with_brackets(raw_key)
 
     def _dat_ensure_list(self, container, key, value):
-        if key not in container:
-            container[key] = [value]
-        else:
-            if not isinstance(container[key], list):
-                container[key] = [container[key]]
-            container[key].append(value)
+        ensure_list_in_dict(container, key, value)
 
     def _dat_assign_value(
         self, results: dict, base: str,
         inner: str | None, value: str
     ) -> None:
-        """Assign value to results dict by inner key type"""
-        if inner is None:  # key=value
-            if base in results:
-                self._dat_ensure_list(results, base, value)
-            else:
-                results[base] = value
-        elif inner == "":  # key[]=value
-            self._dat_ensure_list(results, base, value)
-        else:  # key[name]=value
-            if base not in results:
-                results[base] = {}
-            if not isinstance(results[base], dict):
-                raise ValueError(
-                    f"Key '{base}' used both as scalar/list and dict")
-            results[base][inner] = value
+        assign_value_by_key_type(results, base, inner, value)
 
     def parse_lynis_dat_report(self, report_path) -> Dict:
         """
@@ -192,10 +180,6 @@ class LocalRecon:
     def _parse_lynis_datl_entry(
         self, entry: str, category_prefix: str
     ) -> dict | None:
-        """
-        Parse a single dat entry into a dict
-        Returns None if entry is invalid or doesn't match prefix
-        """
         parts = entry.split("|")
         if len(parts) < 3:
             return None
@@ -205,11 +189,8 @@ class LocalRecon:
             return None
 
         item = {"test_id": test_id, "category": category}
-        # Parse key:value;key:value;
-        for pair in kv_blob.split(";"):
-            if ":" in pair:
-                key, value = pair.split(":", 1)
-                item[key.strip()] = value.strip()
+        for key, value in parse_key_value_pairs(kv_blob).items():
+            item[key] = value
 
         return item
 
@@ -319,31 +300,43 @@ class LocalRecon:
     def get_lynis_scan_details(
         self, report_path: str = LYNIS_REPORT_FILE
     ) -> List[Dict]:
-        """ lynis facade and filter"""
-        self.run_lynis_audit()
-        parsed: dict = self.parse_lynis_dat_report(report_path)
-        return self.extract_lynis_kernel_details(parsed)
+        """lynis facade and filter"""
+        try:
+            self.run_lynis_audit()
+            parsed: dict = self.parse_lynis_dat_report(report_path)
+            return self.extract_lynis_kernel_details(parsed)
+        except Exception as e:
+            print(f"get_lynis_scan_details error: {e}")
+            return []
 
     def get_linpeas_scan_details(
         self,  output_path: str = "/tmp/linpeas_report.txt",
-        json_path: str = "/tmp/linpeas_report.json"  # FIXME:
+        json_path: str = "/tmp/linpeas_report.json"
     ) -> dict:
-        """ linpeas facade """
-        linpeas = self._find_linpeas()
-        if not linpeas:
-            return {}
+        """linpeas facade"""
+        try:
+            linpeas = self._find_linpeas()
+            if not linpeas:
+                return {}
 
-        Path(output_path).unlink(missing_ok=True)
-        self.run_linpeas(output_path)
-        data: dict = self.convert_linpeas_to_dict(Path(output_path), None)
-        return self.extract_useful_info_peas(data)
+            Path(output_path).unlink(missing_ok=True)
+            self.run_linpeas(output_path)
+            data: dict = self.convert_linpeas_to_dict(Path(output_path), None)
+            return self.extract_useful_info_peas(data)
+        except Exception as e:
+            print(f"get_linpeas_scan_details error: {e}")
+            return {}
 
     def get_les_scan_details(
         self, report_path: str = LES_REPORT_PATH
     ) -> list[Dict]:
-        self.run_les(report_path)
-        parsed = self.parse_les_report(report_path)
-        return parsed  # already extracted
+        try:
+            self.run_les(report_path)
+            parsed = self.parse_les_report(report_path)
+            return parsed
+        except Exception as e:
+            print(f"get_les_scan_details error: {e}")
+            return []
 
     def run_les(self, report_path: str = None) -> bool:
         """ run Linux Exploit Suggester"""
@@ -359,12 +352,13 @@ class LocalRecon:
             return False
 
     def parse_les_report(self, report=None) -> list[Dict]:
-        """ Parse LES plain-text output into a list of findings """
+        """Parse LES plain-text output into a list of findings"""
         path = Path(report)
-        if path.exists():
-            text = path.read_text(encoding="utf-8", errors="ignore")
-        else:
-            raise FileNotFoundError("you must fix LES report path")
+        if not path.exists():
+            print(f"LES report not found: {report}")
+            return []
+        
+        text = path.read_text(encoding="utf-8", errors="ignore")
         results = []
         current = None
         current_id = None
@@ -389,8 +383,7 @@ class LocalRecon:
         return results
 
     def _les_strip_ansi(self, text: str) -> str:
-        ansi_pattern = re.compile(r'\x1b\[[0-9;]*m')
-        return ansi_pattern.sub('', text)
+        return strip_ansi_sequences(text)
 
     def _les_parse_line(self, line_c):
         """ identify line type and return (key, value)"""
@@ -495,55 +488,13 @@ class ReconFeeds:
         return httpx.get(CVEORG_BASE_URL + cveID).json()
 
     def _filter_by_date(self, nist_result, min_ts: int) -> List[Dict]:
-        """ to filter vulns before release"""
         if min_ts is None:
             return nist_result.get('vulnerabilities', [])
-        min_dt = datetime.fromtimestamp(min_ts, tz=timezone.utc)
-        out: List[Dict] = []
-        for it in nist_result.get('vulnerabilities', []):
-            pub = it.get('cve', {}).get('published')
-            if not pub:
-                continue
-            dt = None
-            # ISO-like (with optional Z or +HH:MM)
-            try:
-                dt = datetime.fromisoformat(pub.replace('Z', '+00:00'))
-            except Exception:
-                pass
-            # RFC-like: "Thu Dec xx xx:xx:xx xxxx +0100"
-            if dt is None:
-                try:
-                    # %a %b %d %H:%M:%S %Y %z
-                    # (weekday, month, day, time, year, tz offset)
-                    dt = datetime.strptime(pub, '%a %b %d %H:%M:%S %Y %z')
-                except Exception:
-                    pass
-            # Fallback: drop fractional seconds and timezone,
-            # parse as '%Y-%m-%dT%H:%M:%S'
-            if dt is None:
-                try:
-                    base = pub.split('.')[0]
-                    dt = datetime.strptime(base, '%Y-%m-%dT%H:%M:%S')
-                    dt = dt.replace(tzinfo=timezone.utc)
-                except Exception:
-                    for fmt in (
-                        '%Y-%m-%d %H:%M:%S', '%d %b %Y %H:%M:%S',
-                        '%a, %d %b %Y %H:%M:%S %z'
-                    ):
-                        try:
-                            dt = datetime.strptime(pub, fmt)
-                            break
-                        except Exception:
-                            continue
-            if dt is None:
-                continue
-            if dt.tzinfo is None:
-                dt = dt.replace(tzinfo=timezone.utc)
-            else:
-                dt = dt.astimezone(timezone.utc)
-            if dt >= min_dt:
-                out.append(it)
-        return out
+        return filter_items_by_date(
+            nist_result.get('vulnerabilities', []),
+            date_field='published',
+            min_timestamp=min_ts
+        )
 
     def nist_search(self, kern_r_version, date):
         # Search for vulnerabilities in NIST database

@@ -2,28 +2,11 @@ from typing import List, Dict, Any, Optional
 from datetime import datetime, timezone
 
 from db import ThreatDB
+from core import calculate_criticality_score
 
 
 def _utcnow() -> str:
     return datetime.now(timezone.utc).isoformat()
-
-
-def _calculate_criticality(data: Dict[str, Any]) -> int:
-    """criticality score (0-100) — mirrors db_pr logic"""
-    score = 0
-    if data.get('in_cisa_kev'):
-        score += 40
-        if data.get('known_ransomware'):
-            score += 20
-    if data.get('has_exploit'):
-        score += 25
-        score += min((data.get('exploit_count') or 0) * 2, 10)
-
-    cvss = data.get('cvss_v3_score') or data.get('cvss_v2_score') or 0
-    score += int(cvss * 2)
-    score += min((data.get('github_refs') or 0) * 3, 15)
-    score += min((data.get('exploitdb_refs') or 0) * 3, 15)
-    return min(score, 100)
 
 
 class InMemoryThreatDB(ThreatDB):
@@ -67,7 +50,7 @@ class InMemoryThreatDB(ThreatDB):
             self._vulns[cve_id] = vuln
             self._next_id += 1
 
-        vuln['criticality_score'] = _calculate_criticality(vuln)
+        vuln['criticality_score'] = calculate_criticality_score(vuln)
         return vuln['id']
 
     def get_vulnerability(self, cve_id: str) -> Optional[Dict[str, Any]]:
@@ -105,7 +88,7 @@ class InMemoryThreatDB(ThreatDB):
         # keep summary flags in sync
         vuln['has_exploit'] = True
         vuln['exploit_count'] = len(self._exploits[cve_id])
-        vuln['criticality_score'] = _calculate_criticality(vuln)
+        vuln['criticality_score'] = calculate_criticality_score(vuln)
 
     def add_cisa_kev(self, cve_id: str, kev_data: Dict[str, Any]) -> None:
         vuln = self._require(cve_id)
@@ -116,7 +99,7 @@ class InMemoryThreatDB(ThreatDB):
         vuln['in_cisa_kev'] = True
         if kev_data.get('known_ransomware'):
             vuln['known_ransomware'] = True
-        vuln['criticality_score'] = _calculate_criticality(vuln)
+        vuln['criticality_score'] = calculate_criticality_score(vuln)
 
     def add_sandbox_run(
         self, cve_id: str, sandbox_data: Dict[str, Any]
@@ -146,7 +129,7 @@ class InMemoryThreatDB(ThreatDB):
             vuln['github_refs'] = vuln.get('github_refs', 0) + 1
         elif ref_type == "EXPLOIT_DB" or source == "Exploit-DB":
             vuln['exploitdb_refs'] = vuln.get('exploitdb_refs', 0) + 1
-        vuln['criticality_score'] = _calculate_criticality(vuln)
+        vuln['criticality_score'] = calculate_criticality_score(vuln)
 
     def search(
         self, min_cvss: float = None, severity: str = None,
