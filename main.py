@@ -22,8 +22,12 @@ from schemas import (
 )
 from isolate import Isolate
 from sqxpl import GitHubExploitSearcher
-from config import DB_BACKEND, ISOLATION_TIMEOUT_SEC
-from core import flatten_dict_value, format_timestamp
+from config import (
+    DB_BACKEND, ISOLATION_TIMEOUT_SEC, ALLOW_HOST_EXECUTION
+)
+from core import (
+    flatten_dict_value, format_timestamp, update_config_file
+)
 
 
 class AppServices:
@@ -34,7 +38,7 @@ class AppServices:
         self.db = db or get_db("orm")
         self.poc_searcher = GitHubExploitSearcher()
         self.isolate = Isolate(timeout=ISOLATION_TIMEOUT_SEC)
-        self.isolate.allow_host_execution = True
+        self.isolate.allow_host_execution = ALLOW_HOST_EXECUTION
 
     def store_security_recommendations(
         self, recommendations: List[dict]
@@ -467,6 +471,7 @@ class GUIApp:
         nav_bar = ft.Row([
             ft.Button("Scan", on_click=self._navigate_to_scan),
             ft.Button("Report", on_click=self._navigate_to_report),
+            ft.Button("Settings", on_click=self._navigate_to_settings),
             ft.Container(expand=True),
             ft.Button(
                 content=ft.Icon(theme_icon, size=20),
@@ -477,6 +482,7 @@ class GUIApp:
 
     def _navigate_to_scan(self, _):
         self.page.clean()
+        self.page.scroll = None
         self._create_nav_bar()
         self.page.add(ft.Text("Running vulnerability scan..."))
         log_container = ft.Container(
@@ -494,31 +500,142 @@ class GUIApp:
         ], alignment=ft.MainAxisAlignment.START, spacing=10))
         self.page.update()
 
+    def _navigate_to_settings(self, _):
+        """open settings page to edit config.py"""
+        self.page.clean()
+        self.page.scroll = ft.ScrollMode.AUTO
+        self._create_nav_bar()
+        self.page.add(ft.Text("Settings", size=24))
+        self.page.add(ft.Text(
+            "Edit configuration settings",
+            size=14, color=ft.Colors.GREY))
+        self.page.add(ft.Container(height=10))
+
+        self._settings_fields = {}
+        settings_form = self._build_settings_form()
+        self.page.add(settings_form)
+        self.page.add(ft.Container(height=20))
+        self.page.add(ft.Text(
+            "You need to restart the app to apply", 
+            size=14, color=ft.Colors.GREY))
+        self.page.add(ft.Row([
+            ft.Button("Save Settings", on_click=self._save_settings),
+            ft.Button("Cancel", on_click=lambda _: self._navigate_to_scan(None)),
+        ], spacing=10))
+        self.page.update()
+
+    def _build_settings_form(self):
+        """build settings form with all config fields"""
+        from config import (
+            DB_BACKEND, ISOLATION_TIMEOUT_SEC, ALLOW_HOST_EXECUTION,
+            CISA_KEV_PATH, LYNIS_REPORT_FILE, LYNIS_LOG_FILE,
+            LINPEAS_OUT_JSON, PATH_LINPEAS, POCS_BASE_PATH,
+            LES_PATH, LES_REPORT_PATH
+        )
+
+        form = ft.Column(spacing=15)
+
+        form.controls.append(ft.Dropdown(
+            label="DB Backend",
+            value=DB_BACKEND,
+            options=[
+                ft.dropdown.Option("orm", "ORM (SQLite)"),
+                ft.dropdown.Option("simple", "Simple (SQLite)"),
+                ft.dropdown.Option("memory", "In-Memory"),
+            ],
+            expand=True,
+        ))
+        self._settings_fields["DB_BACKEND"] = form.controls[-1]
+
+        form.controls.append(ft.TextField(
+            label="Isolation Timeout (seconds)",
+            value=str(ISOLATION_TIMEOUT_SEC),
+            keyboard_type=ft.KeyboardType.NUMBER,
+            expand=True,
+        ))
+        self._settings_fields["ISOLATION_TIMEOUT_SEC"] = form.controls[-1]
+
+        form.controls.append(ft.Switch(
+            label="Allow Host Execution (risky)",
+            value=ALLOW_HOST_EXECUTION,
+        ))
+        self._settings_fields["ALLOW_HOST_EXECUTION"] = form.controls[-1]
+
+        form.controls.append(ft.Divider())
+        form.controls.append(ft.Text("File Paths", size=16, weight=ft.FontWeight.BOLD))
+
+        path_fields = [
+            ("CISA_KEV_PATH", CISA_KEV_PATH, "CISA KEV Path"),
+            ("LYNIS_REPORT_FILE", LYNIS_REPORT_FILE, "Lynis Report File"),
+            ("LYNIS_LOG_FILE", LYNIS_LOG_FILE, "Lynis Log File"),
+            ("LINPEAS_OUT_JSON", LINPEAS_OUT_JSON, "Linpeas Output JSON"),
+            ("PATH_LINPEAS", PATH_LINPEAS, "Linpeas Script Path"),
+            ("LES_PATH", LES_PATH, "LES Script Path"),
+            ("LES_REPORT_PATH", LES_REPORT_PATH, "LES Report Path"),
+            ("POCS_BASE_PATH", POCS_BASE_PATH, "POCs Base Path"),
+        ]
+
+        for key, value, label in path_fields:
+            form.controls.append(ft.TextField(
+                label=label,
+                value=value,
+                expand=True,
+            ))
+            self._settings_fields[key] = form.controls[-1]
+
+        return form
+
+    def _save_settings(self, _):
+        """save settings to config.py"""
+        try:
+            config_path = Path(__file__).parent / "config.py"
+            
+            updates = {
+                "DB_BACKEND": f'"{self._settings_fields["DB_BACKEND"].value}"',
+                "ISOLATION_TIMEOUT_SEC": self._settings_fields["ISOLATION_TIMEOUT_SEC"].value,
+                "ALLOW_HOST_EXECUTION": str(self._settings_fields["ALLOW_HOST_EXECUTION"].value),
+            }
+            
+            for key in ["CISA_KEV_PATH", "LYNIS_REPORT_FILE", "LYNIS_LOG_FILE",
+                        "LINPEAS_OUT_JSON", "PATH_LINPEAS", "LES_PATH",
+                        "LES_REPORT_PATH", "POCS_BASE_PATH"]:
+                updates[key] = f'"{self._settings_fields[key].value}"'
+            
+            update_config_file(config_path, updates)
+            
+            self._append_log("Settings saved successfully!")
+            self._append_log("Note: Some settings may require restart to take effect")
+        except Exception as e:
+            self._append_log(f"Error saving settings: {e}")
+
     def _navigate_to_report(self, _):
         """generate and show report, try streamlit then CLI"""
         self.page.clean()
+        self.page.scroll = ft.ScrollMode.AUTO
         self._create_nav_bar()
-        self.page.add(ft.Text("Generating vulnerability report..."))
+        self.page.add(ft.Text("Generating vulnerability report...", size=24))
         
+        log_container = ft.Container(
+            content=self.log, height=360, padding=10,
+            expand=True, alignment=ft.Alignment.CENTER_LEFT,
+        )
+        self.page.add(log_container)
+
         try:
-            # try to run streamlit report
             report_path = Path(__file__).parent / "report.py"
             if not report_path.exists():
                 raise FileNotFoundError("report.py not found")
-            
-            # check if streamlit is available
+
             streamlit_available = False
             try:
                 import streamlit
                 streamlit_available = True
             except (ImportError, ModuleNotFoundError):
                 pass
-            
+
             if streamlit_available:
-                # try to launch streamlit
                 self._append_log("Launching Streamlit report...")
                 try:
-                    # run streamlit as subprocess
                     proc = subprocess.Popen(
                         [sys.executable, "-m", "streamlit", "run", str(report_path)],
                         stdout=subprocess.PIPE,
@@ -534,14 +651,13 @@ class GUIApp:
                     self._append_log("Falling back to CLI report...")
                     self._run_cli_report()
             else:
-                # no streamlit, run CLI
                 self._append_log("Streamlit not available, running CLI report...")
                 self._run_cli_report()
-                
+
         except Exception as e:
             self._append_log(f"Report error: {e}")
             self._run_cli_report()
-        
+
         self.page.update()
 
     def _run_cli_report(self):

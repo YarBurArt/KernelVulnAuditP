@@ -24,3 +24,4 @@ LES_PATH = "/tmp/linux-exploit-suggester/linux-exploit-suggester.sh"
 LES_REPORT_PATH = "/tmp/les_report.txt"
 DB_BACKEND = "orm"
 ISOLATION_TIMEOUT_SEC = 60
+ALLOW_HOST_EXECUTION = False
