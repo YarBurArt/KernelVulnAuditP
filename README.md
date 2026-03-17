@@ -42,7 +42,7 @@ uv run python main.py --cli
 generate report (Streamlit if available, else CLI + JSON)
 
 ```bash
-uv run python report.py
+uv run streamlit run report.py
 ```
 
 force CLI report
