@@ -15,6 +15,11 @@ except (ImportError, ModuleNotFoundError):
     ft = None  # type: ignore
 
 from app_services import AppServices
+from config import (
+    ALLOW_HOST_EXECUTION, CISA_KEV_PATH, DB_BACKEND, ISOLATION_TIMEOUT_SEC,
+    LES_PATH, LES_REPORT_PATH, LINPEAS_OUT_JSON, LYNIS_LOG_FILE,
+    LYNIS_REPORT_FILE, PATH_LINPEAS, POCS_BASE_PATH,
+)
 
 
 class GUIApp:
@@ -39,11 +44,9 @@ class GUIApp:
         page.padding = 20
         page.spacing = 15
 
-        page.theme = ft.Theme(
-            button_theme=ft.ButtonTheme(
-                style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=4))
-            )
-        )
+        page.theme = ft.Theme(button_theme=ft.ButtonTheme(
+            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=4))
+        ))
 
         self.log = ft.Column(scroll=ft.ScrollMode.AUTO)
         self._create_nav_bar()
@@ -58,7 +61,8 @@ class GUIApp:
 
     def _create_nav_bar(self):
         is_dark = self.page.theme_mode == ft.ThemeMode.DARK
-        theme_icon = ft.icons.Icons.LIGHT_MODE if is_dark else ft.icons.Icons.DARK_MODE
+        theme_icon = ft.icons.Icons.LIGHT_MODE if is_dark \
+            else ft.icons.Icons.DARK_MODE
 
         nav_bar = ft.Row(
             [
@@ -66,7 +70,10 @@ class GUIApp:
                 ft.Button("Report", on_click=self._navigate_to_report),
                 ft.Button("Settings", on_click=self._navigate_to_settings),
                 ft.Container(expand=True),
-                ft.Button(content=ft.Icon(theme_icon, size=20), on_click=self._toggle_theme),
+                ft.Button(
+                    content=ft.Icon(theme_icon, size=20),
+                    on_click=self._toggle_theme
+                ),
             ]
         )
         self.page.add(nav_bar)
@@ -77,22 +84,19 @@ class GUIApp:
         self._create_nav_bar()
         self.page.add(ft.Text("Running vulnerability scan..."))
         log_container = ft.Container(
-            content=self.log, height=360, padding=10, expand=True, alignment=ft.Alignment.CENTER_LEFT
+            content=self.log, height=360, padding=10, expand=True,
+            alignment=ft.Alignment.CENTER_LEFT
         )
         self.page.add(log_container)
-        self.page.add(
-            ft.Row(
-                [
-                    ft.Button("Start Local", on_click=self._start_local),
-                    ft.Button("Recon ti feeds", on_click=self._start_feeds),
-                    ft.Button("Full Recon", on_click=self._start_recon),
-                    ft.Button("Run Execution Tests", on_click=self._run_execution_tests),
-                    ft.Button("Save to DB", on_click=self._save_to_db),
-                ],
-                alignment=ft.MainAxisAlignment.START,
-                spacing=10,
-            )
-        )
+        self.page.add(ft.Row([
+            ft.Button("Start Local", on_click=self._start_local),
+            ft.Button("Recon ti feeds", on_click=self._start_feeds),
+            ft.Button("Full Recon", on_click=self._start_recon),
+            ft.Button("Run Execution Tests",
+                      on_click=self._run_execution_tests),
+            ft.Button("Save to DB", on_click=self._save_to_db),
+        ], alignment=ft.MainAxisAlignment.START, spacing=10,
+        ))
         self.page.update()
 
     def _navigate_to_settings(self, _):
@@ -100,71 +104,56 @@ class GUIApp:
         self.page.scroll = ft.ScrollMode.AUTO
         self._create_nav_bar()
         self.page.add(ft.Text("Settings", size=24))
-        self.page.add(ft.Text("Edit configuration settings", size=14, color=ft.Colors.GREY))
+        self.page.add(ft.Text(
+            "Edit configuration settings", size=14, color=ft.Colors.GREY))
         self.page.add(ft.Container(height=10))
 
         self._settings_fields = {}
         settings_form = self._build_settings_form()
         self.page.add(settings_form)
         self.page.add(ft.Container(height=20))
-        self.page.add(ft.Text("You need to restart the app to apply", size=14, color=ft.Colors.GREY))
-        self.page.add(
-            ft.Row(
-                [
-                    ft.Button("Save Settings", on_click=self._save_settings),
-                    ft.Button("Cancel", on_click=lambda _: self._navigate_to_scan(None)),
-                ],
-                spacing=10,
-            )
-        )
+        self.page.add(ft.Text(
+            "You need to restart the app to apply",
+            size=14, color=ft.Colors.GREY))
+        self.page.add(ft.Row([
+            ft.Button("Save Settings", on_click=self._save_settings),
+            ft.Button(
+                "Cancel", on_click=lambda _: self._navigate_to_scan(None)),
+        ], spacing=10,
+        ))
         self.page.update()
 
     def _build_settings_form(self):
-        from config import (
-            ALLOW_HOST_EXECUTION,
-            CISA_KEV_PATH,
-            DB_BACKEND,
-            ISOLATION_TIMEOUT_SEC,
-            LES_PATH,
-            LES_REPORT_PATH,
-            LINPEAS_OUT_JSON,
-            LYNIS_LOG_FILE,
-            LYNIS_REPORT_FILE,
-            PATH_LINPEAS,
-            POCS_BASE_PATH,
-        )
 
         form = ft.Column(spacing=15)
 
-        form.controls.append(
-            ft.Dropdown(
-                label="DB Backend",
-                value=DB_BACKEND,
-                options=[
-                    ft.dropdown.Option("orm", "ORM (SQLite)"),
-                    ft.dropdown.Option("simple", "Simple (SQLite)"),
-                    ft.dropdown.Option("memory", "In-Memory"),
-                ],
-                expand=True,
-            )
-        )
+        form.controls.append(ft.Dropdown(
+            label="DB Backend", value=DB_BACKEND,
+            options=[
+                ft.dropdown.Option("orm", "ORM (SQLite)"),
+                ft.dropdown.Option("simple", "Simple (SQLite)"),
+                ft.dropdown.Option("memory", "In-Memory"),
+            ], expand=True,
+        ))
         self._settings_fields["DB_BACKEND"] = form.controls[-1]
 
-        form.controls.append(
-            ft.TextField(
-                label="Isolation Timeout (seconds)",
-                value=str(ISOLATION_TIMEOUT_SEC),
-                keyboard_type=ft.KeyboardType.NUMBER,
-                expand=True,
-            )
-        )
+        form.controls.append(ft.TextField(
+            label="Isolation Timeout (seconds)",
+            value=str(ISOLATION_TIMEOUT_SEC),
+            keyboard_type=ft.KeyboardType.NUMBER,
+            expand=True,
+        ))
         self._settings_fields["ISOLATION_TIMEOUT_SEC"] = form.controls[-1]
 
-        form.controls.append(ft.Switch(label="Allow Host Execution (risky)", value=ALLOW_HOST_EXECUTION))
+        form.controls.append(ft.Switch(
+            label="Allow Host Execution (risky)", value=ALLOW_HOST_EXECUTION
+        ))
         self._settings_fields["ALLOW_HOST_EXECUTION"] = form.controls[-1]
 
         form.controls.append(ft.Divider())
-        form.controls.append(ft.Text("File Paths", size=16, weight=ft.FontWeight.BOLD))
+        form.controls.append(ft.Text(
+            "File Paths", size=16, weight=ft.FontWeight.BOLD
+        ))
 
         path_fields = [
             ("CISA_KEV_PATH", CISA_KEV_PATH, "CISA KEV Path"),
@@ -178,7 +167,8 @@ class GUIApp:
         ]
 
         for key, value, label in path_fields:
-            form.controls.append(ft.TextField(label=label, value=value, expand=True))
+            form.controls.append(ft.TextField(
+                label=label, value=value, expand=True))
             self._settings_fields[key] = form.controls[-1]
 
         return form
@@ -189,26 +179,25 @@ class GUIApp:
 
             updates = {
                 "DB_BACKEND": f'"{self._settings_fields["DB_BACKEND"].value}"',
-                "ISOLATION_TIMEOUT_SEC": self._settings_fields["ISOLATION_TIMEOUT_SEC"].value,
-                "ALLOW_HOST_EXECUTION": str(self._settings_fields["ALLOW_HOST_EXECUTION"].value),
+                "ISOLATION_TIMEOUT_SEC":
+                    self._settings_fields["ISOLATION_TIMEOUT_SEC"].value,
+                "ALLOW_HOST_EXECUTION":
+                    str(self._settings_fields["ALLOW_HOST_EXECUTION"].value),
             }
 
             for key in [
-                "CISA_KEV_PATH",
-                "LYNIS_REPORT_FILE",
-                "LYNIS_LOG_FILE",
-                "LINPEAS_OUT_JSON",
-                "PATH_LINPEAS",
-                "LES_PATH",
-                "LES_REPORT_PATH",
-                "POCS_BASE_PATH",
+                "CISA_KEV_PATH", "LYNIS_REPORT_FILE", "LYNIS_LOG_FILE",
+                "LINPEAS_OUT_JSON", "PATH_LINPEAS", "LES_PATH",
+                "LES_REPORT_PATH", "POCS_BASE_PATH",
             ]:
                 updates[key] = f'"{self._settings_fields[key].value}"'
 
             update_config_file(config_path, updates)
 
             self._append_log("Settings saved successfully!")
-            self._append_log("Note: Some settings may require restart to take effect")
+            self._append_log(
+                "Note: Some settings may require restart to take effect"
+            )
         except Exception as e:
             self._append_log(f"Error saving settings: {e}")
 
@@ -219,7 +208,8 @@ class GUIApp:
         self.page.add(ft.Text("Generating vulnerability report...", size=24))
 
         log_container = ft.Container(
-            content=self.log, height=360, padding=10, expand=True, alignment=ft.Alignment.CENTER_LEFT
+            content=self.log, height=360, padding=10, expand=True,
+            alignment=ft.Alignment.CENTER_LEFT
         )
         self.page.add(log_container)
 
@@ -230,7 +220,7 @@ class GUIApp:
 
             streamlit_available = False
             try:
-                import streamlit  # noqa: F401
+                import streamlit
 
                 streamlit_available = True
             except (ImportError, ModuleNotFoundError):
@@ -240,19 +230,26 @@ class GUIApp:
                 self._append_log("Launching Streamlit report...")
                 try:
                     subprocess.Popen(
-                        [sys.executable, "-m", "streamlit", "run", str(report_path)],
+                        [
+                            sys.executable, "-m"
+                            "streamlit", "run", str(report_path)
+                        ],
                         stdout=subprocess.PIPE,
                         stderr=subprocess.PIPE,
                         text=True,
                     )
-                    self._append_log("Streamlit report launched in browser at http://localhost:8501")
-                    self._append_log("Close this window to stop the report server")
+                    self._append_log(
+                        "Streamlit report launched in "
+                        "browser at http://localhost:8501")
+                    self._append_log(
+                        "Close this window to stop the report server")
                 except Exception as e:
                     self._append_log(f"Streamlit launch failed: {e}")
                     self._append_log("Falling back to CLI report...")
                     self._run_cli_report()
             else:
-                self._append_log("Streamlit not available, running CLI report...")
+                self._append_log(
+                    "Streamlit not available, running CLI report...")
                 self._run_cli_report()
 
         except Exception as e:
@@ -276,9 +273,6 @@ class GUIApp:
             self._append_log("Report generated (CLI mode)")
         except Exception as e:
             self._append_log(f"CLI report error: {e}")
-            import traceback
-
-            self._append_log(traceback.format_exc())
 
     def _start_local(self, _):
         self.log.controls.clear()
@@ -324,8 +318,7 @@ class GUIApp:
             self._append_log(f"Execution tests error: {e}")
 
     def _save_to_db(self, _):
-        # TODO: call services.save_recon_results() and log count
-        pass
+        pass  # FIXME:
 
     def _get_cell_text(self, v: Any) -> str:
         return flatten_dict_value(v)
@@ -342,14 +335,10 @@ class GUIApp:
 
         return ft.Container(
             content=ft.Text(
-                url,
-                selectable=True,
-                text_align=ft.TextAlign.LEFT,
+                url, selectable=True, text_align=ft.TextAlign.LEFT,
                 color=ft.Colors.BLUE,
                 style=ft.TextStyle(decoration=ft.TextDecoration.UNDERLINE),
-            ),
-            ink=True,
-            on_click=open_url,
+            ), ink=True, on_click=open_url,
         )
 
     def _build_control(self, data):
@@ -362,13 +351,16 @@ class GUIApp:
         return self._build_value(data)
 
     def _build_value(self, value):
-        return ft.Text(str(value), selectable=True, text_align=ft.TextAlign.LEFT)
+        return ft.Text(
+            str(value), selectable=True, text_align=ft.TextAlign.LEFT)
 
     def _build_dict(self, data: dict):
         tiles = []
         for key, value in data.items():
             tile = ft.ExpansionTile(
-                title=ft.Text(str(key), weight=ft.FontWeight.BOLD, text_align=ft.TextAlign.LEFT),
+                title=ft.Text(
+                    str(key), weight=ft.FontWeight.BOLD,
+                    text_align=ft.TextAlign.LEFT),
                 controls=[self._build_control(value)],
             )
             tiles.append(tile)
@@ -380,18 +372,21 @@ class GUIApp:
             return self._build_value("[]")
         if all(isinstance(item, dict) for item in data):
             return self._build_table(data)
-        return ft.Column(controls=[self._build_control(item) for item in data], tight=True)
+        return ft.Column(
+            controls=[self._build_control(item) for item in data],
+            tight=True
+        )
 
     def _build_table(self, data: list[dict]):
         keys = sorted({k for row in data for k in row.keys()})
 
-        columns = [
-            ft.DataColumn(
-                label=ft.Text(key, weight=ft.FontWeight.BOLD, text_align=ft.TextAlign.LEFT),
-                numeric=False,
-            )
-            for key in keys
-        ]
+        columns = [ft.DataColumn(
+            label=ft.Text(
+                key, weight=ft.FontWeight.BOLD,
+                text_align=ft.TextAlign.LEFT
+            ), numeric=False,
+        ) for key in keys]
+
         rows = []
         for row in data:
             cells = []
@@ -400,14 +395,14 @@ class GUIApp:
                 if self._is_url(val):
                     cells.append(ft.DataCell(self._make_link(val)))
                 else:
-                    cells.append(
-                        ft.DataCell(
-                            ft.Text(self._get_cell_text(val), selectable=True, text_align=ft.TextAlign.LEFT)
-                        )
-                    )
+                    cells.append(ft.DataCell(ft.Text(
+                        self._get_cell_text(val),
+                        selectable=True, text_align=ft.TextAlign.LEFT
+                    )))
             rows.append(ft.DataRow(cells=cells))
 
-        return ft.DataTable(columns=columns, rows=rows, expand=True, column_spacing=20)
+        return ft.DataTable(
+            columns=columns, rows=rows, expand=True, column_spacing=20)
 
     def _append_log(self, item):
         control = self._build_control(item)

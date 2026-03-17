@@ -89,7 +89,9 @@ def filter_items_by_date(
     return result
 
 
-def format_timestamp(ts: int, fmt: str = '%Y-%m-%d %H:%M:%S %Z') -> Optional[str]:
+def format_timestamp(
+    ts: int, fmt: str = '%Y-%m-%d %H:%M:%S %Z'
+) -> Optional[str]:
     """format timestamp to string"""
     if ts is None:
         return None
@@ -297,7 +299,7 @@ def chain_get(
     """get nested value using dot notation"""
     keys = path.split(separator)
     current = data
-    
+
     for key in keys:
         if isinstance(current, dict) and key in current:
             current = current[key]
@@ -309,7 +311,7 @@ def chain_get(
                 return default
         else:
             return default
-    
+
     return current
 
 

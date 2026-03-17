@@ -70,7 +70,8 @@ class Vulnerability(Base):
     def to_dict(self) -> Dict[str, Any]:
         """convert to dictionary for json and report"""
         pd = self.published_date.isoformat() if self.published_date else None
-        pmd = self.last_modified_date.isoformat() if self.last_modified_date else None
+        pmd = self.last_modified_date.isoformat() \
+            if self.last_modified_date else None
         crt_at = self.created_at.isoformat() if self.created_at else None
         upd_at = self.updated_at.isoformat() if self.updated_at else None
         return {
@@ -446,7 +447,8 @@ class ThreatIntelligenceORM:
             vuln = session.query(
                 Vulnerability
             ).filter_by(cve_id=cve_id).first()
-            if not vuln: return  # FIXME
+            if not vuln:
+                return  # FIXME
             exploit = Exploit(vulnerability_id=vuln.id, **exploit_data)
             session.add(exploit)
 

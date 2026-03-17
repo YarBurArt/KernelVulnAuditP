@@ -32,6 +32,7 @@ from core import (
     clean_command_string
 )
 
+
 class GitHubExploitSearcher:
     """base search GitHub for CVE xpls/pocs"""
     SEARCH_REPOS = "https://api.github.com/search/repositories"
@@ -182,18 +183,18 @@ class GitHubExploitSearcher:
             r'cc\s+[^\n]+',
             r'clang\s+[^\n]+'
         ]
-        
+
         commands = extract_code_block_commands(
             readme, patterns, languages=['bash', 'sh', 'shell', '']
         )
         if commands:
             return clean_command_string(commands[0])
-        
+
         for pattern in patterns:
             matches = re.findall(pattern, readme, re.IGNORECASE | re.MULTILINE)
             if matches:
                 return clean_command_string(matches[0])
-        
+
         return None
 
     def _extract_test_command(
@@ -221,15 +222,16 @@ class GitHubExploitSearcher:
             matches = re.findall(pattern, readme, re.MULTILINE)
             if matches:
                 return clean_command_string(matches[0])
-        
+
         return None
 
     def _extract_requirements(self, readme: str) -> Optional[str]:
         req_patterns = [REQUIREMENTS_RE, VERSIONS_RE]
-        extracted = extract_section_by_header(readme, req_patterns, max_length=500)
+        extracted = extract_section_by_header(
+            readme, req_patterns, max_length=500)
         if extracted:
             return extracted
-        
+
         kernel_pattern = r'kernel\s+(?:version\s+)?[\d.]+(?:\s*-\s*[\d.]+)?'
         kernel_matches = re.findall(kernel_pattern, readme, re.IGNORECASE)
         if kernel_matches:

@@ -82,11 +82,13 @@ class TestDateParsing(unittest.TestCase):
             {'published': '2024-01-15T00:00:00Z'},
             {'published': '2023-01-15T00:00:00Z'},
         ]
-        result = filter_items_by_date(items, date_field='published', min_timestamp=min_ts)
+        result = filter_items_by_date(
+            items, date_field='published', min_timestamp=min_ts)
         self.assertEqual(len(result), 1)
 
     def test_format_timestamp(self):
-        ts = int(datetime(2024, 1, 15, 10, 30, tzinfo=timezone.utc).timestamp())
+        ts = int(datetime(
+            2024, 1, 15, 10, 30, tzinfo=timezone.utc).timestamp())
         result = format_timestamp(ts)
         self.assertIsNotNone(result)
         self.assertIn('2024', result)
@@ -161,7 +163,8 @@ class TestDictListProcessing(unittest.TestCase):
 
     def test_safe_get_nested_default(self):
         data = {'a': 1}
-        self.assertEqual(safe_get_nested(data, 'b', default='default'), 'default')
+        self.assertEqual(
+            safe_get_nested(data, 'b', default='default'), 'default')
 
 
 class TestTextParsing(unittest.TestCase):
@@ -192,7 +195,8 @@ class TestTextParsing(unittest.TestCase):
     def test_extract_code_block_commands(self):
         text = "```bash\ngcc -O2 test.c -o test\n```"
         patterns = [r'gcc\s+\S+']
-        result = extract_code_block_commands(text, patterns, languages=['bash'])
+        result = extract_code_block_commands(
+            text, patterns, languages=['bash'])
         self.assertGreaterEqual(len(result), 1)
         self.assertIn('gcc', result[0])
 

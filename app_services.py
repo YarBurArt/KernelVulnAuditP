@@ -10,7 +10,10 @@ from core import format_timestamp
 from db import get_db
 from isolate import Isolate
 from recon import LocalRecon, ReconFeeds
-from schemas import FeedsReconResult, LocalReconResult, ReconResult, SecurityRecommendation
+from schemas import (
+    FeedsReconResult, LocalReconResult,
+    ReconResult, SecurityRecommendation
+)
 from sqxpl import GitHubExploitSearcher
 
 
@@ -25,7 +28,9 @@ class AppServices:
         self.isolate = Isolate(timeout=ISOLATION_TIMEOUT_SEC)
         self.isolate.allow_host_execution = ALLOW_HOST_EXECUTION
 
-    def store_security_recommendations(self, recommendations: List[dict]) -> int:
+    def store_security_recommendations(
+        self, recommendations: List[dict]
+    ) -> int:
         """Persist security recommendations in the DB."""
         return self.db.bulk_insert_recommendations(recommendations)
 
@@ -38,7 +43,9 @@ class AppServices:
         les_result: List[dict] = self.lr.get_les_scan_details()
 
         if store_recs and lynis_result:
-            recs = [SecurityRecommendation.from_dict(item).raw_data for item in lynis_result]
+            recs = [SecurityRecommendation.from_dict(
+                item
+            ).raw_data for item in lynis_result]
             self.store_security_recommendations(recs)
 
         return LocalReconResult(
@@ -69,7 +76,8 @@ class AppServices:
         try:
             self.rf.get_kev()
             self.rf.load_kev()
-            print(f"Loaded {len(self.rf.kev_kern_vuln)} kernel-related KEV entries")
+            print(f"Loaded {len(self.rf.kev_kern_vuln)} "
+                  f"kernel-related KEV entries")
         except Exception as e:
             print(f"KEV load error: {e}")
             import traceback
@@ -100,7 +108,8 @@ class AppServices:
                 "date_added": date_added,
                 "due_date": due_date,
                 "required_action": kev_item.get("requiredAction"),
-                "known_ransomware": kev_item.get("knownRansomwareCampaignUse") == "Known",
+                "known_ransomware": kev_item.get(
+                    "knownRansomwareCampaignUse") == "Known",
                 "vendor_project": kev_item.get("vendorProject"),
                 "product": kev_item.get("product"),
                 "notes": kev_item.get("notes", ""),
@@ -144,7 +153,8 @@ class AppServices:
             if entry is None:
                 continue
             entry["pocs"] = []
-            repos = self.poc_searcher.search_repositories(cve_id, max_results=3)
+            repos = self.poc_searcher.search_repositories(
+                cve_id, max_results=3)
             downloads = GitHubExploitSearcher.load_xpls(repos)
             for poc in downloads:
                 summary = self._record_poc_for_cve(cve_id, poc)
@@ -188,10 +198,12 @@ class AppServices:
         context: Dict[str, Any] | None = None,
     ) -> Dict[str, Any] | None:
         metadata = self.rf.get_cve_details(cve_id) or {}
-        description = hint.get("details") or hint.get("title") or metadata.get("description")
+        description = hint.get("details") or hint.get(
+            "title") or metadata.get("description")
         severity = hint.get("severity") or metadata.get("severity")
         raw_source = hint.get("source", "linpeas")
-        normalized_source = "LES" if raw_source == "les" else raw_source.upper()
+        normalized_source = "LES" if raw_source == "les" \
+            else raw_source.upper()
         vuln = {
             "cve_id": cve_id,
             "description": description,
@@ -207,7 +219,9 @@ class AppServices:
             vuln["raw_data"]["context"] = context
         self.db.upsert_vulnerability(vuln)
         if metadata.get("nist_url"):
-            self.db.add_reference(cve_id, metadata["nist_url"], ref_type="ADVISORY", source="NIST")
+            self.db.add_reference(
+                cve_id, metadata["nist_url"], ref_type="ADVISORY",
+                source="NIST")
         return {
             "cve_id": cve_id,
             "description": description,
@@ -216,7 +230,9 @@ class AppServices:
             "sources": [normalized_source],
         }
 
-    def _record_poc_for_cve(self, cve_id: str, poc: Dict[str, Any]) -> Dict[str, Any] | None:
+    def _record_poc_for_cve(
+        self, cve_id: str, poc: Dict[str, Any]
+    ) -> Dict[str, Any] | None:
         exploit_meta = {
             "exploit_type": "PoC",
             "source": "GitHub",
@@ -225,7 +241,8 @@ class AppServices:
         }
         self.db.add_exploit(cve_id, exploit_meta)
         if poc.get("url"):
-            self.db.add_reference(cve_id, poc["url"], ref_type="EXPLOIT", source="GitHub")
+            self.db.add_reference(
+                cve_id, poc["url"], ref_type="EXPLOIT", source="GitHub")
         summary = {
             "url": poc.get("url"),
             "language": poc.get("language"),
@@ -276,10 +293,14 @@ class AppServices:
         }
 
     def _store_sandbox_run(self, cve_id: str, result, command: str) -> None:
-        xpl_hash = result.logs.get("exploit_hash") if hasattr(result, "logs") else ""
-        open_fproc = result.logs.get("open_processes", []) if hasattr(result, "logs") else []
-        open_f = result.logs.get("open_files", []) if hasattr(result, "logs") else []
-        cmd_log = result.logs.get("command") if hasattr(result, "logs") else None
+        xpl_hash = result.logs.get("exploit_hash") \
+            if hasattr(result, "logs") else ""
+        open_fproc = result.logs.get("open_processes", []) \
+            if hasattr(result, "logs") else []
+        open_f = result.logs.get("open_files", []) \
+            if hasattr(result, "logs") else []
+        cmd_log = result.logs.get("command") \
+            if hasattr(result, "logs") else None
         sandbox_data = {
             "sandbox_platform": getattr(result, "execution_mode", "unknown"),
             "run_timestamp": datetime.now(timezone.utc),
@@ -346,9 +367,13 @@ class AppServices:
         stats["security_recommendations"] = rec_stats
         return stats
 
-    def get_security_recommendations(self, category: str | None = None, status: str | None = None, limit: int = 100) -> List[dict]:
+    def get_security_recommendations(
+        self, category: str | None = None,
+        status: str | None = None, limit: int = 100
+    ) -> List[dict]:
         """Get security recommendations with optional filters."""
-        return self.db.get_security_recommendations(category=category, status=status, limit=limit)
+        return self.db.get_security_recommendations(
+            category=category, status=status, limit=limit)
 
     def get_cisa_kev_entries(self, limit: int = 100) -> List[dict]:
         """Get CISA KEV entries from DB."""
@@ -366,8 +391,10 @@ class AppServices:
             "kernel": data["kernel"],
             "system": data["system"],
             "build_date": data["build_date"],
-            "nist_count": len(nist.get("vulnerabilities", [])) if isinstance(nist, dict) else 0,
-            "osv_count": len(osv.get("vulns", [])) if isinstance(osv, dict) else 0,
+            "nist_count": len(nist.get(
+                "vulnerabilities", [])) if isinstance(nist, dict) else 0,
+            "osv_count": len(osv.get(
+                "vulns", [])) if isinstance(osv, dict) else 0,
             "github_count": len(github) if isinstance(github, list) else 0,
         }
 

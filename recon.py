@@ -5,7 +5,7 @@ import os
 import re
 import json
 import platform
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import List, Dict
 
 import httpx
@@ -17,8 +17,7 @@ from config import (
     LES_PATH, LES_REPORT_PATH
 )
 from core import (
-    parse_date_string, filter_items_by_date,
-    strip_ansi_sequences,
+    filter_items_by_date, strip_ansi_sequences,
     parse_key_with_brackets, ensure_list_in_dict, assign_value_by_key_type,
     parse_key_value_pairs
 )
@@ -357,7 +356,7 @@ class LocalRecon:
         if not path.exists():
             print(f"LES report not found: {report}")
             return []
-        
+
         text = path.read_text(encoding="utf-8", errors="ignore")
         results = []
         current = None
