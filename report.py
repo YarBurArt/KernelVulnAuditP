@@ -137,7 +137,7 @@ def get_kernel_info() -> Dict[str, str]:
             "kernel_version": "Unknown",
             "distribution": "Unknown",
             "latest_version": "Unknown",
-            "build_date": None
+            "build_date": ""
         }
 
 

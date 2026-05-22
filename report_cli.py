@@ -134,8 +134,9 @@ class CLIReportRenderer:
                 section += "       Verified\n"
         return section
 
+    @staticmethod
     def _build_references_section(
-        self, references: List[Dict[str, Any]]
+        references: List[Dict[str, Any]]
     ) -> str:
         """Build references section string."""
         if not references:

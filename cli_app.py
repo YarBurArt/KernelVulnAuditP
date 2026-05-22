@@ -1,5 +1,6 @@
 import argparse
 from dataclasses import asdict
+from typing import Any
 
 from app_services import AppServices
 from config import DB_BACKEND
@@ -17,7 +18,7 @@ class CLIApp:
         self, kern_cve_id_ver: str = "6.1.0", save: bool = False
     ) -> None:
         # TODO: check cache first
-        result = self.services.run_full_recon(kern_cve_id_ver)
+        result: dict[str, Any] = self.services.run_full_recon(kern_cve_id_ver)
         self._print_scan_result(asdict(result))
         # TODO: save to DB if requested
 

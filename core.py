@@ -58,7 +58,7 @@ def parse_date_string(date_str: str) -> Optional[datetime]:
 def filter_items_by_date(
     items: List[Dict[str, Any]],
     date_field: str = 'published',
-    min_timestamp: int = None
+    min_timestamp: int | Any = None
 ) -> List[Dict[str, Any]]:
     """filter list of dicts by date field"""
     if min_timestamp is None:
@@ -130,7 +130,7 @@ def flatten_dict_value(value: Any, max_length: int = 500) -> str:
 def merge_dicts_by_key(
     target: Dict[str, Any],
     source: Dict[str, Any],
-    keys: List[str] = None
+    keys: List[str] | Any = None
 ) -> Dict[str, Any]:
     """merge selected keys from source to target"""
     if keys is None:
@@ -186,7 +186,7 @@ def extract_section_by_header(
 def extract_code_block_commands(
     text: str,
     command_patterns: List[str],
-    languages: List[str] = None
+    languages: List[str] | Any= None
 ) -> List[str]:
     """extract commands from markdown code blocks"""
     commands = []
@@ -318,7 +318,7 @@ def chain_get(
 def filter_list_by_pred(
     items: List[Any],
     predicate: Callable,
-    limit: int = None
+    limit: int | Any = None
 ) -> List[Any]:
     """filter list by predicate with optional limit"""
     result = [item for item in items if predicate(item)]
@@ -332,7 +332,7 @@ def group_by_key(
     key: str
 ) -> Dict[str, List[Dict[str, Any]]]:
     """group list of dicts by key"""
-    result = {}
+    result: dict[Any, List[Dict[str, Any]]] = {}
     for item in items:
         group_key = item.get(key)
         if group_key is not None:
