@@ -567,12 +567,14 @@ class ThreatIntelligenceORM:
             if severity:
                 query = query.filter(
                     Vulnerability.severity == severity)
-            if has_exploit:
+            if has_exploit is not None:
                 query = query.filter(
-                    Vulnerability.has_exploit is True)
-            if in_cisa_kev:
+                    Vulnerability.has_exploit == True
+                )
+            if in_cisa_kev is not None:
                 query = query.filter(
-                    Vulnerability.in_cisa_kev is True)
+                    Vulnerability.in_cisa_kev == True
+                )
             if min_criticality is not None:
                 query = query.filter(
                     Vulnerability.criticality_score >= min_criticality)
@@ -755,3 +757,9 @@ class ThreatIntelligenceORM:
     def close(self):
         self.ScopedSession.remove()
         self.engine.dispose()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        self.close()

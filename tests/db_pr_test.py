@@ -4,8 +4,9 @@ from db_pr import SimpleThreatDB
 
 
 @pytest.fixture
-def db():
-    database = SimpleThreatDB()
+def db(tmp_path):
+    db_path = tmp_path / "ti_test.db"
+    database = SimpleThreatDB(db_path=db_path)
     yield database
     database.close()
 

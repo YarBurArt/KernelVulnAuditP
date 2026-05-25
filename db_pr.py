@@ -90,7 +90,7 @@ class SimpleThreatDB:
 
         # References (all links in one table)
         conn.execute("""
-            CREATE TABLE IF NOT EXISTS references (
+            CREATE TABLE IF NOT EXISTS vuln_references (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 vulnerability_id INTEGER NOT NULL,
                 url TEXT NOT NULL,
@@ -100,8 +100,8 @@ class SimpleThreatDB:
             )
         """)
 
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_ref_vuln ON references(vulnerability_id)")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_ref_type ON references(ref_type)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_ref_vuln ON vuln_references(vulnerability_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_ref_type ON vuln_references(ref_type)")
 
         # CISA KEV data
         conn.execute("""
@@ -313,7 +313,7 @@ class SimpleThreatDB:
         """Add reference/link"""
         conn = self._get_conn()
         conn.execute("""
-            INSERT INTO references (vulnerability_id, url, ref_type, source)
+            INSERT INTO vuln_references (vulnerability_id, url, ref_type, source)
             VALUES (?, ?, ?, ?)
         """, (vuln_id, url, ref_type, source))
         conn.commit()
@@ -330,7 +330,7 @@ class SimpleThreatDB:
         """all refs for vuln"""
         conn = self._get_conn()
         cursor = conn.execute(
-            "SELECT * FROM references WHERE vulnerability_id = ?",
+            "SELECT * FROM vuln_references WHERE vulnerability_id = ?",
             (vuln_id,)
         )
         return [dict(row) for row in cursor.fetchall()]

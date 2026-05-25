@@ -119,7 +119,7 @@ class SimpleThreatDBAdapter(ThreatDB):
     Internal methods use integer vuln_id
     """
 
-    def __init__(self, db_path: str = "ti.db"):
+    def __init__(self, db_path):
         from db_pr import SimpleThreatDB
         self._db = SimpleThreatDB(db_path)
 
@@ -213,7 +213,7 @@ class ThreatIntelligenceORMAdapter(ThreatDB):
     ORM uses cve_id strings in add_* methods
     but upsert returns an ORM object, then normalise it to int here."""
 
-    def __init__(self, db_url: str = "sqlite:///ti.db"):
+    def __init__(self, db_url: str):
         from db_orm import ThreatIntelligenceORM
         self._db = ThreatIntelligenceORM(db_url)
 

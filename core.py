@@ -267,27 +267,53 @@ def parse_key_value_pairs(
             result[key.strip()] = value.strip()
     return result
 
-
 def calculate_criticality_score(data: Dict[str, Any]) -> int:
-    """calc criticality score 0-100"""
+    """calc criticality score in range 0..100."""
+
+    def clamp(value: int) -> int:
+        return max(0, min(100, value))
+
+    def as_float(value: Any) -> float:
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return 0.0
+
     score = 0
 
-    if data.get('in_cisa_kev'):
-        score += 40
-        if data.get('known_ransomware'):
-            score += 20
+    cvss = as_float(data.get("cvss_v3_score") or data.get("cvss_v2_score"))
+    severity = (data.get("severity") or "").upper()
 
-    if data.get('has_exploit'):
-        score += 25
-        score += min((data.get('exploit_count') or 0) * 2, 10)
+    if cvss >= 9.0:
+        score += 65
+        score += int((cvss - 9.0) * 10)   # 9.8 -> +8
+    elif cvss >= 7.0:
+        score += 45
+        score += int((cvss - 7.0) * 10)
+    elif cvss >= 4.0:
+        score += 20
+        score += int((cvss - 4.0) * 8)
+    elif cvss > 0:
+        score += int(cvss * 4)
 
-    cvss = data.get('cvss_v3_score') or data.get('cvss_v2_score') or 0
-    score += int(cvss * 2)
+    if severity == "CRITICAL":
+        score += 10
+    elif severity == "HIGH":
+        score += 5
 
-    score += min((data.get('github_refs') or 0) * 3, 15)
-    score += min((data.get('exploitdb_refs') or 0) * 3, 15)
+    if data.get("in_cisa_kev"):
+        score += 20
+        if data.get("known_ransomware"):
+            score += 10
 
-    return min(score, 100)
+    if data.get("has_exploit"):
+        score += 15
+        score += min(int(data.get("exploit_count") or 0) * 2, 10)
+
+    score += min(int(data.get("github_refs") or 0) * 2, 10)
+    score += min(int(data.get("exploitdb_refs") or 0) * 2, 10)
+
+    return clamp(score)
 
 
 def chain_get(

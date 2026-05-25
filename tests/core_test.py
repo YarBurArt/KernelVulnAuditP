@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Tests for core.py - only stdlib (unittest)."""
 import unittest
 from datetime import datetime, timezone
@@ -11,7 +10,6 @@ from core import (
     parse_key_value_pairs, calculate_criticality_score,
     chain_get, filter_list_by_pred, group_by_key, count_by_key,
 )
-
 
 class TestDateParsing(unittest.TestCase):
     """date parsing tests"""

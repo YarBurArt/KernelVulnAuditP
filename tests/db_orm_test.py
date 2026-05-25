@@ -5,8 +5,9 @@ from db_orm import ThreatIntelligenceORM
 
 
 @pytest.fixture
-def db():
-    database = ThreatIntelligenceORM("sqlite:///ti_test.db")
+def db(tmp_path):
+    db_path = tmp_path / "ti_test.db"
+    database = ThreatIntelligenceORM(db_url=f"sqlite:///{db_path}")
     yield database
     database.close()
 
