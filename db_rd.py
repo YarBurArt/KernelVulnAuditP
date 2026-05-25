@@ -131,14 +131,14 @@ class InMemoryThreatDB(ThreatDB):
         vuln['criticality_score'] = calculate_criticality_score(vuln)
 
     def search(
-            self,
-            min_cvss: float | int | None = None,
-            severity: str | None = None,
-            has_exploit: bool | None = None,
-            in_cisa_kev: bool | None = None,
-            min_criticality: int | None = None,
-            limit: int = 100,
-            offset: int = 0,
+        self,
+        min_cvss: float | int | None = None,
+        severity: str | None = None,
+        has_exploit: bool | None = None,
+        in_cisa_kev: bool | None = None,
+        min_criticality: int | None = None,
+        limit: int = 100,
+        offset: int = 0,
     ) -> List[Dict[str, Any]]:
 
         results = []
