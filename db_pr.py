@@ -308,7 +308,7 @@ class SimpleThreatDB:
 
     def _do_add_reference(
         self, vuln_id: int, url: str,
-        ref_type: str = "OTHER", source: str = None
+        ref_type: str = "OTHER", source: str | None = None
     ):
         """Add reference/link"""
         conn = self._get_conn()
@@ -320,7 +320,7 @@ class SimpleThreatDB:
 
     def add_reference(
         self, cve_id: str, url: str,
-        ref_type: str = "OTHER", source: str = None
+        ref_type: str = "OTHER", source: str | None = None
     ) -> None:
         """add reference by cve_id (ORM compat)"""
         vuln_id = self._resolve_vuln_id(cve_id)
@@ -517,14 +517,14 @@ class SimpleThreatDB:
 
     def search(
         self,
-        min_cvss: float = None,
-        severity: str = None,
-        has_exploit: bool = None,
-        in_cisa_kev: bool = None,
-        min_criticality: int = None,
-        vendor: str = None,
-        product: str = None,
-        package_ecosystem: str = None,
+        min_cvss: float | int | None = None,
+        severity: str | None = None,
+        has_exploit: bool | None = None,
+        in_cisa_kev: bool | None = None,
+        min_criticality: int | None = None,
+        vendor: str | None = None,
+        product: str | None = None,
+        package_ecosystem: str | None = None,
         limit: int = 100,
         offset: int = 0
     ) -> List[Dict[str, Any]]:
@@ -701,7 +701,7 @@ class SimpleThreatDB:
         return count
 
     def get_security_recommendations(
-        self, category: str = None, status: str = None,
+        self, category: str | None = None, status: str | None = None,
         limit: int = 100, offset: int = 0
     ) -> List[Dict[str, Any]]:
         """Get security recommendations with optional filters"""
@@ -773,70 +773,3 @@ class SimpleThreatDB:
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.close()
-
-
-if __name__ == "__main__":
-    db = SimpleThreatDB()
-
-    # sample vulnerability
-    vuln_id = db.upsert_vulnerability({
-        'cve_id': 'CVE-2024-1234',
-        'description': 'Critical RCE vulnerability',
-        'published_date': '2024-01-15',
-        'cvss_v3_score': 9.8,
-        'cvss_v3_vector': 'CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H',
-        'severity': 'CRITICAL',
-        'cwe_ids': ['CWE-89', 'CWE-79'],
-        'in_cisa_kev': True,
-        'has_exploit': True,
-        'exploit_count': 2,
-        'github_refs': 3,
-        'sources': ['NIST_NVD', 'CISA_KEV', 'OSV']
-    })
-
-    # add related data (internal methods use vuln_id)
-    db.add_affected_product(vuln_id, {
-        'vendor': 'Apache',
-        'product': 'Struts',
-        'version': '2.5.x'
-    })
-
-    # public API uses cve_id
-    db.add_exploit('CVE-2024-1234', {
-        'exploit_type': 'POC',
-        'source': 'GitHub',
-        'url': 'https://github.com/user/exploit',
-        'verified': True
-    })
-
-    db.add_cisa_kev('CVE-2024-1234', {
-        'date_added': '2024-01-20',
-        'required_action': 'Apply updates',
-        'known_ransomware': True
-    })
-
-    # sample isolate data
-    db.add_sandbox_run('CVE-2024-1234', {
-        'run_timestamp': '2024-01-21T10:30:00', 'sandbox_platform': 'virtme-ng',
-        'exploit_file_hash': 'a1b2c3d4e5f6...', 'execution_success': True,
-        'exit_code': 0,
-        'stdout': 'Exploit executed successfully\nRoot shell obtained\n',
-        'stderr': 'Warning: deprecated syscall\n',
-        'stdin': './xpl\n',
-        'open_processes': ['/bin/sh', '/tmp/xpl', '/bin/nc', 'python3'],
-        'open_files': [
-            '/tmp/exploit',
-            '/tmp/.hidden',
-            '/proc/self/maps',
-            '/etc/passwd'
-        ],
-        'notes': 'Confirmed RCE, spawns reverse shell'
-    })
-
-    critical = db.get_critical(limit=10)
-    print(f"Found {len(critical)} critical vulnerabilities")
-
-    stats = db.get_statistics()
-    print(f"Stats: {stats}")
-
-    db.close()

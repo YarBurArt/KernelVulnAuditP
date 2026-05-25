@@ -347,7 +347,7 @@ def count_by_key(
     key: str
 ) -> Dict[str, int]:
     """count occurrences by key"""
-    result = {}
+    result: dict[Any, int] = {}
     for item in items:
         value = item.get(key)
         if value is not None:
@@ -356,7 +356,7 @@ def count_by_key(
 
 
 def update_config_file(
-    config_path: str,
+    config_path: Path,
     updates: Dict[str, str]
 ) -> None:
     """

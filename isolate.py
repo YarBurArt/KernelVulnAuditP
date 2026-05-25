@@ -52,7 +52,7 @@ class IsolationEnvironment:
     def __init__(self, binary_path: Path, timeout: int = 30):
         self.binary_path = binary_path
         self.timeout = timeout
-        self.logs = {}
+        self.logs: dict[str, str] = {}
 
     def is_available(self) -> bool:
         raise NotImplementedError
@@ -162,8 +162,8 @@ class QEMUEnvironment(IsolationEnvironment):
     def execute(self) -> ExecutionResult:
         start = datetime.now()
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
+        with tempfile.TemporaryDirectory() as tmpdir_s:
+            tmpdir = Path(tmpdir_s)
             initrd_path = tmpdir / 'initrd.cpio'
 
             self._create_initrd(initrd_path)
@@ -223,8 +223,8 @@ class QEMUEnvironment(IsolationEnvironment):
                 )
 
     def _create_initrd(self, output_path: Path):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
+        with tempfile.TemporaryDirectory() as tmpdir_s:
+            tmpdir = Path(tmpdir_s)
 
             init_script = tmpdir / 'init'
             init_script.write_text(
@@ -389,7 +389,7 @@ class CCompiler:
         self.output_dir = output_dir or Path(tempfile.gettempdir())
         self.binary_path = None
 
-    def compile(self, extra_flags: list[str] = None) -> Path:
+    def compile(self, extra_flags: list[str] | None = None) -> Path:
         if not self.source_path.exists():
             raise FileNotFoundError(
                 f'Source file not found: {self.source_path}'

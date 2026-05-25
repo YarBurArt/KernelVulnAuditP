@@ -10,8 +10,8 @@ from db import get_db
 class CLIApp:
     """CLI entrypoints for kernel audit flows."""
 
-    def __init__(self, verbose: bool = False, db=None):
-        self.services = AppServices(db=db)
+    def __init__(self, verbose: bool = False):
+        self.services = AppServices()
         self.verbose = verbose
 
     def run_scan(

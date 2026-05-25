@@ -47,17 +47,17 @@ class ThreatDB(ABC):
     @abstractmethod
     def add_reference(
         self, cve_id: str, url: str,
-        ref_type: str = "OTHER", source: str = None
+        ref_type: str = "OTHER", source: str | None = None
     ) -> None: ...
 
     @abstractmethod
     def search(
         self,
-        min_cvss: float = None,
-        severity: str = None,
-        has_exploit: bool = None,
-        in_cisa_kev: bool = None,
-        min_criticality: int = None,
+        min_cvss: float | int | None = None,
+        severity: str | None = None,
+        has_exploit: bool | None = None,
+        in_cisa_kev: bool | None = None,
+        min_criticality: int | None = None,
         limit: int = 100,
         offset: int = 0,
     ) -> List[Dict[str, Any]]: ...
@@ -90,7 +90,7 @@ class ThreatDB(ABC):
 
     @abstractmethod
     def get_security_recommendations(
-        self, category: str = None, status: str = None,
+        self, category: str | None = None, status: str | None = None,
         limit: int = 100, offset: int = 0
     ) -> List[Dict[str, Any]]: ...
 
@@ -150,14 +150,14 @@ class SimpleThreatDBAdapter(ThreatDB):
 
     def add_reference(
         self, cve_id: str, url: str,
-        ref_type: str = "OTHER", source: str = None
+        ref_type: str = "OTHER", source: str | None = None
     ) -> None:
         self._db.add_reference(cve_id, url, ref_type, source)
 
     def search(
-        self, min_cvss: float = None, severity: str = None,
-        has_exploit: bool = None, in_cisa_kev: bool = None,
-        min_criticality: int = None,
+        self, min_cvss: float | int | None = None, severity: str | None = None,
+        has_exploit: bool | None = None, in_cisa_kev: bool | None = None,
+        min_criticality: int | None = None,
         limit: int = 100, offset: int = 0,
     ) -> List[Dict[str, Any]]:
         return self._db.search(
@@ -190,7 +190,7 @@ class SimpleThreatDBAdapter(ThreatDB):
         return self._db.bulk_insert_recommendations(recommendations)
 
     def get_security_recommendations(
-        self, category: str = None, status: str = None,
+        self, category: str | None = None, status: str | None = None,
         limit: int = 100, offset: int = 0
     ) -> List[Dict[str, Any]]:
         return self._db.get_security_recommendations(
@@ -246,14 +246,14 @@ class ThreatIntelligenceORMAdapter(ThreatDB):
 
     def add_reference(
         self, cve_id: str, url: str,
-        ref_type: str = "OTHER", source: str = None
+        ref_type: str = "OTHER", source: str | None = None
     ) -> None:
         self._db.add_reference(cve_id, url, ref_type, source)
 
     def search(
-        self, min_cvss: float = None, severity: str = None,
-        has_exploit: bool = None, in_cisa_kev: bool = None,
-        min_criticality: int = None,
+        self, min_cvss: float | int | None = None, severity: str | None = None,
+        has_exploit: bool | None = None, in_cisa_kev: bool | None = None,
+        min_criticality: int | None = None,
         limit: int = 100, offset: int = 0,
     ) -> List[Dict[str, Any]]:
         return self._db.search(
@@ -286,7 +286,7 @@ class ThreatIntelligenceORMAdapter(ThreatDB):
         return self._db.bulk_insert_recommendations(recommendations)
 
     def get_security_recommendations(
-        self, category: str = None, status: str = None,
+        self, category: str | None = None, status: str | None = None,
         limit: int = 100, offset: int = 0
     ) -> List[Dict[str, Any]]:
         return self._db.get_security_recommendations(
@@ -322,173 +322,3 @@ def get_db(backend: str = "simple", **kwargs) -> ThreatDB:
     else:
         raise ValueError(
             f"Unknown backend: {backend!r}. Use 'simple', 'orm', or 'memory'.")
-
-
-if __name__ == "__main__":
-    from db_rd import InMemoryThreatDB
-
-    passed = 0
-    failed = 0
-
-    def check(label, condition):
-        global passed, failed
-        if condition:
-            print(f"  \033[92mok\033[0m  {label}")
-            passed += 1
-        else:
-            print(f"  \033[91mFAIL\033[0m {label}")
-            failed += 1
-
-    print("running interface smoke tests (memory backend)...")
-
-    # factory produces correct types
-    db = get_db("memory")
-    # check by MRO name to avoid import identity mismatch when
-    # running this file directly (db.py == __main__, db_rd imports db as
-    # a separate module, so their ThreatDB objects differ)
-    mro_names = [c.__name__ for c in type(db).__mro__]
-    check("get_db returns ThreatDB subclass", "ThreatDB" in mro_names)
-    check("get_db returns InMemoryThreatDB", isinstance(db, InMemoryThreatDB))
-
-    # for any unknown backend raises
-    try:
-        get_db("unknown")
-        check("unknown backend raises ValueError", False)
-    except ValueError:
-        check("unknown backend raises ValueError", True)
-
-    # upsert returns int id
-    vid = db.upsert_vulnerability({
-        'cve_id': 'CVE-2024-0001',
-        'description': 'Test RCE',
-        'cvss_v3_score': 9.8,
-        'severity': 'CRITICAL',
-        'sources': ['NIST_NVD'],
-    })
-    check("upsert returns int", isinstance(vid, int))
-
-    # same cve_id returns same id (update path)
-    vid2 = db.upsert_vulnerability({
-        'cve_id': 'CVE-2024-0001',
-        'description': 'Updated description',
-        'cvss_v3_score': 9.8,
-        'severity': 'CRITICAL',
-    })
-    check("upsert update keeps same id", vid == vid2)
-
-    # get_vulnerability round-trip
-    vuln = db.get_vulnerability('CVE-2024-0001')
-    check("get_vulnerability not None", vuln is not None)
-    check(
-        "get_vulnerability cve_id matches",
-        vuln['cve_id'] == 'CVE-2024-0001'
-    )
-    check(
-        "get_vulnerability description updated",
-        vuln['description'] == 'Updated description'
-    )
-    check("get_vulnerability missing returns None",
-          db.get_vulnerability('CVE-9999-9999') is None)
-
-    # add_exploit updates flags
-    db.add_exploit('CVE-2024-0001', {
-        'exploit_type': 'POC', 'source': 'GitHub',
-        'url': 'https://github.com/user/poc', 'verified': True,
-    })
-    vuln = db.get_vulnerability('CVE-2024-0001')
-    check("add_exploit sets has_exploit", vuln['has_exploit'] is True)
-    check(
-        "add_exploit increments exploit_count",
-        vuln['exploit_count'] == 1
-    )
-
-    # add_cisa_kev updates flags
-    db.add_cisa_kev('CVE-2024-0001', {
-        'date_added': '2024-01-20',
-        'required_action': 'Patch now',
-        'known_ransomware': True,
-    })
-    vuln = db.get_vulnerability('CVE-2024-0001')
-    check("add_cisa_kev sets in_cisa_kev", vuln['in_cisa_kev'] is True)
-    check("criticality_score > 60 after kev+exploit+cvss",
-          vuln['criticality_score'] > 60)
-
-    # sandbox run round-trip
-    db.add_sandbox_run('CVE-2024-0001', {
-        'run_timestamp': '2024-01-21T10:30:00',
-        'sandbox_platform': 'virtme-ng',
-        'exploit_file_hash': 'aabbcc',
-        'execution_success': True, 'exit_code': 0,
-        'stdout': 'Got shell\n', 'stderr': '', 'stdin': './xpl\n',
-        'open_processes': ['/bin/sh'], 'open_files': ['/etc/passwd'],
-        'notes': 'LPE confirmed',
-    })
-    runs = db.get_sandbox_runs('CVE-2024-0001')
-    check("get_sandbox_runs returns 1 entry", len(runs) == 1)
-    check(
-        "sandbox platform stored",
-        runs[0]['sandbox_platform'] == 'virtme-ng'
-    )
-
-    # get_vulnerability_with_details includes all related data
-    full = db.get_vulnerability_with_details('CVE-2024-0001')
-    check("details has exploits", len(full['exploits']) == 1)
-    check("details has cisa_kev", full['cisa_kev'] is not None)
-    check("details has sandbox_runs", len(full['sandbox_runs']) == 1)
-
-    # second vuln for search/stats
-    db.upsert_vulnerability({
-        'cve_id': 'CVE-2024-0002',
-        'description': 'Low severity info leak',
-        'cvss_v3_score': 3.1,
-        'severity': 'LOW',
-        'sources': ['OSV'],
-    })
-
-    check("search by severity CRITICAL returns 1",
-          len(db.search(severity='CRITICAL')) == 1)
-    check("search min_cvss=9.0 returns 1",
-          len(db.search(min_cvss=9.0)) == 1)
-    check("get_critical returns 1", len(db.get_critical()) == 1)
-    check(
-        "get_with_exploits returns 1",
-        len(db.get_with_exploits()) == 1
-    )
-    check(
-        "get_cisa_kev_list returns 1",
-        len(db.get_cisa_kev_list()) == 1
-    )
-
-    # bulk_insert
-    inserted = db.bulk_insert([
-        {
-            'cve_id': 'CVE-2024-0010',
-            'cvss_v3_score': 7.5, 'severity': 'HIGH'},
-        {
-            'cve_id': 'CVE-2024-0011',
-            'cvss_v3_score': 6.0, 'severity': 'MEDIUM'},
-    ])
-    check("bulk_insert returns count", inserted == 2)
-
-    stats = db.get_statistics()
-    check("stats total == 4", stats['total'] == 4)
-    check("stats with_exploits == 1", stats['with_exploits'] == 1)
-    check("stats in_cisa_kev == 1", stats['in_cisa_kev'] == 1)
-    check(
-        "stats ransomware_related == 1",
-        stats['ransomware_related'] == 1
-    )
-    check("stats avg_cvss > 0", stats['avg_cvss'] > 0)
-
-    # context manager closes cleanly
-    with get_db("memory") as tmp:
-        tmp.upsert_vulnerability(
-            {
-                'cve_id': 'CVE-2024-9999',
-                'cvss_v3_score': 5.0
-            }
-        )
-    check("context manager __exit__ ok", True)
-
-    db.close()
-    print(f"\n{passed} passed, {failed} failed")

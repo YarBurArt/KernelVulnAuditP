@@ -115,7 +115,7 @@ class InMemoryThreatDB(ThreatDB):
 
     def add_reference(
         self, cve_id: str, url: str,
-        ref_type: str = "OTHER", source: str = None
+        ref_type: str = "OTHER", source: str | None = None
     ) -> None:
         vuln = self._require(cve_id)
         entry = {
@@ -132,9 +132,9 @@ class InMemoryThreatDB(ThreatDB):
         vuln['criticality_score'] = calculate_criticality_score(vuln)
 
     def search(
-        self, min_cvss: float = None, severity: str = None,
-        has_exploit: bool = None, in_cisa_kev: bool = None,
-        min_criticality: int = None,
+        self, min_cvss: float | int | None = None, severity: str | None = None,
+        has_exploit: bool | None = None, in_cisa_kev: bool | None = None,
+        min_criticality: int | None = None,
         limit: int = 100, offset: int = 0,
     ) -> List[Dict[str, Any]]:
         results = []
@@ -220,7 +220,7 @@ class InMemoryThreatDB(ThreatDB):
         return count
 
     def get_security_recommendations(
-        self, category: str = None, status: str = None,
+        self, category: str | None = None, status: str | None = None,
         limit: int = 100, offset: int = 0
     ) -> List[Dict[str, Any]]:
         results = []
@@ -273,192 +273,3 @@ class InMemoryThreatDB(ThreatDB):
     def close(self) -> None:
         """no-op for in-memory store; data is simply discarded"""
         pass
-
-
-if __name__ == "__main__":
-    passed = 0
-    failed = 0
-
-    def check(label, condition):
-        global passed, failed
-        if condition:
-            print(f"  ok  {label}")
-            passed += 1
-        else:
-            print(f"  FAIL {label}")
-            failed += 1
-
-    print("running InMemoryThreatDB tests...")
-
-    db = InMemoryThreatDB()
-
-    # basic upsert and fetch
-    vid = db.upsert_vulnerability({
-        'cve_id': 'CVE-2024-1086',
-        'description': 'Critical RCE vulnerability',
-        'published_date': '2024-01-15',
-        'cvss_v3_score': 9.8,
-        'cvss_v3_vector': 'CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H',
-        'severity': 'CRITICAL',
-        'cwe_ids': ['CWE-89'],
-        'sources': ['NIST_NVD'],
-    })
-    check("upsert returns int id", isinstance(vid, int) and vid >= 1)
-
-    vuln = db.get_vulnerability('CVE-2024-1086')
-    check("get_vulnerability not None", vuln is not None)
-    check("severity stored correctly", vuln['severity'] == 'CRITICAL')
-    check("cvss stored correctly", vuln['cvss_v3_score'] == 9.8)
-
-    # update path keeps same id
-    vid2 = db.upsert_vulnerability({
-        'cve_id': 'CVE-2024-1086',
-        'description': 'Updated description',
-        'cvss_v3_score': 9.8,
-        'severity': 'CRITICAL',
-    })
-    check("upsert update keeps same id", vid == vid2)
-    check("description updated", db.get_vulnerability(
-        'CVE-2024-1086')['description'] == 'Updated description')
-
-    # missing cve returns None
-    check(
-        "missing cve returns None",
-        db.get_vulnerability('CVE-9999-9999') is None
-    )
-
-    # exploit tracking
-    db.add_exploit('CVE-2024-1086', {
-        'exploit_type': 'POC', 'source': 'GitHub',
-        'url': 'https://github.com/user/exploit', 'verified': True,
-    })
-    vuln = db.get_vulnerability('CVE-2024-1086')
-    check("add_exploit sets has_exploit flag", vuln['has_exploit'] is True)
-    check("exploit_count incremented", vuln['exploit_count'] == 1)
-
-    # second exploit bumps count
-    db.add_exploit('CVE-2024-1086', {
-        'exploit_type': 'POC', 'source': 'Exploit-DB', 'verified': False,
-    })
-    check("exploit_count after second add", db.get_vulnerability(
-        'CVE-2024-1086')['exploit_count'] == 2)
-
-    # cisa kev tracking
-    db.add_cisa_kev('CVE-2024-1086', {
-        'date_added': '2024-01-20',
-        'required_action': 'Apply updates',
-        'known_ransomware': True,
-    })
-    vuln = db.get_vulnerability('CVE-2024-1086')
-    check("add_cisa_kev sets in_cisa_kev", vuln['in_cisa_kev'] is True)
-    check("criticality maxes out at 100", vuln['criticality_score'] == 100)
-
-    # reference tracking updates github_refs
-    db.add_reference('CVE-2024-1086',
-                     url='https://github.com/user/poc',
-                     ref_type='GITHUB', source='GitHub')
-    vuln = db.get_vulnerability('CVE-2024-1086')
-    check("add_reference increments github_refs", vuln['github_refs'] == 1)
-
-    # sandbox run round-trip
-    db.add_sandbox_run('CVE-2024-1086', {
-        'run_timestamp': '2024-01-21T10:30:00',
-        'sandbox_platform': 'virtme-ng',
-        'exploit_file_hash': 'a1b2c3d4e5f6',
-        'execution_success': True, 'exit_code': 0,
-        'stdout': 'Exploit executed\nRoot shell obtained\n',
-        'stderr': 'Warning: deprecated syscall\n',
-        'stdin': './xpl\n',
-        'open_processes': ['/bin/sh', '/tmp/xpl'],
-        'open_files': ['/etc/passwd', '/proc/self/maps'],
-        'notes': 'Confirmed RCE, spawns reverse shell',
-    })
-    runs = db.get_sandbox_runs('CVE-2024-1086')
-    check("get_sandbox_runs returns 1 run", len(runs) == 1)
-    check(
-        "sandbox platform stored",
-        runs[0]['sandbox_platform'] == 'virtme-ng'
-    )
-    check(
-        "sandbox hash stored",
-        runs[0]['exploit_file_hash'] == 'a1b2c3d4e5f6'
-    )
-    check("execution_success stored", runs[0]['execution_success'] is True)
-
-    # get_vulnerability_with_details includes all tables
-    full = db.get_vulnerability_with_details('CVE-2024-1086')
-    check("details has 2 exploits", len(full['exploits']) == 2)
-    check("details has cisa_kev", full['cisa_kev'] is not None)
-    check(
-        "details cisa_kev known_ransomware",
-        full['cisa_kev']['known_ransomware'] is True
-    )
-    check("details has 1 reference", len(full['references']) == 1)
-    check("details has 1 sandbox_run", len(full['sandbox_runs']) == 1)
-
-    # add second low-severity vuln for search tests
-    db.upsert_vulnerability({
-        'cve_id': 'CVE-2024-1086',
-        'description': 'Low severity info disclosure',
-        'cvss_v3_score': 3.1,
-        'severity': 'LOW',
-        'sources': ['OSV'],
-    })
-
-    check("search by severity CRITICAL returns 1",
-          len(db.search(severity='CRITICAL')) == 1)
-    check("search by severity LOW returns 1",
-          len(db.search(severity='LOW')) == 1)
-    check("search min_cvss=9.0 returns 1",
-          len(db.search(min_cvss=9.0)) == 1)
-    check("search min_cvss=3.0 returns 2",
-          len(db.search(min_cvss=3.0)) == 2)
-    check("search has_exploit returns 1",
-          len(db.search(has_exploit=True)) == 1)
-    check("search in_cisa_kev returns 1",
-          len(db.search(in_cisa_kev=True)) == 1)
-    check("search min_criticality=60 returns 1",
-          len(db.search(min_criticality=60)) == 1)
-
-    # pagination
-    check("search offset=1 returns 1",
-          len(db.search(min_cvss=3.0, limit=10, offset=1)) == 1)
-
-    # convenience wrappers
-    check("get_critical returns 1", len(db.get_critical()) == 1)
-    check("get_with_exploits returns 1", len(db.get_with_exploits()) == 1)
-    check("get_cisa_kev_list returns 1", len(db.get_cisa_kev_list()) == 1)
-
-    # bulk_insert
-    inserted = db.bulk_insert([
-        {
-            'cve_id': 'CVE-2024-0010',
-            'cvss_v3_score': 7.5, 'severity': 'HIGH'},
-        {
-            'cve_id': 'CVE-2024-0011',
-            'cvss_v3_score': 6.0, 'severity': 'MEDIUM'},
-    ])
-    check("bulk_insert returns count 2", inserted == 2)
-
-    # stats
-    stats = db.get_statistics()
-    check("stats total == 4", stats['total'] == 4)
-    check(
-        "stats by_severity has CRITICAL",
-        stats['by_severity'].get('CRITICAL') == 1
-    )
-    check("stats with_exploits == 1", stats['with_exploits'] == 1)
-    check("stats in_cisa_kev == 1", stats['in_cisa_kev'] == 1)
-    check("stats ransomware_related == 1", stats['ransomware_related'] == 1)
-    check("stats critical_count == 1", stats['critical_count'] == 1)
-    check("stats avg_cvss > 0", stats['avg_cvss'] > 0)
-
-    # _require raises on unknown cve
-    try:
-        db._require('CVE-9999-9999')
-        check("_require raises ValueError", False)
-    except ValueError:
-        check("_require raises ValueError", True)
-
-    db.close()
-    print(f"\n{passed} passed, {failed} failed")

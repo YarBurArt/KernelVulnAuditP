@@ -23,6 +23,7 @@ from core import (
 )
 
 from lib_tools.peas2json import parse_peass
+from schemas import KernelAuditItem, KernelLPE
 
 
 class LocalRecon:
@@ -95,7 +96,7 @@ class LocalRecon:
         return ".".join(re.split(r"[+-]",
                         platform.release())[0].split(".")[:3])
 
-    def get_kernel_build_date(self, version):
+    def get_kernel_build_date(self, version) -> int | None:
         """get build date by changelog, returns None on error"""
         try:
             major = version.split('.')[0]
@@ -196,7 +197,7 @@ class LocalRecon:
     def extract_lynis_kernel_details(
         self, parsed_data: dict, category_prefix: str = "KRNL",
         type_ent: str = "details"
-    ) -> List[Dict]:
+    ) -> List[KernelAuditItem]:
         """
         Parse dat entries by category and filters it
         """
@@ -298,7 +299,7 @@ class LocalRecon:
 
     def get_lynis_scan_details(
         self, report_path: str = LYNIS_REPORT_FILE
-    ) -> List[Dict]:
+    ) -> List[KernelAuditItem]:
         """lynis facade and filter"""
         try:
             self.run_lynis_audit()
@@ -311,7 +312,7 @@ class LocalRecon:
     def get_linpeas_scan_details(
         self,  output_path: str = "/tmp/linpeas_report.txt",
         json_path: str = "/tmp/linpeas_report.json"
-    ) -> dict:
+    ) -> KernelLPE | dict:
         """linpeas facade"""
         try:
             linpeas = self._find_linpeas()
@@ -337,7 +338,7 @@ class LocalRecon:
             print(f"get_les_scan_details error: {e}")
             return []
 
-    def run_les(self, report_path: str = None) -> bool:
+    def run_les(self, report_path: str | None = None) -> bool:
         """ run Linux Exploit Suggester"""
         cmd = [str(LES_PATH)]  # no additional flags
         dest = Path(report_path)
@@ -524,7 +525,7 @@ class ReconFeeds:
             print(f"OSV search error: {str(e)}")
             return {}
 
-    def get_cve_details(self, cve_id: str) -> dict[str]:
+    def get_cve_details(self, cve_id: str) -> dict:
         """filter CVE metadata using the configured API, need for db"""
         try:
             data = self._cve_org_details(cve_id)
@@ -574,7 +575,7 @@ if __name__ == '__main__':
 
     kernel_version: str = lr.get_kernel_version_simple()
     build_date: int = lr.get_kernel_build_date(kernel_version)
-    lynis_result: List[Dict] = lr.get_lynis_scan_details()
+    lynis_result: List[KernelAuditItem] = lr.get_lynis_scan_details()
     linpeas_result: dict = lr.get_linpeas_scan_details()
     les_result: List[Dict] = lr.get_les_scan_details()
 

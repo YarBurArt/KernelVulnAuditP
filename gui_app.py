@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from core import flatten_dict_value, format_timestamp, update_config_file
+from db import ThreatDB
 
 try:
     import flet as ft
@@ -25,7 +26,7 @@ from config import (
 class GUIApp:
     """Flet-based GUI wrapper."""
 
-    def __init__(self, db=None):
+    def __init__(self, db: ThreatDB):
         self.services = AppServices(db=db)
         self.log = None
         self.page = None

@@ -408,7 +408,7 @@ class ThreatIntelligenceORM:
 
     def add_reference(
         self, cve_id: str, url: str,
-        ref_type: str = "OTHER", source: str = None
+        ref_type: str = "OTHER", source: str | None = None
     ) -> Reference:
         session = self.get_session()
         try:
@@ -550,10 +550,10 @@ class ThreatIntelligenceORM:
             session.close()
 
     def search(
-        self, min_cvss: float = None, severity: str = None,
-        has_exploit: bool = None, in_cisa_kev: bool = None,
-        min_criticality: int = None, vendor: str = None,
-        product: str = None, package_ecosystem: str = None,
+        self, min_cvss: float | int | None = None, severity: str | None = None,
+        has_exploit: bool | None = None, in_cisa_kev: bool | None = None,
+        min_criticality: int | None = None, vendor: str | None = None,
+        product: str | None = None, package_ecosystem: str | None = None,
         limit: int = 100, offset: int = 0
     ) -> List[Dict[str, Any]]:
         """search vulns with filters"""
@@ -697,7 +697,7 @@ class ThreatIntelligenceORM:
         return count
 
     def get_security_recommendations(
-        self, category: str = None, status: str = None,
+        self, category: str | None = None, status: str | None = None,
         limit: int = 100, offset: int = 0
     ) -> List[Dict[str, Any]]:
         """get security recommendations with filters"""
@@ -755,94 +755,3 @@ class ThreatIntelligenceORM:
     def close(self):
         self.ScopedSession.remove()
         self.engine.dispose()
-
-
-if __name__ == "__main__":
-    # only for testing
-    db = ThreatIntelligenceORM("sqlite:///ti_test.db")
-
-    # Add a sample vulnerability
-    vuln = db.upsert_vulnerability({
-        'cve_id': 'CVE-2024-5678',
-        'description': 'Critical SQL injection vulnerability',
-        'published_date': datetime(2024, 1, 15),
-        'cvss_v3_score': 9.8,
-        'cvss_v3_vector': 'CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H',
-        'severity': 'CRITICAL',
-        'cwe_ids': ['CWE-89'],
-        'sources': ['NIST_NVD', 'OSV']
-    })
-
-    print(f"Created vulnerability: {vuln.cve_id} with ID {vuln.id}")
-
-    # Add a sample related data
-    db.add_affected_product('CVE-2024-5678', {
-        'vendor': 'Example Corp',
-        'product': 'Framework',
-        'version': '1.2.3',
-        'package_ecosystem': 'rpm',
-        'package_name': 'example-framework'
-    })
-
-    db.add_exploit('CVE-2024-5678', {
-        'exploit_type': 'POC',
-        'source': 'GitHub',
-        'url': 'https://github.com/user/cve-2024-5678-poc',
-        'verified': True
-    })
-
-    db.add_reference(
-        'CVE-2024-5678',
-        url='https://nvd.nist.gov/vuln/detail/CVE-2024-5678',
-        ref_type='ADVISORY',
-        source='NVD'
-    )
-
-    db.add_cisa_kev('CVE-2024-5678', {
-        'date_added': datetime(2024, 1, 20),
-        'required_action': 'Apply updates immediately',
-        'known_ransomware': True,
-        'vendor_project': 'Example Corp',
-        'product': 'Web Framework'
-    })
-
-    # sample isolate runs
-    s_hash = 'a1b2c3d4e5f67890abcdef1234567890abcdef1234567890abcdef1234567890'
-    db.add_sandbox_run('CVE-2024-5678', {
-        'run_timestamp': datetime(2024, 1, 21, 10, 30),
-        'sandbox_platform': 'virtme-ng',
-        'exploit_file_hash': s_hash,
-        'execution_success': True,
-        'exit_code': 0,
-        'stdout': '''
-            Exploit started...
-            Got shell!
-            # id
-            uid=0(root) gid=0(root) groups=0(root)
-            # whoami
-            root
-        ''',
-        'stderr': 'Warning: deprecated syscall used\n',
-        'stdin': './xpl\n',
-        'open_processes': [
-            '/bin/bash', '/tmp/xpl', '/bin/nc', 'python3'
-        ],
-        'open_files': [
-            '/tmp/xpl', '/tmp/.shell_history', '/proc/self/maps',
-            '/etc/passwd', '/dev/tcp/127.0.0.1/4'],
-        'notes': 'Confirmed LPE'
-    })
-
-    full_data = db.get_vulnerability_with_details('CVE-2024-5678')
-    print(f"""\nFull vulnerability data:
-          Criticality: {full_data['criticality_score']}/100
-          Exploits: {len(full_data['exploits'])}
-          Sandbox Runs: {len(full_data['sandbox_runs'])}
-          In CISA KEV: {full_data['in_cisa_kev']}""")
-
-    stats = db.get_statistics()
-    print(f"\nDatabase statistics: {stats}")
-    critical = db.get_critical(limit=10)
-    print(f"\nFound {len(critical)} critical vulnerabilities")
-
-    db.close()

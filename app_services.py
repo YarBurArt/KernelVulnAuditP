@@ -7,12 +7,12 @@ from typing import Any, Dict, List
 
 from config import ALLOW_HOST_EXECUTION, DB_BACKEND, ISOLATION_TIMEOUT_SEC
 from core import format_timestamp
-from db import get_db
+from db import get_db, ThreatDB
 from isolate import Isolate
 from recon import LocalRecon, ReconFeeds
 from schemas import (
     FeedsReconResult, LocalReconResult,
-    ReconResult, SecurityRecommendation
+    ReconResult, SecurityRecommendation, KernelAuditItem, KernelLPE, LesCVEItem
 )
 from sqxpl import GitHubExploitSearcher
 
@@ -20,7 +20,7 @@ from sqxpl import GitHubExploitSearcher
 class AppServices:
     """Service layer shared by CLI and GUI flows."""
 
-    def __init__(self, db: str | None = None):
+    def __init__(self, db: ThreatDB):
         self.lr = LocalRecon()
         self.rf = ReconFeeds()
         self.db = db or get_db(DB_BACKEND)
@@ -34,13 +34,13 @@ class AppServices:
         """Persist security recommendations in the DB."""
         return self.db.bulk_insert_recommendations(recommendations)
 
-    def run_local_recon(self, store_recs: bool = False) -> dict:
+    def run_local_recon(self, store_recs: bool = False) -> LocalReconResult:
         """Run local recon and optionally store recommendations."""
         kernel: str = self.lr.get_kernel_version_simple()
-        build_date: str = self.lr.get_kernel_build_date(kernel)
-        lynis_result: List[dict] = self.lr.get_lynis_scan_details()
-        linpeas_result: dict = self.lr.get_linpeas_scan_details()
-        les_result: List[dict] = self.lr.get_les_scan_details()
+        build_date: int = self.lr.get_kernel_build_date(kernel)
+        lynis_result: List[KernelAuditItem] = self.lr.get_lynis_scan_details()
+        linpeas_result: KernelLPE = self.lr.get_linpeas_scan_details()
+        les_result: list[LesCVEItem] = self.lr.get_les_scan_details()
 
         if store_recs and lynis_result:
             recs = [SecurityRecommendation.from_dict(
@@ -204,7 +204,7 @@ class AppServices:
         raw_source = hint.get("source", "linpeas")
         normalized_source = "LES" if raw_source == "les" \
             else raw_source.upper()
-        vuln = {
+        vuln: dict[str, Any] = {
             "cve_id": cve_id,
             "description": description,
             "cvss_v3_score": metadata.get("cvss_v3_score"),
