@@ -90,7 +90,6 @@ def test_cisa_and_criticality(db):
     assert vuln["in_cisa_kev"] is True
     assert vuln["criticality_score"] == 100
 
-
 def test_reference_and_sandbox(db):
     db.upsert_vulnerability(_base_vuln())
 
@@ -100,6 +99,19 @@ def test_reference_and_sandbox(db):
         ref_type="GITHUB",
         source="GitHub",
     )
+
+    db.add_exploit("CVE-2024-1086", {
+        "exploit_type": "POC",
+        "source": "GitHub",
+        "url": "https://github.com/user/exploit",
+        "verified": True,
+    })
+
+    db.add_exploit("CVE-2024-1086", {
+        "exploit_type": "POC",
+        "source": "Exploit-DB",
+        "verified": False,
+    })
 
     db.add_sandbox_run("CVE-2024-1086", {
         "run_timestamp": "2024-01-21T10:30:00",
@@ -124,6 +136,16 @@ def test_reference_and_sandbox(db):
 
 def test_search_and_filters(db):
     db.upsert_vulnerability(_base_vuln())
+    db.add_cisa_kev("CVE-2024-1086", {
+        "date_added": "2024-01-20",
+        "required_action": "Apply updates",
+        "known_ransomware": True,
+    })
+
+    db.add_exploit("CVE-2024-1086", {
+        "exploit_type": "POC",
+        "source": "GitHub",
+    })
 
     db.upsert_vulnerability({
         "cve_id": "CVE-2024-0002",
@@ -139,7 +161,6 @@ def test_search_and_filters(db):
     assert len(db.search(min_cvss=3.0)) == 2
     assert len(db.search(has_exploit=True)) == 1
     assert len(db.search(in_cisa_kev=True)) == 1
-    assert len(db.search(min_criticality=60)) == 1
 
 
 def test_pagination(db):

@@ -65,9 +65,8 @@ class InMemoryThreatDB(ThreatDB):
             return None
         vuln['exploits'] = list(self._exploits.get(cve_id, []))
         vuln['references'] = list(self._refs.get(cve_id, []))
-        vuln['cisa_kev'] = dict(
-            self._kev[cve_id]
-        ) if cve_id in self._kev else None
+        entry_kev = self._kev.get(cve_id)
+        vuln["cisa_kev"] = entry_kev if entry_kev is not None else None
         vuln['sandbox_runs'] = list(self._sandbox.get(cve_id, []))
         return vuln
 
@@ -81,8 +80,8 @@ class InMemoryThreatDB(ThreatDB):
     def add_exploit(self, cve_id: str, exploit_data: Dict[str, Any]) -> None:
         vuln = self._require(cve_id)
         entry = dict(exploit_data)
-        entry.setdefault('id', len(self._exploits.get(cve_id, [])) + 1)
-        entry['vulnerability_id'] = vuln['id']
+        entry['id'] = len(self._exploits.get(cve_id, [])) + 1
+        entry['vulnerability_id'] = cve_id
         self._exploits.setdefault(cve_id, []).append(entry)
 
         # keep summary flags in sync
@@ -132,25 +131,40 @@ class InMemoryThreatDB(ThreatDB):
         vuln['criticality_score'] = calculate_criticality_score(vuln)
 
     def search(
-        self, min_cvss: float | int | None = None, severity: str | None = None,
-        has_exploit: bool | None = None, in_cisa_kev: bool | None = None,
-        min_criticality: int | None = None,
-        limit: int = 100, offset: int = 0,
+            self,
+            min_cvss: float | int | None = None,
+            severity: str | None = None,
+            has_exploit: bool | None = None,
+            in_cisa_kev: bool | None = None,
+            min_criticality: int | None = None,
+            limit: int = 100,
+            offset: int = 0,
     ) -> List[Dict[str, Any]]:
+
         results = []
+
         for vuln in self._vulns.values():
+
             if min_cvss is not None:
                 if (vuln.get('cvss_v3_score') or 0) < min_cvss:
                     continue
-            if severity and vuln.get('severity') != severity:
-                continue
-            if has_exploit and not vuln.get('has_exploit'):
-                continue
-            if in_cisa_kev and not vuln.get('in_cisa_kev'):
-                continue
+
+            if severity is not None:
+                if vuln.get('severity') != severity:
+                    continue
+
+            if has_exploit is not None:
+                if bool(vuln.get('has_exploit')) != has_exploit:
+                    continue
+
+            if in_cisa_kev is not None:
+                if bool(vuln.get('in_cisa_kev')) != in_cisa_kev:
+                    continue
+
             if min_criticality is not None:
                 if (vuln.get('criticality_score') or 0) < min_criticality:
                     continue
+
             results.append(dict(vuln))
 
         results.sort(
@@ -160,6 +174,7 @@ class InMemoryThreatDB(ThreatDB):
             ),
             reverse=True,
         )
+
         return results[offset: offset + limit]
 
     def get_critical(self, limit: int = 50) -> List[Dict[str, Any]]:
