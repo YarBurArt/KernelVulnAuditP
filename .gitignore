@@ -210,3 +210,5 @@ ti.db
 ti_test.db
 cache_kernel
 known_exploited_vulnerabilities.json
+logs/
+kernel_audit.log

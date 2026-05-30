@@ -1,6 +1,10 @@
 import sys
 
 from config import DB_BACKEND
+from log_conf import setup_logging
+
+setup_logging()
+
 from db import get_db
 
 from cli_app import main_cli
