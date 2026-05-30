@@ -4,7 +4,6 @@ from typing import Any
 
 from app_services import AppServices
 from config import DB_BACKEND
-from db import get_db
 
 
 class CLIApp:
@@ -124,8 +123,7 @@ def main_cli():
 
     args = parser.parse_args()
 
-    db = get_db(args.db)
-    app = CLIApp(verbose=args.verbose, db=db)
+    app = CLIApp(verbose=args.verbose)
 
     if args.list_kev:
         kev_entries = app.services.get_cisa_kev_entries(limit=50)

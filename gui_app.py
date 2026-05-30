@@ -1,10 +1,9 @@
 import subprocess
 import sys
-from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
-from core import flatten_dict_value, format_timestamp, update_config_file
+from core import flatten_dict_value, update_config_file
 from db import ThreatDB
 
 try:

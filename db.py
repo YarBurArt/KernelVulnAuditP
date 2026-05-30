@@ -304,7 +304,7 @@ class ThreatIntelligenceORMAdapter(ThreatDB):
         self._db.close()
 
 
-def get_db(backend: str = "simple", **kwargs) -> ThreatDB:
+def get_db(backend: str = "simple") -> ThreatDB:
     """
     Create a ThreatDB instance for the requested backend.
     backend:
@@ -313,12 +313,12 @@ def get_db(backend: str = "simple", **kwargs) -> ThreatDB:
         "memory" — in-memory via db_rd.InMemoryThreatDB, kwargs: none
     """
     if backend == "simple":
-        return SimpleThreatDBAdapter(**kwargs)
+        return SimpleThreatDBAdapter(db_path="ti.db")  # different for report
     elif backend == "orm":
-        return ThreatIntelligenceORMAdapter(**kwargs)
+        return ThreatIntelligenceORMAdapter(db_url="sqlite:///ti.db")
     elif backend == "memory":
         from db_rd import InMemoryThreatDB
-        return InMemoryThreatDB(**kwargs)
+        return InMemoryThreatDB()
     else:
         raise ValueError(
             f"Unknown backend: {backend!r}. Use 'simple', 'orm', or 'memory'.")

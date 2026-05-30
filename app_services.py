@@ -5,9 +5,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List
 
-from config import ALLOW_HOST_EXECUTION, DB_BACKEND, ISOLATION_TIMEOUT_SEC
+from config import ALLOW_HOST_EXECUTION, ISOLATION_TIMEOUT_SEC
 from core import format_timestamp
-from db import get_db, ThreatDB
+from db import ThreatDB
 from isolate import Isolate
 from recon import LocalRecon, ReconFeeds
 from schemas import (
@@ -23,7 +23,7 @@ class AppServices:
     def __init__(self, db: ThreatDB):
         self.lr = LocalRecon()
         self.rf = ReconFeeds()
-        self.db = db or get_db(DB_BACKEND)
+        self.db = db
         self.poc_searcher = GitHubExploitSearcher()
         self.isolate = Isolate(timeout=ISOLATION_TIMEOUT_SEC)
         self.isolate.allow_host_execution = ALLOW_HOST_EXECUTION

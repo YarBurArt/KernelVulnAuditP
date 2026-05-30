@@ -6,7 +6,7 @@ from db_pr import SimpleThreatDB
 @pytest.fixture
 def db(tmp_path):
     db_path = tmp_path / "ti_test.db"
-    database = SimpleThreatDB(db_path=db_path)
+    database = SimpleThreatDB(db_path=str(db_path))  # sqlite3.connect type
     yield database
     database.close()
 
