@@ -383,13 +383,32 @@ class GUIApp:
         self._create_nav_bar()
         self._initialize_scan_state()
 
+        recon_group = ft.Container(
+            content=ft.Row([
+                ft.ElevatedButton("Local Recon", on_click=self._start_local,
+                    style=ft.ButtonStyle(
+                        shape=ft.RoundedRectangleBorder(radius=2)
+                    ),
+                ),
+                ft.ElevatedButton(
+                    "TI Feeds",
+                    on_click=self._start_feeds,
+                    style=ft.ButtonStyle(
+                        shape=ft.RoundedRectangleBorder(radius=2)
+                    ),
+                ),],
+                spacing=8,
+            ),
+            padding=ft.padding.symmetric(horizontal=8, vertical=6),
+            border=ft.border.all(1, ft.Colors.OUTLINE_VARIANT),
+            border_radius=2,
+            bgcolor=ft.Colors.SURFACE_CONTAINER_LOW,
+        )
+
         # Minimal action bar
         actions_row = ft.Row(
             [
-                ft.ElevatedButton("Local Recon", on_click=self._start_local,
-                                  style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=2))),
-                ft.ElevatedButton("TI Feeds", on_click=self._start_feeds,
-                                  style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=2))),
+                recon_group,
                 ft.ElevatedButton("Full Cycle", on_click=self._start_recon,
                                   style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=2))),
                 ft.ElevatedButton("Exec Tests", on_click=self._run_execution_tests,
@@ -427,7 +446,8 @@ class GUIApp:
                 )])
             ],
         ))
-        self.page.add(actions_row, metrics_panel, self.scan_tabs)
+        separator = ft.Container(height=1,bgcolor=ft.Colors.BLACK,padding=0, margin=0)
+        self.page.add(separator, actions_row, metrics_panel, self.scan_tabs)
         self.page.update()
 
     def _log_terminal(self, message: str, level: str = "INFO"):
