@@ -242,7 +242,8 @@ class QEMUEnvironment(IsolationEnvironment):
                 capture_output=True
             )
 
-    def _find_kernel(self) -> Optional[Path]:
+    @staticmethod
+    def _find_kernel() -> Optional[Path]:
         kernel_paths = [
             '/boot/vmlinuz',
             f'/boot/vmlinuz-{os.uname().release}',
@@ -257,8 +258,11 @@ class QEMUEnvironment(IsolationEnvironment):
             vmlinuz_files = sorted(boot_dir.glob('vmlinuz-*'), reverse=True)
             if vmlinuz_files:
                 return vmlinuz_files[0]
+        else:
+            return None
 
-    def _get_kernel_cmdline(self) -> str:
+    @staticmethod
+    def _get_kernel_cmdline() -> str:
         base_params = [
             'console=ttyS0', 'quiet',
             'loglevel=3', 'panic=-1', 'init=/init',]
@@ -426,13 +430,13 @@ class Isolate:
         self,
         source_path: Path,
         compile_flags: Optional[list[str]] = None
-    ) -> ExecutionResult:
+    ) -> ExecutionResult | None:
         compiler = CCompiler(source_path)
         binary_path = compiler.compile(compile_flags)
 
         return self.run_binary(binary_path)
 
-    def run_binary(self, binary_path: Path) -> ExecutionResult:
+    def run_binary(self, binary_path: Path) -> ExecutionResult | None:
         environments = [
             VirtmeNGEnvironment(binary_path, self.timeout),
             QEMUEnvironment(binary_path, self.timeout),
@@ -446,7 +450,7 @@ class Isolate:
         if not self.allow_host_execution:
             if not self._ask_user_permission():
                 print('No virtualization available and host execution denied')
-                return  # FIXME
+                return None  # FIXME
 
         print('Executing on host system', file=sys.stderr)
         host_env = HostEnvironment(binary_path, self.timeout)

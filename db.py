@@ -1,6 +1,8 @@
 from abc import ABC, abstractmethod
 from typing import List, Dict, Any, Optional
 
+from schemas import SecurityRecommendation
+
 
 class ThreatDB(ABC):
     """
@@ -85,7 +87,7 @@ class ThreatDB(ABC):
 
     @abstractmethod
     def bulk_insert_recommendations(
-        self, recommendations: List[Dict[str, Any]]
+        self, recommendations: List[SecurityRecommendation]
     ) -> int: ...
 
     @abstractmethod
@@ -185,7 +187,7 @@ class SimpleThreatDBAdapter(ThreatDB):
         return self._db.add_security_recommendation(rec_data)
 
     def bulk_insert_recommendations(
-        self, recommendations: List[Dict[str, Any]]
+        self, recommendations: List[SecurityRecommendation]
     ) -> int:
         return self._db.bulk_insert_recommendations(recommendations)
 
@@ -281,7 +283,7 @@ class ThreatIntelligenceORMAdapter(ThreatDB):
         return self._db.add_security_recommendation(rec_data)
 
     def bulk_insert_recommendations(
-        self, recommendations: List[Dict[str, Any]]
+        self, recommendations: List[SecurityRecommendation]
     ) -> int:
         return self._db.bulk_insert_recommendations(recommendations)
 

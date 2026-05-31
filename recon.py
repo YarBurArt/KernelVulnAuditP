@@ -4,6 +4,7 @@ import subprocess
 import os
 import re
 import json
+import logging
 import platform
 from datetime import datetime
 from typing import List, Dict
@@ -23,7 +24,9 @@ from core import (
 )
 
 from lib_tools.peas2json import parse_peass
-from schemas import KernelAuditItem, KernelLPE
+from schemas import KernelAuditItem, KernelLPE, LesCVEItem
+
+logger = logging.getLogger(__name__)
 
 
 class LocalRecon:
@@ -38,7 +41,8 @@ class LocalRecon:
         self.kernel_version = self.get_kernel_version()
         self.environment_info = self.get_environment_info()
 
-    def get_kernel_version(self):
+    @staticmethod
+    def get_kernel_version():
         """get kernel version from various sources"""
         kernel_info = {}
 
@@ -60,12 +64,15 @@ class LocalRecon:
             try:
                 with open('/proc/version', 'r') as f:
                     kernel_info['proc_version'] = f.read().strip()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"kernel /proc/version error: {e}")
 
+        logger.info(f"collected kernel version: {kernel_info['kernel_version']}")
+        logger.debug(f"kernel info: {kernel_info}")
         return kernel_info
 
-    def get_environment_info(self):
+    @staticmethod
+    def get_environment_info():
         """get information about the environment"""
         env_info = {}
 
@@ -89,14 +96,18 @@ class LocalRecon:
         home_dir = os.environ.get('HOME', profile_default)
         env_info['home_dir'] = home_dir
 
+        logger.info("collected current environment info")
+        logger.debug(f"env info: {env_info}")
         return env_info
 
-    def get_kernel_version_simple(self):
+    @staticmethod
+    def get_kernel_version_simple():
         """kernel version string"""
         return ".".join(re.split(r"[+-]",
                         platform.release())[0].split(".")[:3])
 
-    def get_kernel_build_date(self, version) -> int | None:
+    @staticmethod
+    def get_kernel_build_date(version) -> int:
         """get build date by changelog, returns None on error"""
         try:
             major = version.split('.')[0]
@@ -112,19 +123,23 @@ class LocalRecon:
                     try:
                         return int(datetime.strptime(
                             date_str, '%a, %d %b %Y').timestamp())
-                    except Exception:
+                    except Exception as e:
+                        logger.debug(f"kernel format build date error 1st: {e}")
                         try:
                             return int(datetime.strptime(
                                 date_str, '%a %b %d %H:%M:%S %Y %z'
                             ).timestamp())
-                        except Exception:
-                            return None
-            return None
+                        except Exception as e:
+                            logger.debug(f"kernel format build date error 2nd: {e}")
+                            return 0
+            logger.warning("get kernel build date error")
+            return 0
         except Exception as e:
-            print(f"get_kernel_build_date error: {e}")
-            return None
+            logger.warning(f"get_kernel_build_date error: {e}")
+            return 0
 
-    def run_lynis_audit(self) -> bool:
+    @staticmethod
+    def run_lynis_audit() -> bool:
         cmd = [
             LYNIS_BINARY, "audit", "system",
             "-Q", "-q", "--no-colors",  # minimal scan
@@ -136,17 +151,20 @@ class LocalRecon:
             subprocess.run(cmd, check=True)
             return True
         except Exception as e:
-            print(e)
+            logger.warning(f"lynis_audit error: {e}")
             return False
 
-    def _dat_parse_key(self, raw_key: str):
+    @staticmethod
+    def _dat_parse_key(raw_key: str):
         return parse_key_with_brackets(raw_key)
 
-    def _dat_ensure_list(self, container, key, value):
+    @staticmethod
+    def _dat_ensure_list(container, key, value):
         ensure_list_in_dict(container, key, value)
 
+    @staticmethod
     def _dat_assign_value(
-        self, results: dict, base: str,
+            results: dict, base: str,
         inner: str | None, value: str
     ) -> None:
         assign_value_by_key_type(results, base, inner, value)
@@ -177,8 +195,9 @@ class LocalRecon:
 
         return results
 
+    @staticmethod
     def _parse_lynis_datl_entry(
-        self, entry: str, category_prefix: str
+            entry: str, category_prefix: str
     ) -> dict | None:
         parts = entry.split("|")
         if len(parts) < 3:
@@ -211,9 +230,11 @@ class LocalRecon:
             if item:
                 results.append(item)
 
+        logger.debug(f"extracted {len(results)} lynis entries: {results}")
         return results
 
-    def _find_linpeas(self) -> str | None:
+    @staticmethod
+    def _find_linpeas() -> str | None:
         """Find linpeas.sh custom script"""
         if path := PATH_LINPEAS:
             if os.path.isfile(path) and os.access(path, os.X_OK):
@@ -245,12 +266,14 @@ class LocalRecon:
 
         return Path(output_path)
 
+    @staticmethod
     def convert_linpeas_to_dict(
-        self, output_path: Path, json_path: Path
+            output_path: Path, json_path: Path
     ) -> dict:
         return parse_peass(str(output_path), None)
 
-    def _extract_basic_info_peas(self, data: dict) -> dict:
+    @staticmethod
+    def _extract_basic_info_peas(data: dict) -> dict:
         info = {}
         for line in data.get("Basic information", {}).get("lines", []):
             text = line.get("clean_text", "").strip()
@@ -266,7 +289,8 @@ class LocalRecon:
                 info.setdefault("findings", []).append(text)
         return info
 
-    def _extract_cves_from_peas(self, sys_info: dict) -> dict:
+    @staticmethod
+    def _extract_cves_from_peas(sys_info: dict) -> dict:
         cves_list = []
         ker = sys_info.get("sections", {}).get("Kernel Exploit Registry", {})
         matched = ker.get("sections", {}).get("Matched CVEs", {})
@@ -276,7 +300,8 @@ class LocalRecon:
                 cves_list.append(text)
         return {"cves": cves_list} if cves_list else {}
 
-    def _extract_kernel_modules_peas(self, sys_info: dict) -> dict:
+    @staticmethod
+    def _extract_kernel_modules_peas(sys_info: dict) -> dict:
         mods_info = {}
         kmi = sys_info.get("sections", {}).get(
             "Kernel Modules Information", {})
@@ -288,14 +313,19 @@ class LocalRecon:
                     mods_info[mod_name] = text
         return {"kernel_modules": mods_info} if mods_info else {}
 
-    def extract_useful_info_peas(self, data: dict) -> dict:
+    def extract_useful_info_peas(self, data: dict) -> KernelLPE:
         useful = {}
         useful.update(self._extract_basic_info_peas(data))
         sys_info = data.get("System Information", {})
         if sys_info:
             useful.update(self._extract_cves_from_peas(sys_info))
             useful.update(self._extract_kernel_modules_peas(sys_info))
-        return useful
+        return KernelLPE(
+            os=useful.get("os", {}),
+            user_groups=useful.get("user_groups", {}),
+            hostname=useful.get("hostname", {}),
+            cves=useful.get("cves", {}),
+        )
 
     def get_lynis_scan_details(
         self, report_path: str = LYNIS_REPORT_FILE
@@ -306,61 +336,66 @@ class LocalRecon:
             parsed: dict = self.parse_lynis_dat_report(report_path)
             return self.extract_lynis_kernel_details(parsed)
         except Exception as e:
-            print(f"get_lynis_scan_details error: {e}")
+            logger.warning(f"get_lynis_scan_details error: {e}")
             return []
 
     def get_linpeas_scan_details(
         self,  output_path: str = "/tmp/linpeas_report.txt",
-        json_path: str = "/tmp/linpeas_report.json"
-    ) -> KernelLPE | dict:
+    ) -> KernelLPE | None:
         """linpeas facade"""
         try:
             linpeas = self._find_linpeas()
             if not linpeas:
-                return {}
+                logger.exception(f"No linpeas found")
+                return None
 
             Path(output_path).unlink(missing_ok=True)
             self.run_linpeas(output_path)
             data: dict = self.convert_linpeas_to_dict(Path(output_path), None)
             return self.extract_useful_info_peas(data)
         except Exception as e:
-            print(f"get_linpeas_scan_details error: {e}")
-            return {}
+            logger.warning(f"get_linpeas_scan_details error: {e}")
 
     def get_les_scan_details(
         self, report_path: str = LES_REPORT_PATH
-    ) -> list[Dict]:
+    ) -> list[LesCVEItem]:
         try:
             self.run_les(report_path)
-            parsed = self.parse_les_report(report_path)
+            parsed: list[LesCVEItem] = self.parse_les_report(report_path)
             return parsed
         except Exception as e:
-            print(f"get_les_scan_details error: {e}")
+            logger.warning(f"get_les_scan_details parse error: {e}")
             return []
 
-    def run_les(self, report_path: str | None = None) -> bool:
+    @staticmethod
+    def run_les(report_path: str | None = None) -> bool:
         """ run Linux Exploit Suggester"""
         cmd = [str(LES_PATH)]  # no additional flags
-        dest = Path(report_path)
+        if report_path:
+            dest = Path(report_path)
+        else:
+            logger.info(f"LES report not found: {report_path}")
+            return False
         try:
             proc = subprocess.run(
                 cmd, check=True, text=True, capture_output=True)
             dest.write_text(proc.stdout, encoding="utf-8")
+            logger.info(f"LES scan completed and saved to: {dest}")
             return True
         except Exception as e:
-            print(e)
+            logger.warning(f"something wrong with LES: {e}")
             return False
 
-    def parse_les_report(self, report=None) -> list[Dict]:
+    def parse_les_report(self, report=None) -> list[LesCVEItem]:
         """Parse LES plain-text output into a list of findings"""
         path = Path(report)
         if not path.exists():
-            print(f"LES report not found: {report}")
+            logger.info(f"LES report not found: {report}")
             return []
 
         text = path.read_text(encoding="utf-8", errors="ignore")
-        results = []
-        current = None
+        results: list[LesCVEItem] = []
+        current: LesCVEItem | None = None
         current_id = None
         for raw_line in text.splitlines():
             line = raw_line.strip()
@@ -371,7 +406,9 @@ class LocalRecon:
                 if current_id:
                     results.append(current)
                 current_id = value["id"]
-                current = {"cve_id": value["id"], "title": value["title"]}
+                current = LesCVEItem(
+                    cve_id=value["cve_id"], title=value["title"]
+                )
                 continue
 
             if current_id is None or key is None:
@@ -380,9 +417,11 @@ class LocalRecon:
         if current_id:
             results.append(current)
 
+        logger.debug("LES report parsed")
         return results
 
-    def _les_strip_ansi(self, text: str) -> str:
+    @staticmethod
+    def _les_strip_ansi(text: str) -> str:
         return strip_ansi_sequences(text)
 
     def _les_parse_line(self, line_c):
@@ -402,30 +441,32 @@ class LocalRecon:
         key, value = line.split(":", 1)
         return key.strip().lower(), value.strip()
 
-    def _les_assign_value(self, current, base, value):
+    @staticmethod
+    def _les_assign_value(current: LesCVEItem, base, value):
         if base == "details":
-            current["details"] = value
+            current.details = value
         elif base == "exposure":
-            current["exposure"] = value
+            current.exposure = value
         elif base == "tags":
-            current["tags"] = [
+            current.tags = [
                 t.strip() for t in value.split(",") if t.strip()
             ]
         elif base in ("download url", "ext-url"):
-            current.setdefault("download_urls", []).append(value)
+            current.download_urls.append(value)
         elif base == "comments":
-            current["comments"] = value
+            current.comments = value
 
 
 class ReconFeeds:
     """
-    get data from cve org and KEV, github search
+    get data from cve org and KEV, GitHub search
     using LocalRecon kernel version
     """
     def __init__(self):
         self.kev_kern_vuln = []
 
-    def get_kev(self):
+    @staticmethod
+    def get_kev():
         """download CISA KEV catalog"""
         res = httpx.get(
             CISA_KEV_URL,
@@ -435,12 +476,12 @@ class ReconFeeds:
         res.raise_for_status()
         with open(CISA_KEV_PATH, 'wb') as f:
             f.write(res.content)
-        print(f"Downloaded KEV catalog: {len(res.content)} bytes")
+        logger.info(f"Downloaded KEV catalog: {len(res.content)} bytes")
 
     def load_kev(self):
         """load CISA KEV catalog and filter for Kernel products"""
         if not os.path.exists(CISA_KEV_PATH):
-            print("KEV catalog not found, downloading...")
+            logger.info("KEV catalog not found, downloading...")
             self.get_kev()
 
         with open(CISA_KEV_PATH, "r") as f:
@@ -452,7 +493,7 @@ class ReconFeeds:
         elif isinstance(data, list):
             vulns = data
         else:
-            print(f"Unexpected KEV format: {type(data)}")
+            logger.warning(f"Unexpected KEV format: {type(data)}")
             return
 
         self.kev_kern_vuln = []
@@ -464,9 +505,12 @@ class ReconFeeds:
             elif vendor and 'linux' in vendor.lower():
                 self.kev_kern_vuln.append(vuln)
 
+        logger.debug(f"KEV vulnerabilities: {len(self.kev_kern_vuln)}")
+
     # TODO: KEV check with build date
-    def github_search(self, kern_version):
-        """ search PoC on the github by kernel version """
+    @staticmethod
+    def github_search(kern_version):
+        """ search PoC on the GitHub by kernel version """
         data = httpx.get(
             GITHUB_API_URL.format(q="cve " + kern_version)
         ).json()
@@ -484,10 +528,12 @@ class ReconFeeds:
 
         return repos
 
-    def _cve_org_details(self, cveID):
+    @staticmethod
+    def _cve_org_details(cveID: str):
         return httpx.get(CVEORG_BASE_URL + cveID).json()
 
-    def _filter_by_date(self, nist_result, min_ts: int) -> List[Dict]:
+    @staticmethod
+    def _filter_by_date(nist_result, min_ts: int) -> List[Dict]:
         if min_ts is None:
             return nist_result.get('vulnerabilities', [])
         return filter_items_by_date(
@@ -505,10 +551,11 @@ class ReconFeeds:
             res_filtered = self._filter_by_date(response.json(), date)
             return res_filtered
         except Exception as e:
-            print(f"NIST search error: {str(e)}")
+            logger.warning(f"NIST search error: {str(e)}")
             return {}
 
-    def osv_search(self, kern_r_version):
+    @staticmethod
+    def osv_search(kern_r_version):
         # Search for vulnerabilities in OSV database
         payload = {
             "version": kern_r_version,
@@ -522,14 +569,15 @@ class ReconFeeds:
             response.raise_for_status()
             return response.json()
         except Exception as e:
-            print(f"OSV search error: {str(e)}")
+            logger.warning(f"OSV search error: {str(e)}")
             return {}
 
     def get_cve_details(self, cve_id: str) -> dict:
         """filter CVE metadata using the configured API, need for db"""
         try:
             data = self._cve_org_details(cve_id)
-        except Exception:
+        except Exception as e:
+            logger.warning(f"{cve_id} get_cve_details error: {str(e)}")
             return {}
         cve_obj = data.get("cve", {})
         descriptions = cve_obj.get("descriptions", [])
@@ -556,6 +604,8 @@ class ReconFeeds:
                 cvss_vector = cvss_data.get("vectorString")
                 break
 
+        logger.info(f"found {cve_id} CVSS score: {cvss_score}")
+        logger.debug(f"found {cve_id} details raw data: {data}")
         return {
             "description": description,
             "cvss_v3_score": cvss_score,
@@ -574,10 +624,10 @@ if __name__ == '__main__':
           f" System: {lr.environment_info.get('system')}")
 
     kernel_version: str = lr.get_kernel_version_simple()
-    build_date: int = lr.get_kernel_build_date(kernel_version)
+    build_date: int | None = lr.get_kernel_build_date(kernel_version)
     lynis_result: List[KernelAuditItem] = lr.get_lynis_scan_details()
-    linpeas_result: dict = lr.get_linpeas_scan_details()
-    les_result: List[Dict] = lr.get_les_scan_details()
+    linpeas_result: KernelLPE | None = lr.get_linpeas_scan_details()
+    les_result: List[LesCVEItem] = lr.get_les_scan_details()
 
     print("Local tools")
     print(json.dumps(lynis_result, indent=2))

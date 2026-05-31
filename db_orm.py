@@ -1,3 +1,4 @@
+import logging
 from sqlalchemy import (
     create_engine, Column, Integer, String,
     Float, Boolean, Text, DateTime,
@@ -15,6 +16,7 @@ from core import calculate_criticality_score
 
 
 Base = declarative_base()
+logger = logging.getLogger(__name__)
 
 
 class Vulnerability(Base):
@@ -686,7 +688,7 @@ class ThreatIntelligenceORM:
             session.close()
 
     def bulk_insert_recommendations(
-        self, recommendations: List[Dict[str, Any]]
+        self, recommendations: List[SecurityRecommendation]
     ) -> int:
         """bulk insert security recommendations"""
         count = 0
@@ -695,7 +697,7 @@ class ThreatIntelligenceORM:
                 self.add_security_recommendation(rec)
                 count += 1
             except Exception as e:
-                print(f"Error inserting rec {rec.get('test_id')}: {e}")
+                logger.warning(f"Error inserting rec {rec.get('test_id')}: {e}")
         return count
 
     def get_security_recommendations(

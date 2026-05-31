@@ -4,25 +4,25 @@ from typing import Any
 
 from app_services import AppServices
 from config import DB_BACKEND
+from db import ThreatDB
+from schemas import ReconResult
 
 
 class CLIApp:
     """CLI entrypoints for kernel audit flows."""
 
-    def __init__(self, verbose: bool = False):
-        self.services = AppServices()
+    def __init__(self, db: ThreatDB, verbose: bool = False):
+        self.services = AppServices(db=db)
         self.verbose = verbose
 
-    def run_scan(
-        self, kern_cve_id_ver: str = "6.1.0", save: bool = False
-    ) -> None:
+    def run_scan(self) -> None:
         # TODO: check cache first
-        result: dict[str, Any] = self.services.run_full_recon(kern_cve_id_ver)
+        result: ReconResult = self.services.run_full_recon()
         self._print_scan_result(asdict(result))
         # TODO: save to DB if requested
 
-    def run_report(self, cve_id: str = "6.1.0"):
-        report = self.services.generate_report(cve_id)
+    def run_report(self):
+        report = self.services.generate_report()
         stats = self.services.get_statistics()
         kev_count = stats.get("in_cisa_kev", 0)
 
@@ -94,7 +94,7 @@ class CLIApp:
             print(f"  GitHub: {github}")
 
 
-def main_cli():
+def main_cli(db: ThreatDB):
     parser = argparse.ArgumentParser(
         description="Kernel Vulnerability Auditor")
     parser.add_argument(
@@ -123,7 +123,7 @@ def main_cli():
 
     args = parser.parse_args()
 
-    app = CLIApp(verbose=args.verbose)
+    app = CLIApp(db=db, verbose=args.verbose)
 
     if args.list_kev:
         kev_entries = app.services.get_cisa_kev_entries(limit=50)
@@ -159,9 +159,9 @@ def main_cli():
         if len(report.get("entries", [])) > len(entries):
             print(f" ...({len(report['entries']) - len(entries)} more CVEs")
     elif args.scan:
-        app.run_scan(args.cve, save=args.save)
+        app.run_scan()
     elif args.report:
-        app.run_report(args.cve)
+        app.run_report()
     else:
         print(
             "This tool checks the practical functionality of"

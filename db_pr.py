@@ -1,9 +1,14 @@
+import logging
 import sqlite3
 import json
 from typing import List, Dict, Any, Optional
 from contextlib import contextmanager
 
 from core import calculate_criticality_score
+from db_orm import SecurityRecommendation
+
+
+logger = logging.getLogger(__name__)
 
 
 class SimpleThreatDB:
@@ -688,7 +693,7 @@ class SimpleThreatDB:
         return cursor.lastrowid
 
     def bulk_insert_recommendations(
-        self, recommendations: List[Dict[str, Any]]
+        self, recommendations: List[SecurityRecommendation]
     ) -> int:
         """Bulk insert security recommendations"""
         count = 0
@@ -697,7 +702,7 @@ class SimpleThreatDB:
                 self.add_security_recommendation(rec)
                 count += 1
             except Exception as e:
-                print(f"Error inserting rec {rec.get('test_id')}: {e}")
+                logger.warning(f"Error inserting rec {rec.get('test_id')}: {e}")
         return count
 
     def get_security_recommendations(

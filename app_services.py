@@ -2,6 +2,7 @@ import os
 import shlex
 import logging
 import tempfile
+from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List
@@ -33,7 +34,7 @@ class AppServices:
         self.isolate.allow_host_execution = ALLOW_HOST_EXECUTION
 
     def store_security_recommendations(
-        self, recommendations: List[dict]
+        self, recommendations: list[SecurityRecommendation]
     ) -> int:
         """Persist security recommendations in the DB."""
         return self.db.bulk_insert_recommendations(recommendations)
@@ -45,22 +46,18 @@ class AppServices:
         logger.info(f"Local recon started in context {kernel} {build_date}")
         lynis_result: List[KernelAuditItem] = self.lr.get_lynis_scan_details()
         logger.info(f"Lynis scan completed: {len(lynis_result)}")
-        linpeas_result: KernelLPE = self.lr.get_linpeas_scan_details()
+        linpeas_result: KernelLPE | None = self.lr.get_linpeas_scan_details()
         logger.info(f"LinPEAS scan completed")
         les_result: list[LesCVEItem] = self.lr.get_les_scan_details()
         logger.info(f"LES scan completed: {len(les_result)}")
 
-        if store_recs and lynis_result:
-            recs = [SecurityRecommendation.from_dict(
-                item
-            ).raw_data for item in lynis_result]
-            self.store_security_recommendations(recs)
+        #FIXME: lynis self.store_security_recommendations(recs)
 
         return LocalReconResult(
             system=self.lr.environment_info.get("system", ""),
             build_date=build_date,
             kernel_audit=lynis_result,
-            kernel_lpe=linpeas_result,
+            kernel_lpe=linpeas_result or KernelLPE(),
             kernel=kernel,
             possible_cves=les_result,
         )
@@ -68,7 +65,7 @@ class AppServices:
     def run_feeds_recon(self, store_kev: bool = True) -> dict:
         """Fetch threat-intel feeds and optionally store CISA KEV data."""
         kernel: str = self.lr.get_kernel_version_simple()
-        build_date: str = self.lr.get_kernel_build_date(kernel)
+        build_date: int = self.lr.get_kernel_build_date(kernel)
         logger.debug(f"Search feeds for the kernel {kernel} {build_date}")
 
         if store_kev:
@@ -195,16 +192,19 @@ class AppServices:
     def _collect_kernel_cves(self) -> Dict[str, Dict[str, Any]]:
         logger.info(f"Collecting kernel cves by local scans")
         cves: Dict[str, Dict[str, Any]] = {}
-        linpeas = self.lr.get_linpeas_scan_details()
+        linpeas: KernelLPE | None = self.lr.get_linpeas_scan_details()
+        if linpeas is None:
+            logger.warning("No linpeas scans found")
+            return cves
         logger.info(f"linpeas scan completed")
-        for entry in linpeas.get("cves", []):
+        for entry in linpeas.cves:
             if isinstance(entry, str) and entry:
                 cves.setdefault(entry, {})["source"] = "linpeas"
 
         les_items = self.lr.get_les_scan_details()
         logger.info(f"les scan completed")
         for entry in les_items:
-            cve_id = entry.get("cve_id")
+            cve_id: str = entry.get("cve_id", "")
             if not cve_id:
                 continue
             target = cves.setdefault(cve_id, {})
@@ -413,12 +413,13 @@ class AppServices:
         """Get CISA KEV entries from DB."""
         return self.db.get_cisa_kev_list(limit=limit)
 
-    def generate_report(self, kern_v: str = "6.18.0"):
-        logger.debug(f"generating report for {kern_v}")
-        data = self.run_full_recon(kern_v)
-        return self._format_report(data)
+    def generate_report(self):
+        logger.debug(f"generating base report")
+        data = self.run_full_recon()
+        return self._format_report(asdict(data))
 
-    def _format_report(self, data: dict) -> dict:
+    @staticmethod
+    def _format_report(data: dict) -> dict:
         nist = data.get("nist", {})
         osv = data.get("osv", {})
         github = data.get("github", [])

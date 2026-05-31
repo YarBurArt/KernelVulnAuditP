@@ -19,12 +19,12 @@ def main():
         if flag in sys.argv:
             sys.argv.remove(flag)
 
+    db = get_db(DB_BACKEND)
     if cli_flag:
-        main_cli()
+        main_cli(db=db)
         return
 
     if gui_flag and GUI_E:
-        db = get_db(DB_BACKEND)
         try:
             GUIApp(db=db).run()
         finally:
@@ -38,7 +38,7 @@ def main():
         finally:
             db.close()
     else:
-        main_cli()
+        main_cli(db=db)
 
 
 if __name__ == "__main__":

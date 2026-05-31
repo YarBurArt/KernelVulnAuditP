@@ -1,8 +1,13 @@
+import logging
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timezone
 
 from db import ThreatDB
 from core import calculate_criticality_score
+from db_orm import SecurityRecommendation
+
+
+logger = logging.getLogger(__name__)
 
 
 def _utcnow() -> str:
@@ -223,7 +228,7 @@ class InMemoryThreatDB(ThreatDB):
         return rec['id']
 
     def bulk_insert_recommendations(
-        self, recommendations: List[Dict[str, Any]]
+        self, recommendations: List[SecurityRecommendation]
     ) -> int:
         count = 0
         for rec in recommendations:
@@ -231,7 +236,7 @@ class InMemoryThreatDB(ThreatDB):
                 self.add_security_recommendation(rec)
                 count += 1
             except Exception as e:
-                print(f"Error inserting rec {rec.get('test_id')}: {e}")
+                logger.warning(f"Error inserting rec {rec.get('test_id')}: {e}")
         return count
 
     def get_security_recommendations(
