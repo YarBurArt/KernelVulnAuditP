@@ -9,7 +9,9 @@ LOG_DIR.mkdir(exist_ok=True)
 LOG_FILE = LOG_DIR / "kernel_audit.log"
 
 
-def setup_logging(level: int = logging.INFO) -> None:
+def setup_logging(
+    level: int = logging.INFO
+) -> None:
     root_logger = logging.getLogger()
 
     if root_logger.handlers:

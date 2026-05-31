@@ -51,12 +51,16 @@ class AppServices:
         les_result: list[LesCVEItem] = self.lr.get_les_scan_details()
         logger.info(f"LES scan completed: {len(les_result)}")
 
-        #FIXME: lynis self.store_security_recommendations(recs)
+        recs = [
+            SecurityRecommendation.from_kernel_audit(item)
+            for item in lynis_result
+        ]
 
         return LocalReconResult(
             system=self.lr.environment_info.get("system", ""),
             build_date=build_date,
             kernel_audit=lynis_result,
+            security_recommendations=recs,
             kernel_lpe=linpeas_result or KernelLPE(),
             kernel=kernel,
             possible_cves=les_result,

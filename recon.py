@@ -197,21 +197,28 @@ class LocalRecon:
 
     @staticmethod
     def _parse_lynis_datl_entry(
-            entry: str, category_prefix: str
-    ) -> dict | None:
+        entry: str, category_prefix: str
+    ) -> KernelAuditItem | None:
         parts = entry.split("|")
         if len(parts) < 3:
+            logger.debug(f"lynis entry {entry} does not have 3 parts")
             return None
 
         test_id, category, kv_blob = parts[0], parts[1], parts[2]
         if not test_id.startswith(category_prefix + "-"):
+            logger.debug(f"lynis entry {entry} does not have category {category}")
             return None
 
-        item = {"test_id": test_id, "category": category}
-        for key, value in parse_key_value_pairs(kv_blob).items():
-            item[key] = value
-
-        return item
+        parsed = parse_key_value_pairs(kv_blob)
+        logger.debug(f"lynis entry parsed: {entry}")
+        return KernelAuditItem(
+            test_id=test_id,
+            category=category,
+            desc=parsed.get("desc", ""),
+            field=parsed.get("field", ""),
+            prefval=parsed.get("prefval", ""),
+            value=parsed.get("value", ""),
+        )
 
     def extract_lynis_kernel_details(
         self, parsed_data: dict, category_prefix: str = "KRNL",
@@ -226,7 +233,7 @@ class LocalRecon:
             entries = [entries]
 
         for entry in entries:
-            item = self._parse_lynis_datl_entry(entry, category_prefix)
+            item: KernelAuditItem | None = self._parse_lynis_datl_entry(entry, category_prefix)
             if item:
                 results.append(item)
 
