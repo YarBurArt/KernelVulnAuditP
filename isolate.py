@@ -258,8 +258,7 @@ class QEMUEnvironment(IsolationEnvironment):
             vmlinuz_files = sorted(boot_dir.glob('vmlinuz-*'), reverse=True)
             if vmlinuz_files:
                 return vmlinuz_files[0]
-        else:
-            return None
+        return None
 
     @staticmethod
     def _get_kernel_cmdline() -> str:
@@ -391,9 +390,9 @@ class CCompiler:
     ):
         self.source_path = source_path
         self.output_dir = output_dir or Path(tempfile.gettempdir())
-        self.binary_path = None
+        self.binary_path: Path | None = None
 
-    def compile(self, extra_flags: list[str] | None = None) -> Path:
+    def compile(self, extra_flags: list[str] | None = None) -> Path | None:
         if not self.source_path.exists():
             raise FileNotFoundError(
                 f'Source file not found: {self.source_path}'
@@ -432,9 +431,11 @@ class Isolate:
         compile_flags: Optional[list[str]] = None
     ) -> ExecutionResult | None:
         compiler = CCompiler(source_path)
-        binary_path = compiler.compile(compile_flags)
+        binary_path: Path | None = compiler.compile(compile_flags)
 
-        return self.run_binary(binary_path)
+        if binary_path:
+            return self.run_binary(binary_path)
+        return None
 
     def run_binary(self, binary_path: Path) -> ExecutionResult | None:
         environments = [

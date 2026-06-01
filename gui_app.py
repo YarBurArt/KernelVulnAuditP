@@ -28,7 +28,7 @@ class GUIApp:
     def __init__(self, db: ThreatDB):
         self.services = AppServices(db=db)
         self.log = None
-        self.page = None
+        self.page: ft.Page | None = None
 
     def run(self):
         if not GUI_E:

@@ -539,7 +539,7 @@ class SimpleThreatDB:
         query = "SELECT DISTINCT v.* FROM vulnerabilities v"
         joins = []
         conditions = []
-        params = []
+        params: list[str | int | float] = []
 
         if min_cvss is not None:
             conditions.append("v.cvss_v3_score >= ?")

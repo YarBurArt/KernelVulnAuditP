@@ -7,7 +7,7 @@ import json
 import logging
 import platform
 from datetime import datetime
-from typing import List, Dict
+from typing import List, Dict, Any
 
 import httpx
 from config import (
@@ -148,7 +148,10 @@ class LocalRecon:
         ]
 
         try:
-            subprocess.run(cmd, check=True)
+            subprocess.run(cmd, check=True,
+                stdout = subprocess.DEVNULL,
+                stderr = subprocess.DEVNULL
+            )
             return True
         except Exception as e:
             logger.warning(f"lynis_audit error: {e}")
@@ -174,10 +177,11 @@ class LocalRecon:
         Parse Lynis .dat file (key=value per line or key[]=v1|v2)
         Returns nested dict structure.
         """
-        results = {}
+        results: dict[str, Any] = {}
         path = Path(report_path)
 
         if not path.exists():
+            logger.warning(f"Lynis report file {report_path} does not exist")
             raise FileNotFoundError(
                 f"Lynis report not found at {report_path}")
 
@@ -259,7 +263,7 @@ class LocalRecon:
 
     def run_linpeas(
         self, output_path: str = LINPEAS_OUT_JSON
-    ) -> Path:
+    ) -> Path | None:
         """Run linpeas and save output to specified path"""
         linpeas = self._find_linpeas()
         if not linpeas:
@@ -275,9 +279,9 @@ class LocalRecon:
 
     @staticmethod
     def convert_linpeas_to_dict(
-            output_path: Path, json_path: Path
+        output_path: str, json_path: str = ""
     ) -> dict:
-        return parse_peass(str(output_path), None)
+        return parse_peass(output_path, json_path)
 
     @staticmethod
     def _extract_basic_info_peas(data: dict) -> dict:
@@ -358,7 +362,7 @@ class LocalRecon:
 
             Path(output_path).unlink(missing_ok=True)
             self.run_linpeas(output_path)
-            data: dict = self.convert_linpeas_to_dict(Path(output_path), None)
+            data: dict = self.convert_linpeas_to_dict(output_path=output_path)
             return self.extract_useful_info_peas(data)
         except Exception as e:
             logger.warning(f"get_linpeas_scan_details error: {e}")
@@ -410,7 +414,7 @@ class LocalRecon:
                 continue
             key, value = self._les_parse_line(line)
             if key == "header":
-                if current_id:
+                if current_id and current:
                     results.append(current)
                 current_id = value["id"]
                 current = LesCVEItem(
@@ -420,8 +424,9 @@ class LocalRecon:
 
             if current_id is None or key is None:
                 continue
-            self._les_assign_value(current, key, value)
-        if current_id:
+            if current:
+                self._les_assign_value(current, key, value)
+        if current_id and current:
             results.append(current)
 
         logger.debug("LES report parsed")

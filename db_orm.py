@@ -1,12 +1,14 @@
+from __future__ import annotations
 import logging
 from sqlalchemy import (
-    create_engine, Column, Integer, String,
+    create_engine, Integer, String,
     Float, Boolean, Text, DateTime,
-    ForeignKey, Index, JSON, func
+    ForeignKey, Index, JSON, func,
 )
 from sqlalchemy.orm import (
-    declarative_base, relationship, Session,
-    sessionmaker, scoped_session
+    DeclarativeBase, relationship, Session,
+    sessionmaker, scoped_session,
+    Mapped, mapped_column
 )
 from sqlalchemy.pool import StaticPool
 from datetime import datetime
@@ -15,7 +17,8 @@ from typing import List, Dict, Any, Optional
 from core import calculate_criticality_score
 
 
-Base = declarative_base()
+class Base(DeclarativeBase):
+    pass
 logger = logging.getLogger(__name__)
 
 
@@ -23,51 +26,57 @@ class Vulnerability(Base):
     """Main vulnerability table"""
     __tablename__ = 'vulnerabilities'
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    cve_id = Column(String(50), unique=True, nullable=False, index=True)
-    description = Column(Text)
-    published_date = Column(DateTime)
-    last_modified_date = Column(DateTime)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    cve_id: Mapped[str] = mapped_column(String(50), unique=True, nullable=False, index=True)
+    description: Mapped[str | None] = mapped_column(Text)
+    published_date: Mapped[datetime | None] = mapped_column(DateTime)
+    last_modified_date: Mapped[datetime | None] = mapped_column(DateTime)
 
     # CVSS scores
-    cvss_v2_score = Column(Float)
-    cvss_v3_score = Column(Float, index=True)
-    cvss_v3_vector = Column(String(200))
+    cvss_v2_score: Mapped[float | None] = mapped_column(Float)
+    cvss_v3_score: Mapped[float | None] = mapped_column(Float, index=True)
+    cvss_v3_vector: Mapped[str | None] = mapped_column(String(200))
 
     # Metadata
-    severity = Column(String(20), index=True)  # CRITICAL, HIGH, MEDIUM, LOW
-    cwe_ids = Column(JSON)  # List of CWE IDs
+    severity: Mapped[str | None] = mapped_column(String(20), index=True)  # CRITICAL, HIGH, MEDIUM, LOW
+    cwe_ids: Mapped[list[str] | None] = mapped_column(JSON)  # List of CWE IDs
 
     # flags for quick filtering
-    in_cisa_kev = Column(Boolean, default=False, index=True)
-    has_exploit = Column(Boolean, default=False, index=True)
-    exploit_count = Column(Integer, default=0)
-    github_refs = Column(Integer, default=0)
-    exploitdb_refs = Column(Integer, default=0)
+    in_cisa_kev: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    has_exploit: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    exploit_count: Mapped[int] = mapped_column(Integer, default=0)
+    github_refs: Mapped[int] = mapped_column(Integer, default=0)
+    exploitdb_refs: Mapped[int] = mapped_column(Integer, default=0)
 
-    sources = Column(JSON)  # List of sources: NIST, CISA, OSV, etc.
-    raw_data = Column(JSON)  # Store complete raw API responses
-    criticality_score = Column(Integer, default=0, index=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    sources: Mapped[list[str] | None] = mapped_column(JSON)  # List of sources: NIST, CISA, OSV, etc.
+    raw_data: Mapped[dict[str, Any] | None] = mapped_column(JSON)  # Store complete raw API responses
+    criticality_score: Mapped[int] = mapped_column(Integer, default=0, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     # Relationships
-    affected_products = relationship(
-        "AffectedProduct", back_populates="vulnerability",
-        cascade="all, delete-orphan")
-    references = relationship(
-        "Reference", back_populates="vulnerability",
-        cascade="all, delete-orphan")
-    exploits = relationship(
-        "Exploit", back_populates="vulnerability",
-        cascade="all, delete-orphan")
-    cisa_kev = relationship(
-        "CISAKEVEntry", back_populates="vulnerability",
-        uselist=False, cascade="all, delete-orphan")
-    sandbox_runs = relationship(
-        "SandboxRun", back_populates="vulnerability",
-        cascade="all, delete-orphan")
+    affected_products: Mapped[list[AffectedProduct]] = relationship(
+        back_populates="vulnerability",
+        cascade="all, delete-orphan",
+    )
+    references: Mapped[list[Reference]] = relationship(
+        back_populates="vulnerability",
+        cascade="all, delete-orphan",
+    )
+    exploits: Mapped[list[Exploit]] = relationship(
+        back_populates="vulnerability",
+        cascade="all, delete-orphan",
+    )
+    cisa_kev: Mapped[CISAKEVEntry | None] = relationship(
+        back_populates="vulnerability",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
+    sandbox_runs: Mapped[list[SandboxRun]] = relationship(
+        back_populates="vulnerability",
+        cascade="all, delete-orphan",
+    )
+
 
     def to_dict(self) -> Dict[str, Any]:
         """convert to dictionary for json and report"""
@@ -110,24 +119,26 @@ class AffectedProduct(Base):
     for track also like GNU utils vulns"""
     __tablename__ = 'affected_products'
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    vulnerability_id = Column(
-        Integer, ForeignKey('vulnerabilities.id', ondelete='CASCADE'),
-        nullable=False, index=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    vulnerability_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("vulnerabilities.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
 
     # CPE-style identification
-    vendor = Column(String(200), index=True)
-    product = Column(String(200), index=True)
-    version = Column(String(100))
-    cpe = Column(String(500))
+    vendor: Mapped[str | None] = mapped_column(String(200), index=True)
+    product: Mapped[str | None] = mapped_column(String(200), index=True)
+    version: Mapped[str | None] = mapped_column(String(100))
+    cpe: Mapped[str | None] = mapped_column(String(500))
 
     # OSV-style identification
-    package_ecosystem = Column(String(50), index=True)
-    package_name = Column(String(200), index=True)
+    package_ecosystem: Mapped[str | None] = mapped_column(String(50), index=True)
+    package_name: Mapped[str | None] = mapped_column(String(200), index=True)
 
     # Relationship to vulns
-    vulnerability = relationship(
-        "Vulnerability", back_populates="affected_products")
+    vulnerability: Mapped[Vulnerability] = relationship(back_populates="affected_products")
 
     __table_args__ = (
         Index('idx_vendor_product', 'vendor', 'product'),
@@ -148,19 +159,21 @@ class Reference(Base):
     """any external references and links"""
     __tablename__ = 'references'
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    vulnerability_id = Column(
-        Integer, ForeignKey('vulnerabilities.id', ondelete='CASCADE'),
-        nullable=False, index=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    vulnerability_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("vulnerabilities.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
 
-    url = Column(String(1000), nullable=False)
-    ref_type = Column(String(50), index=True)
+    url: Mapped[str] = mapped_column(String(1000), nullable=False)
+    ref_type: Mapped[str | None] = mapped_column(String(50), index=True)
     # ADVISORY, EXPLOIT, PATCH, GITHUB, EXPLOIT_DB, etc.
-    source = Column(String(100))  # like "GitHub", "Exploit-DB", "NVD"
+    source: Mapped[str | None] = mapped_column(String(100))  # like "GitHub", "Exploit-DB", "NVD"
 
     # Relationship to vulns
-    vulnerability = relationship(
-        "Vulnerability", back_populates="references")
+    vulnerability: Mapped[Vulnerability] = relationship(back_populates="references")
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -176,20 +189,22 @@ class Exploit(Base):
     """known loaded exploits"""
     __tablename__ = 'exploits'
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    vulnerability_id = Column(
-        Integer, ForeignKey('vulnerabilities.id', ondelete='CASCADE'),
-        nullable=False, index=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    vulnerability_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("vulnerabilities.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
 
-    exploit_type = Column(String(50))  # POC, DoS, etc.
-    source = Column(String(100))  # GitHub, Exploit-DB, searchsploit, etc.
-    url = Column(String(1000))
-    verified = Column(Boolean, default=False, index=True)
-    date_published = Column(DateTime)
+    exploit_type: Mapped[str | None] = mapped_column(String(50))  # POC, DoS, etc.
+    source: Mapped[str | None] = mapped_column(String(100))  # GitHub, Exploit-DB, searchsploit, etc.
+    url: Mapped[str | None] = mapped_column(String(1000))
+    verified: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    date_published: Mapped[datetime | None] = mapped_column(DateTime)
 
     # Relationship to vulns
-    vulnerability = relationship(
-        "Vulnerability", back_populates="exploits")
+    vulnerability: Mapped[Vulnerability] = relationship(back_populates="exploits")
 
     def to_dict(self) -> Dict[str, Any]:
         d_pb = self.date_published.isoformat() if self.date_published else None
@@ -205,22 +220,24 @@ class CISAKEVEntry(Base):
     """CISA Known Exploited Vulnerabilities catalog, filtered feed"""
     __tablename__ = 'cisa_kev'
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    vulnerability_id = Column(
-        Integer, ForeignKey('vulnerabilities.id', ondelete='CASCADE'),
-        unique=True, nullable=False, index=True
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    vulnerability_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("vulnerabilities.id", ondelete="CASCADE"),
+        unique=True,
+        nullable=False,
+        index=True,
     )
-    date_added = Column(DateTime)
-    due_date = Column(DateTime)
-    required_action = Column(Text)
-    known_ransomware = Column(Boolean, default=False, index=True)
-    notes = Column(Text)
-    vendor_project = Column(String(200))
-    product = Column(String(200))
+    date_added: Mapped[datetime | None] = mapped_column(DateTime)
+    due_date: Mapped[datetime | None] = mapped_column(DateTime)
+    required_action: Mapped[str | None] = mapped_column(Text)
+    known_ransomware: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    notes: Mapped[str | None] = mapped_column(Text)
+    vendor_project: Mapped[str | None] = mapped_column(String(200))
+    product: Mapped[str | None] = mapped_column(String(200))
 
     # Relationship to vulns
-    vulnerability = relationship(
-        "Vulnerability", back_populates="cisa_kev")
+    vulnerability: Mapped[Vulnerability] = relationship(back_populates="cisa_kev")
 
     def to_dict(self) -> Dict[str, Any]:
         dt_ad = self.date_added.isoformat() if self.date_added else None
@@ -239,27 +256,29 @@ class SandboxRun(Base):
     """execution data for exploits (minimal virtme-ng)"""
     __tablename__ = 'sandbox_runs'
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    vulnerability_id = Column(
-        Integer, ForeignKey('vulnerabilities.id', ondelete='CASCADE'),
-        nullable=False, index=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    vulnerability_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("vulnerabilities.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
 
-    run_timestamp = Column(DateTime)
-    sandbox_platform = Column(String(100))  # virtme-ng, qemu, host
-    exploit_file_hash = Column(String(128), index=True)
+    run_timestamp: Mapped[datetime | None] = mapped_column(DateTime)
+    sandbox_platform: Mapped[str | None] = mapped_column(String(100))  # virtme-ng, qemu, host
+    exploit_file_hash: Mapped[str | None] = mapped_column(String(128), index=True)
     # SHA256 of analyzed file
-    execution_success = Column(Boolean, default=False)
-    exit_code = Column(Integer)
-    stdout = Column(Text)
-    stderr = Column(Text)
-    stdin = Column(Text)
-    open_processes = Column(JSON)  # List of processes running during execution
-    open_files = Column(JSON)  # List of files opened during execution
-    notes = Column(Text)
+    execution_success: Mapped[bool] = mapped_column(Boolean, default=False)
+    exit_code: Mapped[int | None] = mapped_column(Integer)
+    stdout: Mapped[str | None] = mapped_column(Text)
+    stderr: Mapped[str | None] = mapped_column(Text)
+    stdin: Mapped[str | None] = mapped_column(Text)
+    open_processes: Mapped[Any | None] = mapped_column(JSON)  # List of processes running during execution
+    open_files: Mapped[Any | None] = mapped_column(JSON)  # List of files opened during execution
+    notes: Mapped[str | None] = mapped_column(Text)
 
     # Relationship to vulns
-    vulnerability = relationship(
-        "Vulnerability", back_populates="sandbox_runs")
+    vulnerability: Mapped[Vulnerability] = relationship(back_populates="sandbox_runs")
 
     def to_dict(self) -> Dict[str, Any]:
         run_t = self.run_timestamp.isoformat() if self.run_timestamp else None
@@ -280,18 +299,18 @@ class SecurityRecommendation(Base):
     """security recommendations from lynis/hardening checks"""
     __tablename__ = 'security_recommendations'
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    test_id = Column(String(50), nullable=False, index=True)
-    category = Column(String(100), index=True)
-    description = Column(Text)
-    field_name = Column(String(200))
-    expected_value = Column(Text)
-    actual_value = Column(Text)
-    status = Column(String(50), index=True)
-    severity = Column(String(50), index=True)
-    source = Column(String(100))
-    raw_data = Column(JSON)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    test_id: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
+    category: Mapped[str | None] = mapped_column(String(100), index=True)
+    description: Mapped[str | None] = mapped_column(Text)
+    field_name: Mapped[str | None] = mapped_column(String(200))
+    expected_value: Mapped[str | None] = mapped_column(Text)
+    actual_value: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str | None] = mapped_column(String(50), index=True)
+    severity: Mapped[str | None] = mapped_column(String(50), index=True)
+    source: Mapped[str | None] = mapped_column(String(100))
+    raw_data: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -322,6 +341,7 @@ class ThreatIntelligenceORM:
         self.SessionLocal = sessionmaker(
             autocommit=False, autoflush=False, bind=self.engine)
         self.ScopedSession = scoped_session(self.SessionLocal)
+        logger.debug(f"conn setup to TI DB by {db_url}")
 
     def get_session(self) -> Session:
         return self.SessionLocal()
@@ -344,9 +364,12 @@ class ThreatIntelligenceORM:
 
             session.commit()
             session.refresh(vuln)
+            logger.info(f"vulnerability {vuln.id} added to TI DB")
+            logger.debug(f"vulnerability {vuln.id} added to TI DB with: {vuln}")
             return vuln
         except Exception as e:
             session.rollback()
+            logger.error(e)
             raise e
         finally:
             session.close()
@@ -369,6 +392,7 @@ class ThreatIntelligenceORM:
                 Vulnerability
             ).filter_by(cve_id=cve_id).first()
             if not vuln:
+                logger.debug(f"vulnerability {cve_id} not found in TI DB")
                 return None
 
             result = vuln.to_dict()
@@ -381,6 +405,7 @@ class ThreatIntelligenceORM:
             result['cisa_kev'] = kev_stat
             result['sandbox_runs'] = [s.to_dict() for s in vuln.sandbox_runs]
 
+            logger.debug(f"vulnerability {vuln.id} found in TI DB with details: {result}")
             return result
         finally:
             session.close()
@@ -394,16 +419,23 @@ class ThreatIntelligenceORM:
                 Vulnerability
             ).filter_by(cve_id=cve_id).first()
             if not vuln:
+                logger.debug(f"vulnerability {cve_id} not found in TI DB")
                 raise ValueError(f"Vulnerability {cve_id} not found")
 
             product = AffectedProduct(
                 vulnerability_id=vuln.id, **product_data)
             session.add(product)
+
             session.commit()
             session.refresh(product)
+            logger.info(f"vulnerability {cve_id} affected product added to TI DB")
+            logger.debug(
+                f"{cve_id} affected product {product.id} added to TI DB with: {product}"
+            )
             return product
         except Exception as e:
             session.rollback()
+            logger.error(e)
             raise e
         finally:
             session.close()
@@ -418,6 +450,7 @@ class ThreatIntelligenceORM:
                 Vulnerability
             ).filter_by(cve_id=cve_id).first()
             if not vuln:
+                logger.debug(f"vulnerability {cve_id} not found in TI DB")
                 raise ValueError(f"Vulnerability {cve_id} not found")
 
             # Update counts
@@ -434,23 +467,27 @@ class ThreatIntelligenceORM:
             vuln.calculate_criticality()
             session.commit()
             session.refresh(ref)
+            logger.info(f"{cve_id} reference added to TI DB and recalculated criticality")
+            logger.debug(f"{cve_id} reference with: {ref}")
             return ref
         except Exception as e:
             session.rollback()
+            logger.error(e)
             raise e
         finally:
             session.close()
 
     def add_exploit(
         self, cve_id: str, exploit_data: Dict[str, Any]
-    ) -> Exploit:
+    ) -> Optional[Exploit]:
         session = self.get_session()
         try:
             vuln = session.query(
                 Vulnerability
             ).filter_by(cve_id=cve_id).first()
             if not vuln:
-                return  # FIXME
+                logger.warning(f"vulnerability {cve_id} not found in TI DB")
+                raise ValueError(f"Vulnerability {cve_id} not found")
             exploit = Exploit(vulnerability_id=vuln.id, **exploit_data)
             session.add(exploit)
 
@@ -463,6 +500,8 @@ class ThreatIntelligenceORM:
 
             session.commit()
             session.refresh(exploit)
+            logger.info(f"{cve_id} exploit added to TI DB and recalculated criticality")
+            logger.debug(f"{cve_id} exploit with: {exploit}")
             return exploit
         except Exception as e:
             session.rollback()
@@ -472,13 +511,14 @@ class ThreatIntelligenceORM:
 
     def add_cisa_kev(
         self, cve_id: str, kev_data: Dict[str, Any]
-    ) -> CISAKEVEntry:
+    ) -> CISAKEVEntry | None:
         session = self.get_session()
         try:
             vuln = session.query(
                 Vulnerability
             ).filter_by(cve_id=cve_id).first()
             if not vuln:
+                logger.debug(f"vulnerability {cve_id} not found in TI DB")
                 return None
 
             # Check for existing KEV entry
@@ -503,9 +543,12 @@ class ThreatIntelligenceORM:
 
             session.commit()
             session.refresh(kev)
+            logger.info(f"{cve_id} is KEV added to TI DB and recalculated criticality ")
+            logger.debug(f"{cve_id} is KEV with: {kev}")
             return kev
         except Exception as e:
             session.rollback()
+            logger.error(e)
             raise e
         finally:
             session.close()
@@ -520,6 +563,7 @@ class ThreatIntelligenceORM:
                 Vulnerability
             ).filter_by(cve_id=cve_id).first()
             if not vuln:
+                logger.warning(f"vulnerability {cve_id} not found in TI DB")
                 raise ValueError(f"Vulnerability {cve_id} not found")
 
             sandbox_run = SandboxRun(
@@ -527,9 +571,12 @@ class ThreatIntelligenceORM:
             session.add(sandbox_run)
             session.commit()
             session.refresh(sandbox_run)
+            logger.info(f"isolated sandbox run added to TI DB")
+            logger.debug(f"isolated sandbox run with: {sandbox_run}")
             return sandbox_run
         except Exception as e:
             session.rollback()
+            logger.error(e)
             raise e
         finally:
             session.close()
@@ -541,6 +588,7 @@ class ThreatIntelligenceORM:
                 Vulnerability
             ).filter_by(cve_id=cve_id).first()
             if not vuln:
+                logger.debug(f"st1 {cve_id} sandbox runs not found in TI DB")
                 return []
 
             runs = session.query(SandboxRun).filter_by(
@@ -599,7 +647,10 @@ class ThreatIntelligenceORM:
             )
 
             results = query.limit(limit).offset(offset).all()
-            return [v.to_dict() for v in results]
+            ret_res = [v.to_dict() for v in results]
+            logger.info(f"found {len(ret_res)} vulnerabilities")
+            logger.debug(f"search vulnerabilities results: {ret_res}")
+            return ret_res
         finally:
             session.close()
 
@@ -619,7 +670,7 @@ class ThreatIntelligenceORM:
     def get_statistics(self) -> Dict[str, Any]:
         session = self.get_session()
         try:
-            stats = {}
+            stats: dict[str, Any] = {}
 
             stats['total'] = session.query(Vulnerability).count()
             severity_counts = session.query(
@@ -647,6 +698,7 @@ class ThreatIntelligenceORM:
                 func.avg(Vulnerability.cvss_v3_score)).scalar()
             stats['avg_cvss'] = round(avg_cvss, 2) if avg_cvss else 0
 
+            logger.debug(f"TI DB statistics: {stats}")
             return stats
         finally:
             session.close()
@@ -661,28 +713,31 @@ class ThreatIntelligenceORM:
                     self.upsert_vulnerability(vuln_data)
                     count += 1
                 except Exception as e:
-                    print(f"Error inserting {vuln_data.get('cve_id')}: {e}")
+                    logger.error(f"inserting {vuln_data.get('cve_id')}: {e}")
             session.commit()
+            logger.debug(f"bulk insert vulnerabilities completed: {count}")
             return count
         except Exception as e:
             session.rollback()
+            logger.error(e)
             raise e
         finally:
             session.close()
 
     def add_security_recommendation(
-        self, rec_data: Dict[str, Any]
+        self, rec_data: SecurityRecommendation
     ) -> SecurityRecommendation:
         """add security recommendation"""
         session = self.get_session()
         try:
-            rec = SecurityRecommendation(**rec_data)
-            session.add(rec)
+            session.add(rec_data)
             session.commit()
-            session.refresh(rec)
-            return rec
+            session.refresh(rec_data)
+            logger.debug(f"result data: {rec_data}")
+            return rec_data
         except Exception as e:
             session.rollback()
+            logger.error(e)
             raise e
         finally:
             session.close()
@@ -697,7 +752,7 @@ class ThreatIntelligenceORM:
                 self.add_security_recommendation(rec)
                 count += 1
             except Exception as e:
-                logger.warning(f"Error inserting rec {rec.get('test_id')}: {e}")
+                logger.warning(f"Error inserting rec {rec.test_id}: {e}")
         return count
 
     def get_security_recommendations(
@@ -752,6 +807,7 @@ class ThreatIntelligenceORM:
             ).group_by(SecurityRecommendation.severity).all()
             stats['by_severity'] = dict(sev_q)
 
+            logger.debug(f"recommendations / params stats: {stats}")
             return stats
         finally:
             session.close()
@@ -759,6 +815,7 @@ class ThreatIntelligenceORM:
     def close(self):
         self.ScopedSession.remove()
         self.engine.dispose()
+        logger.debug("db connection is closed")
 
     def __enter__(self):
         return self

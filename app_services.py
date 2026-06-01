@@ -66,7 +66,7 @@ class AppServices:
             possible_cves=les_result,
         )
 
-    def run_feeds_recon(self, store_kev: bool = True) -> dict:
+    def run_feeds_recon(self, store_kev: bool = True) -> FeedsReconResult:
         """Fetch threat-intel feeds and optionally store CISA KEV data."""
         kernel: str = self.lr.get_kernel_version_simple()
         build_date: int = self.lr.get_kernel_build_date(kernel)
@@ -171,7 +171,7 @@ class AppServices:
             entry["pocs"] = []
             repos = self.poc_searcher.search_repositories(
                 cve_id, max_results=3)
-            downloads = GitHubExploitSearcher.load_xpls(repos)
+            downloads = GitHubExploitSearcher.load_xpls()
             for poc in downloads:
                 summary_of_exec = self._record_poc_for_cve(cve_id, poc)
                 if summary_of_exec:
@@ -205,14 +205,14 @@ class AppServices:
             if isinstance(entry, str) and entry:
                 cves.setdefault(entry, {})["source"] = "linpeas"
 
-        les_items = self.lr.get_les_scan_details()
+        les_items: list[LesCVEItem] = self.lr.get_les_scan_details()
         logger.info(f"les scan completed")
         for entry in les_items:
-            cve_id: str = entry.get("cve_id", "")
+            cve_id: str = entry.cve_id
             if not cve_id:
                 continue
             target = cves.setdefault(cve_id, {})
-            target.update(entry)
+            target.update(asdict(entry))
             target["source"] = "les"
         return cves
 

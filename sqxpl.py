@@ -295,6 +295,7 @@ class GitHubExploitSearcher:
             self._save_templates()
             return result
 
+    @staticmethod
     def load_xpls(expls: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """ download PoCs into /tmp/kernauditp/CVE-id/username_repo """
         base_dir = Path(POCS_BASE_PATH)
@@ -302,8 +303,8 @@ class GitHubExploitSearcher:
         downloaded_l: list[dict] = []
 
         for xpl in expls:
-            url = xpl.get("url")
-            cve_id: str = xpl.get("cve_id")
+            url: str | None = xpl.get("url", None)
+            cve_id: str | None = xpl.get("cve_id", None)
             if not url or not cve_id:
                 continue
             # extract username and repo from URL for path
