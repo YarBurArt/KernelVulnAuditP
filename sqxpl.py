@@ -67,6 +67,7 @@ class GitHubExploitSearcher:
         for tmpl in self.templates.get("templates", []):
             if tmpl.get("cve_id") == cve_id:
                 return tmpl
+        return None
 
     def search_repositories(
         self, cve_id: str, max_results: int = 10
@@ -81,7 +82,7 @@ class GitHubExploitSearcher:
         # FIXME: lang filters
         # lang_filters = " OR ".join(
         # [f"language:{lang}" for lang in self.LANGUAGES])
-        params = {
+        params: dict[str, str | int] = {
             "q": cve_id, "sort": "stars", "order": "desc",
             "per_page": min(max_results, 30)
         }

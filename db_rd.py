@@ -259,20 +259,20 @@ class InMemoryThreatDB(ThreatDB):
         return results[offset:offset + limit]
 
     def get_recommendations_stats(self) -> Dict[str, Any]:
-        stats = {'total': len(self._recommendations)}
+        stats: Dict[str, Any] = {'total': len(self._recommendations)}
         by_category: Dict[str, int] = {}
         by_status: Dict[str, int] = {}
         by_severity: Dict[str, int] = {}
 
         for rec in self._recommendations:
             cat = rec.get('category')
-            if cat:
+            if cat is not None:
                 by_category[cat] = by_category.get(cat, 0) + 1
             stat = rec.get('status')
-            if stat:
+            if stat is not None:
                 by_status[stat] = by_status.get(stat, 0) + 1
             sev = rec.get('severity')
-            if sev:
+            if sev is not None:
                 by_severity[sev] = by_severity.get(sev, 0) + 1
 
         stats['by_category'] = by_category

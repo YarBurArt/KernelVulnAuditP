@@ -12,9 +12,9 @@ class CLIReportRenderer:
 
     def render(self) -> None:
         """Render full report."""
-        print(self._build_full_report())
+        print(self.build_full_report())
 
-    def _build_full_report(self) -> str:
+    def build_full_report(self) -> str:
         """Build complete report string."""
         kev_data = self.data.get("kev_data", [])
         runs = self.data.get("runs", [])

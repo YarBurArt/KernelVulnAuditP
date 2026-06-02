@@ -257,8 +257,9 @@ class LocalRecon:
         ]:
             if os.path.isfile(loc) and os.access(loc, os.X_OK):
                 return loc
-        if path := shutil.which("linpeas.sh"):
-            return path
+        path_2stg: str | None = shutil.which("linpeas.sh")
+        if path_2stg is not None:
+            return path_2stg
         return None
 
     def run_linpeas(
@@ -366,6 +367,7 @@ class LocalRecon:
             return self.extract_useful_info_peas(data)
         except Exception as e:
             logger.warning(f"get_linpeas_scan_details error: {e}")
+            return None
 
     def get_les_scan_details(
         self, report_path: str = LES_REPORT_PATH

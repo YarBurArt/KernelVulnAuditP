@@ -8,11 +8,9 @@ from db import ThreatDB
 
 try:
     import flet as ft
-
     GUI_E = True
 except (ImportError, ModuleNotFoundError):
     GUI_E = False
-    ft = None  # type: ignore
 
 from app_services import AppServices
 from config import (
@@ -27,19 +25,25 @@ class GUIApp:
 
     def __init__(self, db: ThreatDB):
         self.services = AppServices(db=db)
-        self.log = None
-        self.page: ft.Page | None = None
+        self.log: ft.Column | None = None
+        self._page: ft.Page | None = None
 
     def run(self):
         if not GUI_E:
             raise RuntimeError("Flet is not available; cannot launch GUI.")
+        assert ft is not None
         ft.run(main=self._main_page)
 
-    def _main_page(self, page: "ft.Page"):
-        self.page = page
+    @property
+    def page(self) -> ft.Page:
+        assert self._page is not None
+        return self._page
+
+    def _main_page(self, page: ft.Page):
+        self._page = page
         page.title = "Kernel Vulnerability Auditor"
-        page.window_width = 650
-        page.window_height = 600
+        setattr(self.page, "window_width", 650)
+        setattr(self.page, "window_height", 600)
         page.theme_mode = ft.ThemeMode.DARK
         page.padding = 20
         page.spacing = 15
@@ -247,7 +251,7 @@ class GUIApp:
             db.close()
 
             renderer = CLIReportRenderer(data, verbose=True)
-            output = renderer._build_full_report()
+            output = renderer.build_full_report()
             self._append_log(output)
             self._append_log("Report generated (CLI mode)")
         except Exception as e:
@@ -256,10 +260,12 @@ class GUIApp:
     def _save_to_db(self, _):
         pass  # FIXME:
 
-    def _get_cell_text(self, v: Any) -> str:
+    @staticmethod
+    def _get_cell_text(v: Any) -> str:
         return flatten_dict_value(v)
 
-    def _is_url(self, text: str) -> bool:
+    @staticmethod
+    def _is_url(text: str) -> bool:
         if not isinstance(text, str):
             return False
         return text.startswith(("http://", "https://")) and len(text) > 8
@@ -286,12 +292,13 @@ class GUIApp:
 
         return self._build_value(data)
 
-    def _build_value(self, value):
+    @staticmethod
+    def _build_value(value):
         return ft.Text(
             str(value), selectable=True, text_align=ft.TextAlign.LEFT)
 
     def _build_dict(self, data: dict):
-        tiles = []
+        tiles: list[ft.Control] = []
         for key, value in data.items():
             tile = ft.ExpansionTile(
                 title=ft.Text(
@@ -385,22 +392,22 @@ class GUIApp:
 
         recon_group = ft.Container(
             content=ft.Row([
-                ft.ElevatedButton("Local Recon", on_click=self._start_local,
+                ft.Button(
+                    "Local Recon", on_click=self._start_local,
                     style=ft.ButtonStyle(
                         shape=ft.RoundedRectangleBorder(radius=2)
                     ),
                 ),
-                ft.ElevatedButton(
-                    "TI Feeds",
-                    on_click=self._start_feeds,
+                ft.Button(
+                    "TI Feeds", on_click=self._start_feeds,
                     style=ft.ButtonStyle(
                         shape=ft.RoundedRectangleBorder(radius=2)
                     ),
                 ),],
                 spacing=8,
             ),
-            padding=ft.padding.symmetric(horizontal=8, vertical=6),
-            border=ft.border.all(1, ft.Colors.OUTLINE_VARIANT),
+            padding=ft.Padding.symmetric(horizontal=8, vertical=6),
+            border=ft.Border.all(1, ft.Colors.OUTLINE_VARIANT),
             border_radius=2,
             bgcolor=ft.Colors.SURFACE_CONTAINER_LOW,
         )
@@ -409,10 +416,10 @@ class GUIApp:
         actions_row = ft.Row(
             [
                 recon_group,
-                ft.ElevatedButton("Full Cycle", on_click=self._start_recon,
-                                  style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=2))),
-                ft.ElevatedButton("Exec Tests", on_click=self._run_execution_tests,
-                                  style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=2))),
+                ft.Button("Full Cycle", on_click=self._start_recon,
+                    style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=2))),
+                ft.Button("Exec Tests", on_click=self._run_execution_tests,
+                    style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=2))),
             ],
             alignment=ft.MainAxisAlignment.START,
             spacing=8,
@@ -424,8 +431,8 @@ class GUIApp:
                 self.metric_warn_badge, ft.VerticalDivider(width=15, color=ft.Colors.OUTLINE_VARIANT),
                 self.metric_cve_badge,
             ], alignment=ft.MainAxisAlignment.START),
-            padding=ft.padding.symmetric(horizontal=12, vertical=6),
-            border=ft.border.all(1, ft.Colors.OUTLINE_VARIANT),
+            padding=ft.Padding.symmetric(horizontal=12, vertical=6),
+            border=ft.Border.all(1, ft.Colors.OUTLINE_VARIANT),
             border_radius=2,
             bgcolor=ft.Colors.SURFACE_CONTAINER_LOW
         )
@@ -442,7 +449,7 @@ class GUIApp:
                 self.audit_list, self.cve_list,
                 ft.Container(
                     content=self.console_stream, bgcolor="#0d1117",
-                    border=ft.border.all(1, ft.Colors.OUTLINE_VARIANT),
+                    border=ft.Border.all(1, ft.Colors.OUTLINE_VARIANT),
                 )])
             ],
         ))
@@ -482,7 +489,7 @@ class GUIApp:
                 ft.Text(f"Details: {rec.raw_data.get('suggestion', rec.raw_data.get('solution', 'N/A'))}",
                         style=self.mono_style, color=ft.Colors.ON_SURFACE_VARIANT)
             ], spacing=2),
-            padding=ft.padding.only(left=90, top=5, bottom=10),
+            padding=ft.Padding.only(left=90, top=5, bottom=10),
             visible=bool(rec.expected_value or rec.actual_value)
         )
 
@@ -520,7 +527,7 @@ class GUIApp:
                     ft.Container(
                         content=ft.Column([ft.Text(details, style=self.mono_style, selectable=True), links_col],
                                           spacing=5),
-                        padding=ft.padding.only(left=70, bottom=10)
+                        padding=ft.Padding.only(left=70, bottom=10)
                     )
                 ]
             )
@@ -543,7 +550,7 @@ class GUIApp:
 
             if hasattr(result_dt, "possible_cves"):
                 for cve in result_dt.possible_cves:
-                    self._append_cve_item("LES", cve['cve_id'], cve['title'], cve['details'], cve['download_urls'])
+                    self._append_cve_item("LES", cve.cve_id, cve.title, cve.details, cve.download_urls)
 
             self._log_terminal(f"Local recon complete. Kernel: {result_dt.kernel}", "OK")
             self.page.update()

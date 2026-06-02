@@ -171,7 +171,7 @@ class AppServices:
             entry["pocs"] = []
             repos = self.poc_searcher.search_repositories(
                 cve_id, max_results=3)
-            downloads = GitHubExploitSearcher.load_xpls()
+            downloads = GitHubExploitSearcher.load_xpls(repos)
             for poc in downloads:
                 summary_of_exec = self._record_poc_for_cve(cve_id, poc)
                 if summary_of_exec:
@@ -207,12 +207,12 @@ class AppServices:
 
         les_items: list[LesCVEItem] = self.lr.get_les_scan_details()
         logger.info(f"les scan completed")
-        for entry in les_items:
-            cve_id: str = entry.cve_id
+        for entry_les in les_items:
+            cve_id: str = entry_les.cve_id
             if not cve_id:
                 continue
             target = cves.setdefault(cve_id, {})
-            target.update(asdict(entry))
+            target.update(asdict(entry_les))
             target["source"] = "les"
         return cves
 
