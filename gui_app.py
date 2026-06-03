@@ -13,10 +13,10 @@ except (ImportError, ModuleNotFoundError):
     GUI_E = False
 
 from app_services import AppServices
-from config import (
+from config import (  # just for gui settings
     ALLOW_HOST_EXECUTION, CISA_KEV_PATH, DB_BACKEND, ISOLATION_TIMEOUT_SEC,
     LES_PATH, LES_REPORT_PATH, LINPEAS_OUT_JSON, LYNIS_LOG_FILE,
-    LYNIS_REPORT_FILE, PATH_LINPEAS, POCS_BASE_PATH,
+    LYNIS_REPORT_FILE, PATH_LINPEAS, POCS_BASE_PATH, LOG_LEVEL
 )
 
 
@@ -120,6 +120,20 @@ class GUIApp:
         ))
         self._settings_fields["DB_BACKEND"] = form.controls[-1]
 
+        form.controls.append(ft.Dropdown(
+            label="Log Level",
+            value=LOG_LEVEL,
+            options=[
+                ft.dropdown.Option("DEBUG"),
+                ft.dropdown.Option("INFO"),
+                ft.dropdown.Option("WARNING"),
+                ft.dropdown.Option("ERROR"),
+                ft.dropdown.Option("CRITICAL"),
+            ],
+            expand=True,
+        ))
+        self._settings_fields["LOG_LEVEL"] = form.controls[-1]
+
         form.controls.append(ft.TextField(
             label="Isolation Timeout (seconds)",
             value=str(ISOLATION_TIMEOUT_SEC),
@@ -166,6 +180,8 @@ class GUIApp:
                     self._settings_fields["ISOLATION_TIMEOUT_SEC"].value,
                 "ALLOW_HOST_EXECUTION":
                     str(self._settings_fields["ALLOW_HOST_EXECUTION"].value),
+                "LOG_LEVEL":
+                    f'"{self._settings_fields["LOG_LEVEL"].value}"',
             }
 
             for key in [

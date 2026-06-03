@@ -300,7 +300,8 @@ class AppServices:
                     logger.debug(f"unlink failed, we are missing script: {e}")
         return summary
 
-    def _build_runner_script(self, repo_path: Path, command: str) -> Path:
+    @staticmethod
+    def _build_runner_script(repo_path: Path, command: str) -> Path:
         fd, path = tempfile.mkstemp(prefix="kernaudit-run-", suffix=".sh")
         os.close(fd)
         script = Path(path)
@@ -314,7 +315,8 @@ class AppServices:
         script.chmod(0o755)
         return script
 
-    def _summarize_sandbox(self, result) -> Dict[str, Any]:
+    @staticmethod
+    def _summarize_sandbox(result) -> Dict[str, Any]:
         return {
             "mode": getattr(result, "execution_mode", "unknown"),
             "returncode": getattr(result, "returncode", None),

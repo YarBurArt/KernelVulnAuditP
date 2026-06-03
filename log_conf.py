@@ -1,4 +1,5 @@
 import logging
+from config import LOG_LEVEL
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
@@ -9,14 +10,19 @@ LOG_DIR.mkdir(exist_ok=True)
 LOG_FILE = LOG_DIR / "kernel_audit.log"
 
 
-def setup_logging(
-    level: int = logging.INFO
-) -> None:
+def setup_logging() -> None:
     root_logger = logging.getLogger()
-
     if root_logger.handlers:
         return
 
+    level_name = LOG_LEVEL.upper()
+    valid_levels: set[str] = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
+    if level_name not in valid_levels:
+        raise ValueError(
+            f"Invalid config.py/LOG_LEVEL: {LOG_LEVEL}. "
+            f"Expected one of: {', '.join(sorted(valid_levels))}"
+        )
+    level = getattr(logging, level_name)
     root_logger.setLevel(level)
 
     formatter = logging.Formatter(
