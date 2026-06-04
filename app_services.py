@@ -14,7 +14,7 @@ from isolate import Isolate
 from recon import LocalRecon, ReconFeeds
 from schemas import (
     FeedsReconResult, LocalReconResult,
-    ReconResult, SecurityRecommendation, KernelAuditItem, KernelLPE, LesCVEItem
+    ReconResult, SecurityRecommendation, KernelAuditItem, KernelLPE, LesCVEItem, CVEFinding, GitHubPoC
 )
 from sqxpl import GitHubExploitSearcher
 
@@ -70,22 +70,18 @@ class AppServices:
         """Fetch threat-intel feeds and optionally store CISA KEV data."""
         kernel: str = self.lr.get_kernel_version_simple()
         build_date: int = self.lr.get_kernel_build_date(kernel)
-        logger.debug(f"Search feeds for the kernel {kernel} {build_date}")
 
+        logger.debug(f"Search feeds for kernel {kernel} build_date {build_date}")
         if store_kev:
             self._load_and_store_kev()
-            logger.info("KEV feed is loaded")
 
-        logger.info("Querying NIST by CPE")
-        nist = self.rf.nist_search(kernel, build_date)
-        logger.info("Querying OSV by keywords & filter by build date")
-        osv = self.rf.osv_search(kernel)
-        logger.info("Querying GitHub by keywords & filter by build date")
-        github = self.rf.github_search(kernel)
+        findings: list[CVEFinding] = []
+        findings.extend(self.rf.nist_search(kernel, build_date))
+        findings.extend(self.rf.osv_search(kernel))
 
-        logger.info("Feeds recon completed")
+        pocs: list[GitHubPoC] = self.rf.github_search(kernel)
 
-        return FeedsReconResult(nist=nist, osv=osv, github=github)
+        return FeedsReconResult(findings=findings, pocs=pocs)
 
     def _load_and_store_kev(self) -> None:
         """Load CISA KEV catalog and persist in DB."""
@@ -426,18 +422,27 @@ class AppServices:
 
     @staticmethod
     def _format_report(data: dict) -> dict:
-        nist = data.get("nist", {})
-        osv = data.get("osv", {})
-        github = data.get("github", [])
+        feeds = data.get("feeds", {}) or {}
+        findings = feeds.get("findings", [])
+        pocs = feeds.get("pocs", [])
+
+        nist_count = 0
+        osv_count = 0
+
+        for f in findings:
+            src = (f.get("source") or "").upper()
+            if src == "NIST":
+                nist_count += 1
+            elif src == "OSV":
+                osv_count += 1
+
         return {
-            "kernel": data["kernel"],
-            "system": data["system"],
-            "build_date": data["build_date"],
-            "nist_count": len(nist.get(
-                "vulnerabilities", [])) if isinstance(nist, dict) else 0,
-            "osv_count": len(osv.get(
-                "vulns", [])) if isinstance(osv, dict) else 0,
-            "github_count": len(github) if isinstance(github, list) else 0,
+            "kernel": data.get("kernel", ""),
+            "system": data.get("system", ""),
+            "build_date": data.get("build_date", 0),
+            "nist_count": nist_count,
+            "osv_count": osv_count,
+            "github_count": len(pocs),
         }
 
 

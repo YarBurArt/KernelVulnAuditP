@@ -24,9 +24,10 @@ from core import (
 )
 
 from lib_tools.peas2json import parse_peass
-from schemas import KernelAuditItem, KernelLPE, LesCVEItem
+from schemas import KernelAuditItem, KernelLPE, LesCVEItem, GitHubPoC, CVEFinding
 
 logger = logging.getLogger(__name__)
+CVE_RE = re.compile(r"(CVE-\d{4}-\d+)", re.IGNORECASE)
 
 
 class LocalRecon:
@@ -231,7 +232,7 @@ class LocalRecon:
         """
         Parse dat entries by category and filters it
         """
-        results = []
+        results: list[KernelAuditItem] = []
         entries = parsed_data.get(type_ent, [])
         if not isinstance(entries, list):
             entries = [entries]
@@ -271,10 +272,12 @@ class LocalRecon:
             return None
         cmd = [linpeas, "-q", "-N"]  # FIXME: -N
 
-        with open(output_path, "w", encoding="utf-8") as f:
-            subprocess.run(
-                cmd, stdout=f, stderr=subprocess.DEVNULL, check=True
-            )
+        try:
+            with open(output_path, "w", encoding="utf-8") as f:
+                subprocess.run(cmd, stdout=f, stderr=subprocess.DEVNULL, check=True)
+        except subprocess.CalledProcessError as e:
+            logger.warning("linpeas execution failed: %s", e)
+            return None
 
         return Path(output_path)
 
@@ -308,8 +311,9 @@ class LocalRecon:
         matched = ker.get("sections", {}).get("Matched CVEs", {})
         for line in matched.get("lines", []):
             text = line.get("clean_text", "")
-            if text.startswith("CVE-"):
-                cves_list.append(text)
+            match = CVE_RE.search(text)
+            if match:
+                cves_list.append(match.group(1))
         return {"cves": cves_list} if cves_list else {}
 
     @staticmethod
@@ -523,28 +527,36 @@ class ReconFeeds:
 
     # TODO: KEV check with build date
     @staticmethod
-    def github_search(kern_version):
+    def github_search(kern_version) -> list[GitHubPoC]:
         """ search PoC on the GitHub by kernel version """
         data = httpx.get(
             GITHUB_API_URL.format(q="cve " + kern_version)
         ).json()
 
-        repos: List[dict] = []
-        for repo in data.get('items', []):
-            repos.append({
-                'name': repo['name'],
-                'full_name': repo['full_name'],
-                'clone_url': repo['clone_url'],
-                'description': repo['description'],
-                'stars': repo['stargazers_count'],
-                'language': repo['language']
-            })
+        results: list[GitHubPoC] = []
 
-        return repos
+        for repo in data.get("items", []):
+            name = repo.get("name", "") or ""
+            full_name = repo.get("full_name", "") or ""
+
+            # filter by name for now , lost cve like PwnKit but works with altname
+            match = CVE_RE.search(name) or CVE_RE.search(full_name)
+            if not match:
+                continue
+
+            cve_id = match.group(1).upper()
+            results.append(GitHubPoC(
+                cve_id=cve_id, repo_name=full_name,
+                repo_url=repo.get("html_url", ""),
+                description=repo.get("description", "") or "",
+                stars=repo.get("stargazers_count", 0),
+                language=repo.get("language") or ""
+            ))
+        return results
 
     @staticmethod
-    def _cve_org_details(cveID: str):
-        return httpx.get(CVEORG_BASE_URL + cveID).json()
+    def _cve_org_details(cve_id: str) -> dict[str, Any]:
+        return httpx.get(CVEORG_BASE_URL + cve_id).json()
 
     @staticmethod
     def _filter_by_date(nist_result, min_ts: int) -> List[Dict]:
@@ -556,21 +568,45 @@ class ReconFeeds:
             min_timestamp=min_ts
         )
 
-    def nist_search(self, kern_r_version, date):
-        # Search for vulnerabilities in NIST database
-        url = NIST_API_URL.format(version=kern_r_version)
+    def nist_search(self, kern_r_version, date) -> List[CVEFinding]:
+        """ Search for vulnerabilities in NIST database """
+        url: str = NIST_API_URL.format(version=kern_r_version)
         try:
             response = httpx.get(url)
             response.raise_for_status()
-            res_filtered = self._filter_by_date(response.json(), date)
-            return res_filtered
+            raw = self._filter_by_date(response.json(), date)
+
+            findings: list[CVEFinding] = []
+            for item in raw:
+                cve = item.get("cve", {})
+                cve_id = cve.get("id") or item.get("cveId")
+                if not cve_id:
+                    continue
+
+                desc = ""
+                for d in cve.get("descriptions", []):
+                    if d.get("lang") == "en":
+                        desc = d.get("value", "")
+                        break
+
+                metrics = cve.get("metrics", {})
+                cvss = None
+                if "cvssMetricV31" in metrics:
+                    cvss = metrics["cvssMetricV31"][0]["cvssData"]["baseScore"]
+
+                findings.append(CVEFinding(
+                    cve_id=str(cve_id), description=desc, severity="", cvss_score=cvss,
+                    source="NIST", references=[], raw_data=item
+                ))
+            return findings
+
         except Exception as e:
             logger.warning(f"NIST search error: {str(e)}")
-            return {}
+            return []
 
     @staticmethod
-    def osv_search(kern_r_version):
-        # Search for vulnerabilities in OSV database
+    def osv_search(kern_r_version) -> list[CVEFinding]:
+        """Search for vulnerabilities by api OSV database"""
         payload = {
             "version": kern_r_version,
             "package": {
@@ -581,10 +617,22 @@ class ReconFeeds:
         try:
             response = httpx.post(OSV_API_URL, json=payload)
             response.raise_for_status()
-            return response.json()
+            data = response.json()
+
+            findings: list[CVEFinding] = []
+
+            for v in data.get("vulns", []):
+                findings.append(CVEFinding(
+                    cve_id=v.get("id", ""), description=v.get("summary", ""),
+                    severity="", cvss_score=None, source="OSV",
+                    references=v.get("references", []), raw_data=v
+                ))
+
+            return findings
+
         except Exception as e:
             logger.warning(f"OSV search error: {str(e)}")
-            return {}
+            return []
 
     def get_cve_details(self, cve_id: str) -> dict:
         """filter CVE metadata using the configured API, need for db"""

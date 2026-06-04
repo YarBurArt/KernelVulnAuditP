@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Any
 
 
 @dataclass
@@ -100,6 +100,33 @@ class LesCVEItem:
 
 
 @dataclass
+class CVEFinding:
+    cve_id: str
+
+    description: str = ""
+    severity: str = ""
+
+    cvss_score: float | None = None
+    source: str = ""
+
+    references: list[str] = field(default_factory=list)
+
+    raw_data: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class GitHubPoC:
+    cve_id: str
+
+    repo_name: str
+    repo_url: str
+
+    description: str = ""
+    stars: int = 0
+    language: str = ""
+
+
+@dataclass
 class LocalReconResult:
     kernel: str = ""
     system: str = ""
@@ -113,9 +140,8 @@ class LocalReconResult:
 
 @dataclass
 class FeedsReconResult:
-    nist: List[dict] = field(default_factory=list)
-    osv: Dict = field(default_factory=dict)
-    github: List[dict] = field(default_factory=list)
+    findings: list[CVEFinding] = field(default_factory=list)
+    pocs: list[GitHubPoC] = field(default_factory=list)
 
 
 @dataclass

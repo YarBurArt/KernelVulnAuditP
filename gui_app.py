@@ -581,6 +581,7 @@ class GUIApp:
         try:
             result = self.services.run_feeds_recon()
 
+            # FIXME: nist wrong format
             for item in getattr(result, "nist", []):
                 self._append_cve_item("NIST", item.get("cve_id", "N/A"), item.get("description", "No summary"),
                                       str(item), [])
