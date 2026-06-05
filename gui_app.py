@@ -16,7 +16,7 @@ from app_services import AppServices
 from config import (  # just for gui settings
     ALLOW_HOST_EXECUTION, CISA_KEV_PATH, DB_BACKEND, ISOLATION_TIMEOUT_SEC,
     LES_PATH, LES_REPORT_PATH, LINPEAS_OUT_JSON, LYNIS_LOG_FILE,
-    LYNIS_REPORT_FILE, PATH_LINPEAS, POCS_BASE_PATH, LOG_LEVEL
+    LYNIS_REPORT_FILE, PATH_LINPEAS, POCS_BASE_PATH, LOG_LEVEL, LYNIS_BINARY
 )
 
 
@@ -494,10 +494,13 @@ class GUIApp:
 
         header = ft.Row([
             ft.Container(width=4, height=14, bgcolor=indicator_color),
-            ft.Text(f"[{rec.test_id}]", width=80, style=self.mono_style, color=ft.Colors.ON_SURFACE_VARIANT),
-            ft.Text(rec.field_name or rec.category, width=150, style=self.mono_style, weight=ft.FontWeight.W_600),
-            ft.Text(rec.description, expand=True, style=self.mono_style, overflow=ft.TextOverflow.ELLIPSIS),
-        ], spacing=5)
+            ft.Text(f"[{rec.test_id}]", width=100, no_wrap=True,
+                style=self.mono_style, color=ft.Colors.ON_SURFACE_VARIANT),
+            # TODO: fix width to adaptive
+            ft.Text(rec.field_name or rec.category, width=230, no_wrap=True,
+                style=self.mono_style, weight=ft.FontWeight.W_600),
+            ft.Text(rec.description, expand=True, no_wrap=True, style=self.mono_style),
+        ], spacing=5, wrap=False)
 
         detail_content = ft.Container(
             content=ft.Column([
@@ -558,6 +561,7 @@ class GUIApp:
 
     async def _process_local_scan(self):
         try:
+            self._log_terminal("Current lynis conf can be a bit slow", "INFO")
             result_dt = self.services.run_local_recon()
 
             if hasattr(result_dt, "security_recommendations"):
