@@ -26,7 +26,7 @@ from core import (
 from lib_tools.peas2json import parse_peass
 from schemas import KernelAuditItem, KernelLPE, LesCVEItem, GitHubPoC, CVEFinding
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(f"kernel_audit.{__name__}")
 CVE_RE = re.compile(r"(CVE-\d{4}-\d+)", re.IGNORECASE)
 
 

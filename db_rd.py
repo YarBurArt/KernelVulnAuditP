@@ -7,7 +7,7 @@ from core import calculate_criticality_score
 from db_orm import SecurityRecommendation
 
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(f"kernel_audit.{__name__}")
 
 
 def _utcnow() -> str:

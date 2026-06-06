@@ -19,7 +19,7 @@ from schemas import (
 from sqxpl import GitHubExploitSearcher
 
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(f"kernel_audit.{__name__}")
 
 
 class AppServices:

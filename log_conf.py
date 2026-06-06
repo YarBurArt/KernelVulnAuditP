@@ -11,7 +11,7 @@ LOG_FILE = LOG_DIR / "kernel_audit.log"
 
 
 def setup_logging() -> None:
-    root_logger = logging.getLogger()
+    root_logger = logging.getLogger("kernel_audit")
     if root_logger.handlers:
         return
 
