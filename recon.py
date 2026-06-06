@@ -574,7 +574,10 @@ class ReconFeeds:
         try:
             response = httpx.get(url)
             response.raise_for_status()
-            raw = self._filter_by_date(response.json(), date)
+            data = response.json()
+            logger.debug(f"NIST total={len(data.get('vulnerabilities', []))}")
+            raw = self._filter_by_date(data, date)
+            logger.debug(f"NIST after date filter={len(raw)}")
 
             findings: list[CVEFinding] = []
             for item in raw:

@@ -4,17 +4,21 @@ relatively safe compile and run xpl binaries in isolated environments.
 Supports virtme-ng/virtme, QEMU microvm,
 and host execution with comprehensive logging
 """
+import logging
 import subprocess
 import tempfile
 import shutil
 import os
-import sys
 import json
 from pathlib import Path
 from dataclasses import dataclass, asdict
 from typing import Optional, Literal
 from datetime import datetime
 import re
+
+from config import ALLOW_HOST_EXECUTION
+
+logger = logging.getLogger(f"kernel_audit.{__name__}")
 
 # binary start and end markers to track stdout
 BIN_INIT = '''#!/bin/sh
@@ -62,6 +66,7 @@ class IsolationEnvironment:
 
     def _log(self, key: str, value: str):
         self.logs[key] = value
+        logger.debug(f'_log {key}: {value}')
 
 
 class VirtmeNGEnvironment(IsolationEnvironment):
@@ -118,7 +123,8 @@ class VirtmeNGEnvironment(IsolationEnvironment):
                 crashed=True
             )
 
-    def _get_virtme_version(self) -> str:
+    @staticmethod
+    def _get_virtme_version() -> str:
         try:
             result = subprocess.run(
                 ['virtme-ng', '--version'],
@@ -127,18 +133,22 @@ class VirtmeNGEnvironment(IsolationEnvironment):
                 timeout=5
             )
             return result.stdout.strip()
-        except Exception:
+        except Exception as e:
+            logger.debug(f"virtme-ng version not found cuz {e}")
             return 'unknown'
 
-    def _get_kernel_version(self) -> str:
+    @staticmethod
+    def _get_kernel_version() -> str:
         # TODO: take from db , slower but more sources
         try:
             with open('/proc/version', 'r') as f:
                 return f.read().strip()
-        except Exception:
+        except Exception as e:
+            logger.debug(f"kernel version not found cuz {e}")
             return 'unknown'
 
-    def _detect_crash(self, stderr: str) -> bool:
+    @staticmethod
+    def _detect_crash(stderr: str) -> bool:
         crash_patterns = [
             r'kernel panic', r'segmentation fault',
             r'general protection fault', r'BUG:',
@@ -170,6 +180,7 @@ class QEMUEnvironment(IsolationEnvironment):
 
             kernel_path = self._find_kernel()
             if not kernel_path:
+                logger.warning(f"No kernel found for {self.binary_path}")
                 raise RuntimeError('No kernel image found')
 
             self._log('kernel_path', str(kernel_path))
@@ -194,7 +205,7 @@ class QEMUEnvironment(IsolationEnvironment):
                     cmd, capture_output=True,
                     text=True, timeout=self.timeout
                 )
-
+                logger.debug(f"Qemu microvm completed, stdout {result.stdout}")
                 duration = (datetime.now() - start).total_seconds() * 1000
                 stdout, stderr = self._parse_qemu_output(
                     result.stdout, result.stderr
@@ -235,6 +246,7 @@ class QEMUEnvironment(IsolationEnvironment):
             shutil.copy(self.binary_path, tmpdir / 'binary')
             (tmpdir / 'binary').chmod(0o755)
 
+            logger.debug(f"Creating initrd file for {self.binary_path}, path {init_script}")
             subprocess.run(
                 f'cd {tmpdir} && find . | cpio -o -H newc > {output_path}',
                 shell=True,
@@ -251,13 +263,17 @@ class QEMUEnvironment(IsolationEnvironment):
         for path in kernel_paths:
             p = Path(path)
             if p.exists():
+                logger.debug(f"Found kernel {p}")
                 return p
 
         boot_dir = Path('/boot')
         if boot_dir.exists():
             vmlinuz_files = sorted(boot_dir.glob('vmlinuz-*'), reverse=True)
             if vmlinuz_files:
+                logger.debug(f"Found {len(vmlinuz_files)} vmlinuz files")
                 return vmlinuz_files[0]
+
+        logger.warning(f"No kernel found in {kernel_paths}")
         return None
 
     @staticmethod
@@ -273,10 +289,12 @@ class QEMUEnvironment(IsolationEnvironment):
                         'root=', 'rootfstype=', 'ro', 'rw'
                     ]
                 )]
+                logger.debug(f"Found host cmd krnl params: {len(relevant_params)}")
                 base_params.extend(relevant_params)
-        except Exception:  # FIXME
-            pass
+        except Exception as e:  # FIXME
+            logger.warning(f"Failed to get kernel cmdline: {e}")
 
+        logger.debug(f"Using default cmdline: {base_params}")
         return ' '.join(base_params)
 
     def _parse_qemu_output(
@@ -298,7 +316,8 @@ class QEMUEnvironment(IsolationEnvironment):
             elif line.startswith('EXIT_CODE='):
                 try:
                     exit_code = int(line.split('=')[1])
-                except Exception:
+                except Exception as e:
+                    logger.debug(f"mistake parse exit_code: {e}")
                     pass
                 continue
 
@@ -308,7 +327,8 @@ class QEMUEnvironment(IsolationEnvironment):
         self._log('exit_code', str(exit_code))
         return '\n'.join(output_lines), stderr
 
-    def _detect_crash(self, output: str) -> bool:
+    @staticmethod
+    def _detect_crash(output: str) -> bool:
         crash_patterns = [
             r'kernel panic', r'segmentation fault',
             r'general protection fault',
@@ -327,7 +347,7 @@ class HostEnvironment(IsolationEnvironment):
     """
 
     def is_available(self) -> bool:
-        return True  # TODO: check from user cfg
+        return ALLOW_HOST_EXECUTION  # TODO: also check env from local recon
 
     def execute(self) -> ExecutionResult:
         start = datetime.now()
@@ -394,6 +414,7 @@ class CCompiler:
 
     def compile(self, extra_flags: list[str] | None = None) -> Path | None:
         if not self.source_path.exists():
+            logger.warning(f'Source path {self.source_path} does not exist')
             raise FileNotFoundError(
                 f'Source file not found: {self.source_path}'
             )
@@ -401,15 +422,18 @@ class CCompiler:
 
         flags = ['-O2', '-Wall', '-Wextra']
         if extra_flags:
+            logger.debug(f'Extra flags: {extra_flags}')
             flags.extend(extra_flags)
 
         cmd = ['gcc'] + flags + [
             '-o',
             str(self.binary_path), str(self.source_path)
         ]
-
+        logger.debug(f'Compiling: {" ".join(cmd)}')
         result = subprocess.run(cmd, capture_output=True, text=True)
+
         if result.returncode != 0:
+            logger.warning(f'Compilation failed with exit code {result.returncode}')
             raise RuntimeError(f'Compilation failed:\n{result.stderr}')
 
         return self.binary_path
@@ -432,9 +456,12 @@ class Isolate:
     ) -> ExecutionResult | None:
         compiler = CCompiler(source_path)
         binary_path: Path | None = compiler.compile(compile_flags)
+        logger.info(f'Compiling completed: {source_path}')
 
         if binary_path:
             return self.run_binary(binary_path)
+
+        logger.warning(f'Binary path {binary_path} does not exist')
         return None
 
     def run_binary(self, binary_path: Path) -> ExecutionResult | None:
@@ -445,34 +472,34 @@ class Isolate:
 
         for env in environments:
             if env.is_available():
-                print(f'Using {env.__class__.__name__}', file=sys.stderr)
+                logger.info(f'Using {env.__class__.__name__}')
                 return env.execute()
 
         if not self.allow_host_execution:
             if not self._ask_user_permission():
-                print('No virtualization available and host execution denied')
+                logger.error('No virtualization available and host execution denied')
                 return None  # FIXME
 
-        print('Executing on host system', file=sys.stderr)
+        logger.info('Executing on host system , this will be fun ! ')
         host_env = HostEnvironment(binary_path, self.timeout)
         return host_env.execute()
 
-    def _ask_user_permission(self) -> bool:
-        # TODO: Flet support
-        print('\n' + '=' * 60 + '\n'
-              'WARNING: No virtualization environment available\n'
+    @staticmethod
+    def _ask_user_permission() -> bool:
+        # TODO: Flet alert support
+        logger.warning('\n' + '=' * 60 + '\n'
+              'No virtualization environment available\n'
               'virtme-ng: not found\n'
               'qemu-system-x86_64: not found\n'
               + '=' * 60 + '\n'
               'The binary can only be executed directly on the host.\n'
               'This may be a bit DANGEROUS if '
-              'the binary crashes the kernel :)\n'
-              '\nAllow host execution? [y/N]: ', file=sys.stderr, end='')
+              'the binary crashes the kernel :)\n')
         try:
-            response = input().strip().lower()
+            response = input("Allow host execution? [y/N]: ").strip().lower()
             return response in ['y', 'yes']
         except (EOFError, KeyboardInterrupt):
-            print('\nAborted.', file=sys.stderr)
+            logger.info('\nAborted.')
             return False
 
 
@@ -481,11 +508,11 @@ def main():
     source = Path(input("enter path/realpath to test xpl: "))
     isolate = Isolate(timeout=60)
     isolate.allow_host_execution = False  # TODO: prompt in gui
-    print(f"Source: {source}\n")
+    logger.info(f"Source: {source}\n")
 
     try:
-        result = isolate.compile_and_run(source)
-        print(result.to_json())
+        result: ExecutionResult | None = isolate.compile_and_run(source)
+        print(result)
     except Exception as e:
         print(f"Error: {e}")
 
