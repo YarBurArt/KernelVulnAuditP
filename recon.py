@@ -403,8 +403,9 @@ class LocalRecon:
             logger.warning(f"something wrong with LES: {e}")
             return False
 
-    def parse_les_report(self, report=None) -> list[LesCVEItem]:
+    def parse_les_report(self, report: str | None = None) -> list[LesCVEItem]:
         """Parse LES plain-text output into a list of findings"""
+        assert report is not None  # DEBUG
         path = Path(report)
         if not path.exists():
             logger.info(f"LES report not found: {report}")
@@ -419,6 +420,7 @@ class LocalRecon:
             if not line:
                 continue
             key, value = self._les_parse_line(line)
+            logger.debug(f"les report key {key} : {repr(value)}")
             if key == "header":
                 if current_id and current:
                     results.append(current)
@@ -443,16 +445,23 @@ class LocalRecon:
         return strip_ansi_sequences(text)
 
     def _les_parse_line(self, line_c):
-        """ identify line type and return (key, value)"""
+        """identify line type and return (key, value)"""
         line = self._les_strip_ansi(line_c)
-        if line.startswith("[+] ["):
-            match = re.match(r"^\[\+\]\s*\[([^\]]+)\]\s*(.+)$", line)
-            if match:
-                return "header", {
-                    "id": match.group(1).strip(),
-                    "title": match.group(2).strip(),
-                }
-            return None, None
+
+        # New LES format:
+        # [+] [CVE-2025-32463] sudo-chwoot
+        match = re.match(
+            r"^\[\+\]\s*\[(CVE-\d{4}-\d+)\]\s*(.+)$",
+            line,
+            flags=re.IGNORECASE
+        )
+        if match:
+            return "header", {
+                "id": match.group(1).upper(),
+                "cve_id": match.group(1).upper(),
+                "title": match.group(2).strip(),
+            }
+
         if ":" not in line:
             return None, None
 
@@ -527,31 +536,46 @@ class ReconFeeds:
 
     # TODO: KEV check with build date
     @staticmethod
-    def github_search(kern_version) -> list[GitHubPoC]:
-        """ search PoC on the GitHub by kernel version """
+    def github_search(kern_version: str) -> list[GitHubPoC]:
+        """Search PoC repositories on GitHub"""
         data = httpx.get(
-            GITHUB_API_URL.format(q="cve " + kern_version)
+            GITHUB_API_URL.format(q=f"cve {kern_version}")
         ).json()
 
         results: list[GitHubPoC] = []
+        seen: set[str] = set()
 
         for repo in data.get("items", []):
-            name = repo.get("name", "") or ""
-            full_name = repo.get("full_name", "") or ""
+            text = " ".join([
+                repo.get("name", "") or "",
+                repo.get("full_name", "") or "",
+                repo.get("description", "") or "",
+            ])
+            # check also cve-poc names
+            matches = re.findall(r"CVE-\d{4}-\d+", text, flags=re.IGNORECASE)
 
-            # filter by name for now , lost cve like PwnKit but works with altname
-            match = CVE_RE.search(name) or CVE_RE.search(full_name)
-            if not match:
+            if not matches:
                 continue
 
-            cve_id = match.group(1).upper()
-            results.append(GitHubPoC(
-                cve_id=cve_id, repo_name=full_name,
-                repo_url=repo.get("html_url", ""),
-                description=repo.get("description", "") or "",
-                stars=repo.get("stargazers_count", 0),
-                language=repo.get("language") or ""
-            ))
+            cve_id = matches[0].upper()
+
+            key = f"{cve_id}:{repo.get('full_name', '')}"
+            if key in seen:
+                continue
+            seen.add(key)
+
+            results.append(
+                GitHubPoC(
+                    cve_id=cve_id,
+                    repo_name=repo.get("full_name", ""),
+                    repo_url=repo.get("html_url", ""),
+                    description=repo.get("description", "") or "",
+                    stars=repo.get("stargazers_count", 0),
+                    language=repo.get("language") or "",
+                )
+            )
+
+        logger.debug(f"github_search found {len(results)} PoCs")
         return results
 
     @staticmethod
@@ -559,11 +583,11 @@ class ReconFeeds:
         return httpx.get(CVEORG_BASE_URL + cve_id).json()
 
     @staticmethod
-    def _filter_by_date(nist_result, min_ts: int) -> List[Dict]:
+    def _filter_by_date(nist_result_raw, min_ts: int) -> List[Dict]:
         if min_ts is None:
-            return nist_result.get('vulnerabilities', [])
+            return nist_result_raw.get('vulnerabilities', [])
         return filter_items_by_date(
-            nist_result.get('vulnerabilities', []),
+            nist_result_raw.get('vulnerabilities', []),
             date_field='published',
             min_timestamp=min_ts
         )
