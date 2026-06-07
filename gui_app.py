@@ -42,8 +42,8 @@ class GUIApp:
     def _main_page(self, page: ft.Page):
         self._page = page
         page.title = "Kernel Vulnerability Auditor"
-        setattr(self.page, "window_width", 650)
-        setattr(self.page, "window_height", 600)
+        page.window.width = 850
+        page.window.height = 600
         page.theme_mode = ft.ThemeMode.DARK
         page.padding = 20
         page.spacing = 15
@@ -365,6 +365,7 @@ class GUIApp:
 
     def _append_log(self, item):
         control = self._build_control(item)
+        assert self.log is not None
         self.log.controls.append(control)
         self.page.update()
 
@@ -427,20 +428,6 @@ class GUIApp:
             border_radius=2,
             bgcolor=ft.Colors.SURFACE_CONTAINER_LOW,
         )
-
-        # Minimal action bar
-        actions_row = ft.Row(
-            [
-                recon_group,
-                ft.Button("Full Cycle", on_click=self._start_recon,
-                    style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=2))),
-                ft.Button("Exec Tests", on_click=self._run_execution_tests,
-                    style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=2))),
-            ],
-            alignment=ft.MainAxisAlignment.START,
-            spacing=8,
-        )
-
         metrics_panel = ft.Container(
             content=ft.Row([
                 self.metric_fail_badge, ft.VerticalDivider(width=15, color=ft.Colors.OUTLINE_VARIANT),
@@ -451,6 +438,20 @@ class GUIApp:
             border=ft.Border.all(1, ft.Colors.OUTLINE_VARIANT),
             border_radius=2,
             bgcolor=ft.Colors.SURFACE_CONTAINER_LOW
+        )
+        # Minimal action bar
+        actions_row = ft.Row(
+            [
+                recon_group,
+                ft.Button("Full Cycle", on_click=self._start_recon,
+                    style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=2))),
+                ft.Button("Exec Tests", on_click=self._run_execution_tests,
+                    style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=2))),
+                ft.Container(expand=True),
+                metrics_panel
+            ],
+            alignment=ft.MainAxisAlignment.START,
+            spacing=8,
         )
 
         self.scan_tabs = ft.Tabs(
@@ -470,7 +471,7 @@ class GUIApp:
             ],
         ))
         separator = ft.Container(height=1,bgcolor=ft.Colors.BLACK,padding=0, margin=0)
-        self.page.add(separator, actions_row, metrics_panel, self.scan_tabs)
+        self.page.add(separator, actions_row, self.scan_tabs)
         self.page.update()
 
     def _log_terminal(self, message: str, level: str = "INFO"):
@@ -486,46 +487,92 @@ class GUIApp:
         )
         self.page.update()
 
+    @staticmethod
+    def _audit_priority(rec) -> tuple[int, str]:
+        """ minimal simple priority check of kern params """
+        try:
+            expected = int(rec.expected_value)
+            actual = int(rec.actual_value)
+            diff = abs(expected - actual)
+
+            if diff >= 2:
+                return 0, "CRIT"
+            if diff == 1:
+                return 1, "WARN"
+
+        except (TypeError, ValueError):
+            pass
+
+        return 2, "INFO"
+
     def _append_audit_item(self, rec):
         """Appends a strictly formatted dataclass row to the audit view."""
-        # Visual severity indicator
-        indicator_color = ft.Colors.ERROR if rec.status == "FAIL" else (
-            ft.Colors.WARNING if rec.status == "WARNING" else ft.Colors.GREEN_700)
+
+        severity = "INFO"
+        indicator_color = ft.Colors.GREEN_700
+
+        try:
+            diff = abs(
+                int(float(rec.expected_value)) -
+                int(float(rec.actual_value))
+            )
+
+            if diff >= 2:
+                severity = "CRIT"
+                indicator_color = ft.Colors.RED_700
+            elif diff == 1:
+                severity = "WARN"
+                indicator_color = ft.Colors.ORANGE_700
+
+        except (TypeError, ValueError):
+            indicator_color = (
+                ft.Colors.ERROR if rec.status == "FAIL"
+                else ft.Colors.WARNING if rec.status == "WARNING"
+                else ft.Colors.GREEN_700
+            )
 
         header = ft.Row([
             ft.Container(width=4, height=14, bgcolor=indicator_color),
-            ft.Text(f"[{rec.test_id}]", width=100, no_wrap=True,
-                style=self.mono_style, color=ft.Colors.ON_SURFACE_VARIANT),
-            # TODO: fix width to adaptive
-            ft.Text(rec.field_name or rec.category, width=230, no_wrap=True,
+            ft.Text(
+                f"[{severity}]", width=55, style=self.mono_style,
+                color=indicator_color, weight=ft.FontWeight.W_700),
+            ft.Text(
+                f"[{rec.test_id}]", width=100, style=self.mono_style,
+                color=ft.Colors.ON_SURFACE_VARIANT),
+            ft.Text(
+                rec.field_name or rec.category, width=230,
                 style=self.mono_style, weight=ft.FontWeight.W_600),
-            ft.Text(rec.description, expand=True, no_wrap=True, style=self.mono_style),
-        ], spacing=5, wrap=False)
+            ft.Text(rec.description, expand=True, style=self.mono_style),
+        ], spacing=5)
 
         detail_content = ft.Container(
             content=ft.Column([
-                ft.Text(f"Expected: {rec.expected_value} | Actual: {rec.actual_value}", style=self.mono_style),
-                ft.Text(f"Details: {rec.raw_data.get('suggestion', rec.raw_data.get('solution', 'N/A'))}",
-                        style=self.mono_style, color=ft.Colors.ON_SURFACE_VARIANT)
+                ft.Text(
+                    f"Expected: {rec.expected_value} | Actual: {rec.actual_value}",
+                    style=self.mono_style,
+                ),
+                ft.Text(
+                    f"Details: {rec.raw_data.get('suggestion', rec.raw_data.get('solution', 'N/A'))}",
+                    style=self.mono_style,
+                    color=ft.Colors.ON_SURFACE_VARIANT,
+                ),
             ], spacing=2),
             padding=ft.Padding.only(left=90, top=5, bottom=10),
-            visible=bool(rec.expected_value or rec.actual_value)
+            visible=bool(rec.expected_value or rec.actual_value),
         )
 
-        self.audit_list.controls.append(
-            ft.ExpansionTile(
-                title=header,
-                controls=[detail_content],
-                controls_padding=0,
-                collapsed_text_color=ft.Colors.ON_SURFACE,
-                text_color=ft.Colors.ON_SURFACE,
-            )
-        )
+        self.audit_list.controls.append(ft.ExpansionTile(
+            title=header,
+            controls=[detail_content],
+            controls_padding=0,
+            collapsed_text_color=ft.Colors.ON_SURFACE,
+            text_color=ft.Colors.ON_SURFACE,
+        ))
 
-        if rec.status == "FAIL":
+        if severity == "CRIT":
             self.fail_count += 1
             self.metric_fail_badge.value = f"CRIT: {self.fail_count}"
-        elif rec.status == "WARNING":
+        elif severity == "WARN":
             self.warn_count += 1
             self.metric_warn_badge.value = f"WARN: {self.warn_count}"
 
@@ -565,7 +612,11 @@ class GUIApp:
             result_dt = self.services.run_local_recon()
 
             if hasattr(result_dt, "security_recommendations"):
-                for rec in result_dt.security_recommendations:
+                sorted_recs = sorted(
+                    result_dt.security_recommendations,
+                    key=self._audit_priority)
+
+                for rec in sorted_recs:
                     self._append_audit_item(rec)
 
             if hasattr(result_dt, "possible_cves"):
