@@ -171,20 +171,23 @@ class QEMUEnvironment(IsolationEnvironment):
 
     def execute(self) -> ExecutionResult:
         start = datetime.now()
+        self._log('stage', 'qemu_execute_start')
+        self._log('binary', str(self.binary_path))
+        self._log('timeout', str(self.timeout))
 
         with tempfile.TemporaryDirectory() as tmpdir_s:
             tmpdir = Path(tmpdir_s)
             initrd_path = tmpdir / 'initrd.cpio'
 
             self._create_initrd(initrd_path)
-
+            self._log('initrd_created', str(initrd_path))
             kernel_path = self._find_kernel()
             if not kernel_path:
                 logger.warning(f"No kernel found for {self.binary_path}")
                 raise RuntimeError('No kernel image found')
 
             self._log('kernel_path', str(kernel_path))
-
+            self._log('stage', 'kernel_found')
             cmd = [
                 'qemu-system-x86_64',
                 '-M', 'microvm,x-option-roms=off,pit=off,pic=off,rtc=off',
@@ -199,12 +202,17 @@ class QEMUEnvironment(IsolationEnvironment):
                 '-append', self._get_kernel_cmdline(),
             ]
             self._log('command', ' '.join(cmd))  # log stdin
-
+            self._log('stage', 'vm_created')
+            logger.info(f'VM CREATION STARTED for {self.binary_path}')
             try:
                 result = subprocess.run(
                     cmd, capture_output=True,
                     text=True, timeout=self.timeout
                 )
+                self._log('stage', 'vm_finished')
+                self._log('qemu_returncode', str(result.returncode))
+                self._log('stdout_size', str(len(result.stdout)))
+                self._log('stderr_size', str(len(result.stderr)))
                 logger.debug(f"Qemu microvm completed, stdout {result.stdout}")
                 duration = (datetime.now() - start).total_seconds() * 1000
                 stdout, stderr = self._parse_qemu_output(
@@ -237,14 +245,16 @@ class QEMUEnvironment(IsolationEnvironment):
         with tempfile.TemporaryDirectory() as tmpdir_s:
             tmpdir = Path(tmpdir_s)
 
+            init_data: str = BIN_INIT.format(bin_path=self.binary_path.absolute())
+            logger.debug(f"Binary path is: {self.binary_path.absolute()}")
             init_script = tmpdir / 'init'
-            init_script.write_text(
-                BIN_INIT.format(bin_path=self.binary_path.absolute())
-            )
+            init_script.write_text(init_data)
             init_script.chmod(0o755)
+            logger.debug(f'BIN_INIT: {init_data}')
 
             shutil.copy(self.binary_path, tmpdir / 'binary')
             (tmpdir / 'binary').chmod(0o755)
+            logger.info(f'Copied binary for initrd: {tmpdir / "binary"}')
 
             logger.debug(f"Creating initrd file for {self.binary_path}, path {init_script}")
             subprocess.run(
@@ -445,7 +455,7 @@ class Isolate:
     check environment, compile
     """
 
-    def __init__(self, timeout: int = 30):
+    def __init__(self, timeout: int = 120):
         self.timeout = timeout
         self.allow_host_execution = False
 
@@ -506,7 +516,7 @@ class Isolate:
 def main():
     """ only for testing """
     source = Path(input("enter path/realpath to test xpl: "))
-    isolate = Isolate(timeout=60)
+    isolate = Isolate(timeout=120)
     isolate.allow_host_execution = False  # TODO: prompt in gui
     logger.info(f"Source: {source}\n")
 
