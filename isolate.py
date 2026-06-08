@@ -66,7 +66,7 @@ class IsolationEnvironment:
 
     def _log(self, key: str, value: str):
         self.logs[key] = value
-        logger.debug(f'_log {key}: {value}')
+        logger.debug(f'internal log {key}: {value}')
 
 
 class VirtmeNGEnvironment(IsolationEnvironment):
@@ -110,12 +110,17 @@ class VirtmeNGEnvironment(IsolationEnvironment):
                 crashed=crashed
             )
 
-        except subprocess.TimeoutExpired:
+        except subprocess.TimeoutExpired as e:
             duration = (datetime.now() - start).total_seconds() * 1000
+            stdout = str(e.stdout) or ''
+            stderr = str(e.stderr) or ''
+
+            self._log('timeout_stdout_size', str(len(stdout)))
+            self._log('timeout_stderr_size', str(len(stderr)))
             self._log('error', f'Timeout after {self.timeout}s')
             return ExecutionResult(
-                stdout='',
-                stderr=f'Execution timeout ({self.timeout}s)',
+                stdout=stdout,
+                stderr=f'Execution timeout ({self.timeout}s)\n{stderr}',
                 returncode=-1,
                 execution_mode='virtme-ng',
                 logs=self.logs,
@@ -201,6 +206,11 @@ class QEMUEnvironment(IsolationEnvironment):
                 '-initrd', str(initrd_path),
                 '-append', self._get_kernel_cmdline(),
             ]
+            if Path('/dev/kvm').exists():  # debug TCG
+                cmd.extend([
+                    '-enable-kvm',
+                    '-cpu', 'host'
+                ])
             self._log('command', ' '.join(cmd))  # log stdin
             self._log('stage', 'vm_created')
             logger.info(f'VM CREATION STARTED for {self.binary_path}')
@@ -228,12 +238,17 @@ class QEMUEnvironment(IsolationEnvironment):
                     crashed=crashed
                 )
 
-            except subprocess.TimeoutExpired:
+            except subprocess.TimeoutExpired as e:
                 duration = (datetime.now() - start).total_seconds() * 1000
+                stdout = str(e.stdout) or ''
+                stderr = str(e.stderr) or ''
+
+                self._log('timeout_stdout_size', str(len(stdout)))
+                self._log('timeout_stderr_size', str(len(stderr)))
                 self._log('error', f'Timeout after {self.timeout}s')
                 return ExecutionResult(
-                    stdout='',
-                    stderr=f'Execution timeout ({self.timeout}s)',
+                    stdout=stdout,
+                    stderr=f'Execution timeout ({self.timeout}s)\n{stderr}',
                     returncode=-1,
                     execution_mode='qemu',
                     logs=self.logs,
@@ -245,8 +260,8 @@ class QEMUEnvironment(IsolationEnvironment):
         with tempfile.TemporaryDirectory() as tmpdir_s:
             tmpdir = Path(tmpdir_s)
 
-            init_data: str = BIN_INIT.format(bin_path=self.binary_path.absolute())
-            logger.debug(f"Binary path is: {self.binary_path.absolute()}")
+            init_data: str = BIN_INIT.format(bin_path="/binary")
+            logger.debug(f"Local script path is: {self.binary_path.absolute()}, binary path in /binary")
             init_script = tmpdir / 'init'
             init_script.write_text(init_data)
             init_script.chmod(0o755)
@@ -396,13 +411,18 @@ class HostEnvironment(IsolationEnvironment):
                 crashed=crashed
             )
 
-        except subprocess.TimeoutExpired:
+        except subprocess.TimeoutExpired as e:
             # its not mean system is not vulnerable, just xpl not run
             duration = (datetime.now() - start).total_seconds() * 1000
+            stdout = str(e.stdout) or ''
+            stderr = str(e.stderr) or ''
+
+            self._log('timeout_stdout_size', str(len(stdout)))
+            self._log('timeout_stderr_size', str(len(stderr)))
             self._log('error', f'Timeout after {self.timeout}s')
             return ExecutionResult(
-                stdout='',
-                stderr=f'Execution timeout ({self.timeout}s)',
+                stdout=stdout,
+                stderr=f'Execution timeout ({self.timeout}s)\n{stderr}',
                 returncode=-1,
                 execution_mode='host',
                 logs=self.logs,
