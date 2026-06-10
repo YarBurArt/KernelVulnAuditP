@@ -26,6 +26,22 @@ mount -t proc proc /proc
 mount -t sysfs sysfs /sys
 mount -t devtmpfs devtmpfs /dev
 
+echo "=== VM INFO START ==="
+
+uname -a
+cat /proc/version
+cat /proc/cmdline
+
+id
+
+lsmod
+
+cat /proc/modules
+
+sysctl -a 2>/dev/null
+
+echo "=== VM INFO END ==="
+
 echo "=== BINARY OUTPUT START ==="
 {bin_path}
 EXITCODE=$?
@@ -450,7 +466,7 @@ class CCompiler:
             )
         self.binary_path = self.output_dir / f'{self.source_path.stem}.out'
 
-        flags = ['-O2', '-Wall', '-Wextra']
+        flags = ['-static', '-O2', '-Wall', '-Wextra']  # static for microvm
         if extra_flags:
             logger.debug(f'Extra flags: {extra_flags}')
             flags.extend(extra_flags)
@@ -531,21 +547,3 @@ class Isolate:
         except (EOFError, KeyboardInterrupt):
             logger.info('\nAborted.')
             return False
-
-
-def main():
-    """ only for testing """
-    source = Path(input("enter path/realpath to test xpl: "))
-    isolate = Isolate(timeout=120)
-    isolate.allow_host_execution = False  # TODO: prompt in gui
-    logger.info(f"Source: {source}\n")
-
-    try:
-        result: ExecutionResult | None = isolate.compile_and_run(source)
-        print(result)
-    except Exception as e:
-        print(f"Error: {e}")
-
-
-if __name__ == '__main__':
-    main()
