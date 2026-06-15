@@ -26,6 +26,10 @@ mount -t proc proc /proc
 mount -t sysfs sysfs /sys
 mount -t devtmpfs devtmpfs /dev
 
+echo "=== INIT STARTED ==="
+ls -la /
+echo "=== BEFORE BINARY ==="
+
 echo "=== VM INFO START ==="
 
 uname -a
@@ -46,10 +50,11 @@ echo "=== BINARY OUTPUT START ==="
 {bin_path}
 EXITCODE=$?
 echo "=== BINARY OUTPUT END ==="
+echo "=== AFTER BINARY ==="
 echo "EXIT_CODE=$EXITCODE"
 
 sync
-poweroff -f
+echo b > /proc/sysrq-trigger
 '''
 
 
@@ -272,6 +277,23 @@ class QEMUEnvironment(IsolationEnvironment):
                     crashed=True
                 )
 
+    def _check_initrd(self, output_path: Path):
+        # log and check format details
+        with output_path.open('rb') as f:
+            listing = subprocess.run(
+                ['cpio', '-it'], stdin=f, capture_output=True, text=True, check=True,
+            )
+        self._log('initrd_contents', listing.stdout)
+        self._log('initrd_size', str(output_path.stat().st_size))
+        contents = {
+            p.removeprefix('./').rstrip('/')
+            for p in listing.stdout.splitlines()
+        }
+        if 'init' not in contents:
+            raise RuntimeError('/init missing from initrd')
+        if 'binary' not in contents:
+            raise RuntimeError('/binary missing from initrd')
+
     def _create_initrd(self, output_path: Path):
         with tempfile.TemporaryDirectory() as tmpdir_s:
             tmpdir = Path(tmpdir_s)
@@ -294,6 +316,7 @@ class QEMUEnvironment(IsolationEnvironment):
                 check=True,
                 capture_output=True
             )
+            self._check_initrd(output_path)
 
     @staticmethod
     def _find_kernel() -> Optional[Path]:
@@ -319,6 +342,16 @@ class QEMUEnvironment(IsolationEnvironment):
 
     @staticmethod
     def _get_kernel_cmdline() -> str:
+        # DEBUG ONLY
+        return (
+            'console=ttyS0 '
+            'init=/init '
+            'panic=-1 '
+            'reboot=t'
+        )
+
+    @staticmethod
+    def _get_kernel_cmdline_full() -> str:
         base_params = [
             'console=ttyS0', 'quiet',
             'loglevel=3', 'panic=-1', 'init=/init',]
