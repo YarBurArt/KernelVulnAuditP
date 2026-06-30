@@ -266,33 +266,46 @@ class SandboxRun(Base):
     )
 
     run_timestamp: Mapped[datetime | None] = mapped_column(DateTime)
-    sandbox_platform: Mapped[str | None] = mapped_column(String(100))  # virtme-ng, qemu, host
+    sandbox_platform: Mapped[str | None] = mapped_column(String(100))
     exploit_file_hash: Mapped[str | None] = mapped_column(String(128), index=True)
-    # SHA256 of analyzed file
     execution_success: Mapped[bool] = mapped_column(Boolean, default=False)
     exit_code: Mapped[int | None] = mapped_column(Integer)
+    crashed: Mapped[bool] = mapped_column(Boolean, default=False)
+
     stdout: Mapped[str | None] = mapped_column(Text)
     stderr: Mapped[str | None] = mapped_column(Text)
     stdin: Mapped[str | None] = mapped_column(Text)
-    open_processes: Mapped[Any | None] = mapped_column(JSON)  # List of processes running during execution
-    open_files: Mapped[Any | None] = mapped_column(JSON)  # List of files opened during execution
+
+    open_processes: Mapped[Any | None] = mapped_column(JSON)
+    open_files: Mapped[Any | None] = mapped_column(JSON)
+    modules: Mapped[Any | None] = mapped_column(JSON)
+    kernel_info: Mapped[Any | None] = mapped_column(JSON)
+    resources: Mapped[Any | None] = mapped_column(JSON)
+
     notes: Mapped[str | None] = mapped_column(Text)
 
-    # Relationship to vulns
     vulnerability: Mapped[Vulnerability] = relationship(back_populates="sandbox_runs")
 
     def to_dict(self) -> Dict[str, Any]:
         run_t = self.run_timestamp.isoformat() if self.run_timestamp else None
         return {
-            'id': self.id, 'vulnerability_id': self.vulnerability_id,
+            'id': self.id,
+            'vulnerability_id': self.vulnerability_id,
             'run_timestamp': run_t,
             'sandbox_platform': self.sandbox_platform,
             'exploit_file_hash': self.exploit_file_hash,
             'execution_success': self.execution_success,
             'exit_code': self.exit_code,
-            'stdout': self.stdout, 'stderr': self.stderr,
-            'stdin': self.stdin, 'open_processes': self.open_processes,
-            'open_files': self.open_files, 'notes': self.notes
+            'crashed': self.crashed,
+            'stdout': self.stdout,
+            'stderr': self.stderr,
+            'stdin': self.stdin,
+            'open_processes': self.open_processes,
+            'open_files': self.open_files,
+            'modules': self.modules,
+            'kernel_info': self.kernel_info,
+            'resources': self.resources,
+            'notes': self.notes
         }
 
 

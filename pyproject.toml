@@ -5,11 +5,12 @@ description = "This tool checks the practical functionality of linux kernel expl
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
-    "flet>=0.85.2",
+    "flet==0.85.3",
+    "flet-desktop==0.85.3",
     "httpx>=0.28.1",
     "mypy>=2.1.0",
-    "pytest>=9.0.3",
-    "sqlalchemy>=2.0.50",
+    "pytest==9.1.1",
+    "sqlalchemy==2.0.51",
     "streamlit>=1.58.0",
 ]
 

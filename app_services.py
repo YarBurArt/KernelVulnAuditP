@@ -317,33 +317,39 @@ class AppServices:
             "mode": getattr(result, "execution_mode", "unknown"),
             "returncode": getattr(result, "returncode", None),
             "success": getattr(result, "returncode", 1) == 0,
-            "stdout": getattr(result, "stdout", ""),
-            "stderr": getattr(result, "stderr", ""),
+            "crashed": getattr(result, "crashed", False),
+            "stdout": getattr(result, "stdout", " "),
+            "stderr": getattr(result, "stderr", " "),
             "logs": getattr(result, "logs", {}),
+            "kernel_info": getattr(result, "kernel_info", {}),
+            "resources": getattr(result, "resources", {}),
+            "modules": getattr(result, "modules", []),
+            "files": getattr(result, "files", []),
+            "processes": getattr(result, "processes", []),
         }
 
     def _store_sandbox_run(self, cve_id: str, result, command: str) -> None:
-        xpl_hash = result.logs.get("exploit_hash") \
-            if hasattr(result, "logs") else ""
-        open_fproc = result.logs.get("open_processes", []) \
-            if hasattr(result, "logs") else []
-        open_f = result.logs.get("open_files", []) \
-            if hasattr(result, "logs") else []
-        cmd_log = result.logs.get("command") \
-            if hasattr(result, "logs") else None
+        logs = getattr(result, "logs", {}) or {}
+        xpl_hash = logs.get("exploit_hash", logs.get("binary", " "))
+
         sandbox_data = {
             "sandbox_platform": getattr(result, "execution_mode", "unknown"),
             "run_timestamp": datetime.now(timezone.utc),
             "exploit_file_hash": xpl_hash,
             "execution_success": getattr(result, "returncode", 1) == 0,
             "exit_code": getattr(result, "returncode", -1),
-            "stdout": getattr(result, "stdout", ""),
-            "stderr": getattr(result, "stderr", ""),
+            "crashed": getattr(result, "crashed", False),
+            "stdout": getattr(result, "stdout", " "),
+            "stderr": getattr(result, "stderr", " "),
             "stdin": command,
-            "open_processes": open_fproc,
-            "open_files": open_f,
-            "notes": cmd_log,
+            "open_processes": getattr(result, "processes", []),
+            "open_files": getattr(result, "files", []),
+            "modules": getattr(result, "modules", []),
+            "kernel_info": getattr(result, "kernel_info", {}),
+            "resources": getattr(result, "resources", {}),
+            "notes": logs.get("command"),
         }
+
         logger.debug(f"{cve_id} full sandbox POC data: {sandbox_data}")
         self.db.add_sandbox_run(cve_id, sandbox_data)
 
