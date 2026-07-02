@@ -14,7 +14,8 @@ from isolate import Isolate
 from recon import LocalRecon, ReconFeeds
 from schemas import (
     FeedsReconResult, LocalReconResult,
-    ReconResult, SecurityRecommendation, KernelAuditItem, KernelLPE, LesCVEItem, CVEFinding, GitHubPoC
+    ReconResult, SecurityRecommendation,
+    KernelAuditItem, KernelLPE, LesCVEItem, CVEFinding, GitHubPoC
 )
 from sqxpl import GitHubExploitSearcher
 

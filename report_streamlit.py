@@ -4,7 +4,7 @@ from typing import Any, Dict, List
 
 try:
     import streamlit as st
-except (ImportError, ModuleNotFoundError):
+except ImportError, ModuleNotFoundError:
     st = None  # type: ignore
 
 
@@ -18,9 +18,7 @@ class StreamlitReportRenderer:
         """Render full report."""
         if st is None:
             return
-        st.set_page_config(
-            page_title="Kernel Vulnerability Report", layout="wide"
-        )
+        st.set_page_config(page_title="Kernel Vulnerability Report", layout="wide")
         st.title("System Scan Report")
 
         self._render_header()
@@ -44,16 +42,18 @@ class StreamlitReportRenderer:
         kev_data = self.data.get("kev_data", [])
         with st.expander(f"KEV Stats ({len(kev_data)})"):
             if kev_data:
-                st.markdown("""
+                st.markdown(
+                    """
                     <style>
                         .stTable { overflow-x: auto; }
                         table td { white-space: normal !important; }
                         td { max-width: 400pt; min-width: 100pt; }
                     </style>
-                """, unsafe_allow_html=True)
+                """,
+                    unsafe_allow_html=True,
+                )
                 transposed = [
-                    [k] + [d[k] for d in kev_data]
-                    for k in kev_data[0].keys()
+                    [k] + [d[k] for d in kev_data] for k in kev_data[0].keys()
                 ]
                 st.table(transposed)
             else:
@@ -64,15 +64,15 @@ class StreamlitReportRenderer:
         st.subheader("Execution Logs")
         runs = self.data.get("runs", [])
         for idx, run in enumerate(runs):
-            run_key = run.get('id', f'run_{idx}')
-            with st.expander(
-                f"Run {run_key} - [{run.get('status', 'UNKNOWN')}]"
-            ):
+            run_key = run.get("id", f"run_{idx}")
+            with st.expander(f"Run {run_key} - [{run.get('status', 'UNKNOWN')}]"):
                 st.write(run.get("description", "No description"))
                 col_out, col_err = st.columns(2)
                 col_out.text_area(
-                    "STDOUT", run.get("stdout", ""),
-                    height=100, key=f"out_{run_key}_{idx}"
+                    "STDOUT",
+                    run.get("stdout", ""),
+                    height=100,
+                    key=f"out_{run_key}_{idx}",
                 )
                 col_err.write("STDERR")
                 if run.get("stderr"):
@@ -99,9 +99,9 @@ class StreamlitReportRenderer:
         with st.expander(f"Exploits / POCs ({len(exploits)})"):
             for expl in exploits:
                 c1, c2, c3 = st.columns([1, 1, 3])
-                c1.text(expl.get('exploit_type', 'POC'))
-                c2.text(expl.get('source', 'Unknown'))
-                url = expl.get('url')
+                c1.text(expl.get("exploit_type", "POC"))
+                c2.text(expl.get("source", "Unknown"))
+                url = expl.get("url")
                 if url:
                     c3.markdown(f"[{url}]({url})")
                 else:
@@ -115,9 +115,9 @@ class StreamlitReportRenderer:
         with st.expander(f"References ({len(references)})"):
             for ref in references:
                 c1, c2, c3 = st.columns([1, 1, 3])
-                c1.text(ref.get('ref_type', 'OTHER'))
-                c2.text(ref.get('source', 'Unknown'))
-                url = ref.get('url')
+                c1.text(ref.get("ref_type", "OTHER"))
+                c2.text(ref.get("source", "Unknown"))
+                url = ref.get("url")
                 if url:
                     c3.markdown(f"[{url}]({url})")
                 else:
@@ -137,11 +137,11 @@ class StreamlitReportRenderer:
 
         c1, c2 = st.columns(2)
         c1.info(f"Platform: {run.get('sandbox_platform') or 'Unknown'}")
-        hash_val = run.get('exploit_file_hash') or 'N/A'
-        hash_display = hash_val[:16] + "..." if hash_val != 'N/A' else hash_val
+        hash_val = run.get("exploit_file_hash") or "N/A"
+        hash_display = hash_val[:16] + "..." if hash_val != "N/A" else hash_val
         c2.info(f"Hash: {hash_display}")
 
-        if run.get('notes'):
+        if run.get("notes"):
             st.caption(f"Notes: {run.get('notes')}")
 
         self._render_sandbox_io(run)
@@ -151,32 +151,47 @@ class StreamlitReportRenderer:
     def _render_sandbox_io(self, run: Dict[str, Any]) -> None:
         """Render sandbox I/O section."""
         with st.expander("View I/O"):
-            stdout = run.get('stdout')
+            stdout = run.get("stdout")
             if stdout:
                 st.text_area("STDOUT", stdout, height=100)
-            stderr = run.get('stderr')
+            stderr = run.get("stderr")
             if stderr:
                 st.error(f"STDERR:\n{stderr}")
-            stdin = run.get('stdin')
+            stdin = run.get("stdin")
             if stdin:
                 st.code(stdin, language="bash")
 
     def _render_sandbox_artifacts(self, run: Dict[str, Any]) -> None:
         """Render sandbox processes and files."""
-        procs = run.get('open_processes') or []
+        procs = run.get("open_processes") or []
         if procs:
             st.write("Processes:", ", ".join(procs))
-        files = run.get('open_files') or []
+        files = run.get("open_files") or []
         if files:
             st.write("Files:", ", ".join(files))
+        kinfo = run.get("kernel_info") or {}
+        if kinfo:
+            with st.expander("Kernel Info"):
+                for k, v in kinfo.items():
+                    if isinstance(v, str) and len(v) > 200:
+                        st.text(f"{k}:")
+                        st.code(v[:1000], language="text")
+                    else:
+                        st.text(f"{k}: {v}")
 
-    def _render_sandbox_runs(
-        self, sandbox_runs: List[Dict[str, Any]]
-    ) -> None:
+    def _render_sandbox_runs(self, sandbox_runs: List[Dict[str, Any]]) -> None:
         """Render sandbox runs section."""
         if not sandbox_runs:
             return
         with st.expander(f"Sandbox Runs ({len(sandbox_runs)})"):
+            all_modules = set()
+            for run in sandbox_runs:
+                mods = run.get("modules") or []
+                if isinstance(mods, list):
+                    all_modules.update(mods)
+            if all_modules:
+                with st.expander(f"Kernel Modules ({len(all_modules)})"):
+                    st.write(", ".join(sorted(all_modules)))
             for run in sandbox_runs:
                 self._render_sandbox_run(run)
 
@@ -188,9 +203,7 @@ class StreamlitReportRenderer:
         ):
             st.write(vuln.get("description", "No description"))
             c1, c2, c3 = st.columns(3)
-            c1.metric(
-                "Criticality", f"{vuln.get('criticality_score', 0)}/100"
-            )
+            c1.metric("Criticality", f"{vuln.get('criticality_score', 0)}/100")
             c2.metric("Exploits", vuln.get("exploit_count", 0))
             c3.metric("In KEV", "Yes" if vuln.get("in_cisa_kev") else "No")
 
@@ -215,8 +228,7 @@ class StreamlitReportRenderer:
 
         st.subheader(f"Security Recommendations ({len(recs)})")
 
-        stats = self.data.get("statistics", {}).get(
-            "security_recommendations", {})
+        stats = self.data.get("statistics", {}).get("security_recommendations", {})
         if stats:
             c1, c2, c3 = st.columns(3)
             c1.metric("Total", stats.get("total", 0))
@@ -230,17 +242,11 @@ class StreamlitReportRenderer:
                 severity = rec.get("severity", "INFO")
 
                 if status == "FAIL":
-                    st.error(
-                        f"**[{status}]** `{rec.get('test_id')}` - {severity}"
-                    )
+                    st.error(f"**[{status}]** `{rec.get('test_id')}` - {severity}")
                 elif status == "WARNING":
-                    st.warning(
-                        f"**[{status}]** `{rec.get('test_id')}` - {severity}"
-                    )
+                    st.warning(f"**[{status}]** `{rec.get('test_id')}` - {severity}")
                 else:
-                    st.success(
-                        f"**[{status}]** `{rec.get('test_id')}` - {severity}"
-                    )
+                    st.success(f"**[{status}]** `{rec.get('test_id')}` - {severity}")
 
                 st.write(f"**Category:** {rec.get('category', 'N/A')}")
                 st.write(f"**Description:** {rec.get('description', 'N/A')}")
