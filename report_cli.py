@@ -130,30 +130,26 @@ class CLIReportRenderer:
                 f"`{expl.get('source', 'Unknown')}`\n"
                 f"       {expl.get('url', 'N/A')}\n"
             )
-            if expl.get('verified'):
+            if expl.get("verified"):
                 section += "       Verified\n"
         return section
 
     @staticmethod
-    def _build_references_section(
-        references: List[Dict[str, Any]]
-    ) -> str:
+    def _build_references_section(references: List[Dict[str, Any]]) -> str:
         """Build references section string."""
         if not references:
             return ""
 
         section = f"\n  References ({len(references)}):\n"
         for ref in references:
-            ref_type = ref.get('ref_type', 'OTHER')
+            ref_type = ref.get("ref_type", "OTHER")
             section += (
                 f"    [{ref_type}] `{ref.get('source', 'Unknown')}`\n"
                 f"       {ref.get('url', 'N/A')}\n"
             )
         return section
 
-    def _build_sandbox_section(
-        self, sandbox_runs: List[Dict[str, Any]]
-    ) -> str:
+    def _build_sandbox_section(self, sandbox_runs: List[Dict[str, Any]]) -> str:
         """Build sandbox runs section string."""
         if not sandbox_runs:
             return ""
@@ -170,21 +166,18 @@ class CLIReportRenderer:
             else:
                 status = f"MAYBE (exit: {exit_code})"
 
-            section += (
-                f"    {status} | "
-                f"{run.get('sandbox_platform') or 'Unknown'}\n"
-            )
+            section += f"    {status} | {run.get('sandbox_platform') or 'Unknown'}\n"
 
-            if run.get('notes'):
+            if run.get("notes"):
                 section += f"    Notes: {run.get('notes')}\n"
 
-            hash_val = run.get('exploit_file_hash')
+            hash_val = run.get("exploit_file_hash")
             if hash_val:
                 section += f"    Hash: {hash_val[:16]}...\n"
 
-            if self.verbose and run.get('stdout'):
+            if self.verbose and run.get("stdout"):
                 section += f"    STDOUT: {run.get('stdout')[:200]}...\n"
-            if self.verbose and run.get('stderr'):
+            if self.verbose and run.get("stderr"):
                 section += f"    STDERR: {run.get('stderr')[:200]}...\n"
 
         return section
@@ -205,12 +198,9 @@ class CLIReportRenderer:
                 f"  {vuln.get('description', 'No description')[:150]}\n"
             )
 
-            section += self._build_exploits_section(
-                vuln.get("exploits", []))
-            section += self._build_references_section(
-                vuln.get("references", []))
-            section += self._build_sandbox_section(
-                vuln.get("sandbox_runs", []))
+            section += self._build_exploits_section(vuln.get("exploits", []))
+            section += self._build_references_section(vuln.get("references", []))
+            section += self._build_sandbox_section(vuln.get("sandbox_runs", []))
 
         return section
 

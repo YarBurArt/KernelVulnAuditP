@@ -2,7 +2,7 @@ import json
 import logging
 import sqlite3
 from contextlib import contextmanager
-from typing import List, Dict, Any, Optional
+from typing import Any, Dict, List, Optional
 
 from core import calculate_criticality_score
 from db_orm import SecurityRecommendation

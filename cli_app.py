@@ -63,8 +63,11 @@ class CLIApp:
             if self.verbose and nist:
                 for vuln in nist.get("vulnerabilities", [])[:5]:
                     cve_id = vuln.get("cve", {}).get("cveId", "N/A")
-                    desc = vuln.get("cve", {}).get(
-                        "descriptions", [{}])[0].get("value", "N/A")[:100]
+                    desc = (
+                        vuln.get("cve", {})
+                        .get("descriptions", [{}])[0]
+                        .get("value", "N/A")[:100]
+                    )
                     print(f"    - {cve_id}: {desc}...")
         else:
             print(f"  NIST: {nist}")
@@ -95,28 +98,31 @@ class CLIApp:
 
 
 def main_cli(db: ThreatDB):
-    parser = argparse.ArgumentParser(
-        description="Kernel Vulnerability Auditor")
+    parser = argparse.ArgumentParser(description="Kernel Vulnerability Auditor")
     parser.add_argument(
-        "--scan", "-s", action="store_true",
-        help="Perform vulnerability scan")
+        "--scan", "-s", action="store_true", help="Perform vulnerability scan"
+    )
+    parser.add_argument("--report", "-r", action="store_true", help="Generate report")
     parser.add_argument(
-        "--report", "-r", action="store_true", help="Generate report")
+        "--exec-tests",
+        action="store_true",
+        help="Run execution tests (CVE => PoC -> sandbox)",
+    )
     parser.add_argument(
-        "--exec-tests", action="store_true",
-        help="Run execution tests (CVE => PoC -> sandbox)")
+        "--verbose", "-v", action="store_true", help="Enable verbose output"
+    )
     parser.add_argument(
-        "--verbose", "-v", action="store_true",
-        help="Enable verbose output")
+        "--cve",
+        type=str,
+        default="6.1.0",
+        help="CVE ID for GitHub PoC search by kernel version",
+    )
+    parser.add_argument("--save", action="store_true", help="Save results to DB")
+    parser.add_argument("--list-kev", action="store_true", help="List CISA KEV entries")
     parser.add_argument(
-        "--cve", type=str, default="6.1.0",
-        help="CVE ID for GitHub PoC search by kernel version")
-    parser.add_argument(
-        "--save", action="store_true", help="Save results to DB")
-    parser.add_argument(
-        "--list-kev", action="store_true", help="List CISA KEV entries")
-    parser.add_argument(
-        "--db", type=str, default=DB_BACKEND,
+        "--db",
+        type=str,
+        default=DB_BACKEND,
         choices=["simple", "orm", "memory"],
         help="DB backend type and way, sqlite, redis, or just in memory",
     )
@@ -132,9 +138,7 @@ def main_cli(db: ThreatDB):
             cve_id = entry.get("cve_id", "N/A")
             desc = entry.get("description", "")[:80]
             date = entry.get("cisa_kev", {}).get("date_added", "N/A")
-            ransomware = entry.get(
-                "cisa_kev", {}
-            ).get("known_ransomware", False)
+            ransomware = entry.get("cisa_kev", {}).get("known_ransomware", False)
             print(f"  {idx}. {cve_id}")
             print(f"     {desc}...")
             print(f"     Added: {date} | Ransomware: {ransomware}")

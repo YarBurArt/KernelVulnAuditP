@@ -1,5 +1,5 @@
-import sys
 import json
+import sys
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
@@ -12,8 +12,8 @@ except ImportError, ModuleNotFoundError:
 
 from db import get_db
 from recon import LocalRecon
-from report_streamlit import StreamlitReportRenderer
 from report_cli import CLIReportRenderer
+from report_streamlit import StreamlitReportRenderer
 
 
 def save_report_json(data: Dict[str, Any], filepath: str = "report_data.json") -> None:

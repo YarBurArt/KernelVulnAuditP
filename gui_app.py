@@ -1,8 +1,9 @@
+import asyncio
 import subprocess
 import sys
+from datetime import datetime
 from pathlib import Path
 from typing import Any
-from datetime import datetime
 
 from core import flatten_dict_value, update_config_file
 from db import ThreatDB
@@ -23,11 +24,11 @@ from config import (  # just for gui settings
     LES_PATH,
     LES_REPORT_PATH,
     LINPEAS_OUT_JSON,
+    LOG_LEVEL,
     LYNIS_LOG_FILE,
     LYNIS_REPORT_FILE,
     PATH_LINPEAS,
     POCS_BASE_PATH,
-    LOG_LEVEL,
 )
 
 
@@ -53,7 +54,7 @@ class GUIApp:
     def _main_page(self, page: ft.Page):
         self._page = page
         page.title = "Kernel Vulnerability Auditor"
-        page.window.width = 850
+        page.window.width = 900
         page.window.height = 600
         page.theme_mode = ft.ThemeMode.DARK
         page.padding = 20
@@ -932,13 +933,13 @@ class GUIApp:
 
     def _start_local(self, _):
         self._log_terminal("Initiating local telemetry acquisition...", "INFO")
+        self._show_progress("Running local recon...")
         self.page.run_task(self._process_local_scan)
 
     async def _process_local_scan(self):
-        self._show_progress("Running local recon...", None)
         try:
             self._log_terminal("Current lynis conf can be a bit slow", "INFO")
-            result_dt = self.services.run_local_recon()
+            result_dt = await asyncio.to_thread(self.services.run_local_recon)
 
             if hasattr(result_dt, "security_recommendations"):
                 sorted_recs = sorted(

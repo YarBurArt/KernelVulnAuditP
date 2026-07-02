@@ -2,17 +2,29 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
-from typing import List, Dict, Any, Optional
+from typing import Any, Dict, List, Optional
 
 from sqlalchemy import (
-    create_engine, Integer, String,
-    Float, Boolean, Text, DateTime,
-    ForeignKey, Index, JSON, func,
+    JSON,
+    Boolean,
+    DateTime,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    create_engine,
+    func,
 )
 from sqlalchemy.orm import (
-    DeclarativeBase, relationship, Session,
-    sessionmaker, scoped_session,
-    Mapped, mapped_column
+    DeclarativeBase,
+    Mapped,
+    Session,
+    mapped_column,
+    relationship,
+    scoped_session,
+    sessionmaker,
 )
 from sqlalchemy.pool import StaticPool
 

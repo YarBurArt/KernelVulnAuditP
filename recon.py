@@ -1,30 +1,42 @@
-import shutil
-from pathlib import Path
-import subprocess
-import os
-import re
 import json
 import logging
+import os
 import platform
+import re
+import shutil
+import subprocess
 from datetime import datetime
-from typing import List, Dict, Any
+from pathlib import Path
+from typing import Any, Dict, List
 
 import httpx
+
 from config import (
-    CISA_KEV_PATH, CISA_KEV_URL, CH_API_URL,
-    CVEORG_BASE_URL, GITHUB_API_URL, NIST_API_URL,
-    OSV_API_URL, LYNIS_REPORT_FILE, LYNIS_BINARY,
-    LYNIS_LOG_FILE, LINPEAS_OUT_JSON, PATH_LINPEAS,
-    LES_PATH, LES_REPORT_PATH
+    CH_API_URL,
+    CISA_KEV_PATH,
+    CISA_KEV_URL,
+    CVEORG_BASE_URL,
+    GITHUB_API_URL,
+    LES_PATH,
+    LES_REPORT_PATH,
+    LINPEAS_OUT_JSON,
+    LYNIS_BINARY,
+    LYNIS_LOG_FILE,
+    LYNIS_REPORT_FILE,
+    NIST_API_URL,
+    OSV_API_URL,
+    PATH_LINPEAS,
 )
 from core import (
-    filter_items_by_date, strip_ansi_sequences,
-    parse_key_with_brackets, ensure_list_in_dict, assign_value_by_key_type,
-    parse_key_value_pairs
+    assign_value_by_key_type,
+    ensure_list_in_dict,
+    filter_items_by_date,
+    parse_key_value_pairs,
+    parse_key_with_brackets,
+    strip_ansi_sequences,
 )
-
 from lib_tools.peas2json import parse_peass
-from schemas import KernelAuditItem, KernelLPE, LesCVEItem, GitHubPoC, CVEFinding
+from schemas import CVEFinding, GitHubPoC, KernelAuditItem, KernelLPE, LesCVEItem
 
 logger = logging.getLogger(f"kernel_audit.{__name__}")
 CVE_RE = re.compile(r"(CVE-\d{4}-\d+)", re.IGNORECASE)

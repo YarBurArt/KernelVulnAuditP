@@ -16,20 +16,21 @@ Example output: [
     "cve_id": "CVE-2024-1086"
 },]
 """
-import subprocess
-import shutil
+import base64
 import json
 import re
-import base64
-from typing import List, Dict, Any, Optional
+import shutil
+import subprocess
 from pathlib import Path
+from typing import Any, Dict, List, Optional
+
 import httpx
 
-from config import VERSIONS_RE, REQUIREMENTS_RE, POCS_BASE_PATH
+from config import POCS_BASE_PATH, REQUIREMENTS_RE, VERSIONS_RE
 from core import (
-    extract_section_by_header,
+    clean_command_string,
     extract_code_block_commands,
-    clean_command_string
+    extract_section_by_header,
 )
 
 

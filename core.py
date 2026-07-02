@@ -3,9 +3,9 @@ Core utility functions, more independent functionality
 Date parsing, dict/list processing, text extraction, criticality calc.
 """
 import re
-from pathlib import Path
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Callable
+from pathlib import Path
+from typing import Any, Callable, Dict, List, Optional
 
 
 def parse_date_string(date_str: str) -> Optional[datetime]:

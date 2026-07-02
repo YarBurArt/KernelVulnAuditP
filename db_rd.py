@@ -1,6 +1,6 @@
 import logging
 from datetime import datetime, timezone
-from typing import List, Dict, Any, Optional
+from typing import Any, Dict, List, Optional
 
 from core import calculate_criticality_score
 from db import ThreatDB
