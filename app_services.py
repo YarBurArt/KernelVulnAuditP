@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 from config import ALLOW_HOST_EXECUTION, ISOLATION_TIMEOUT_SEC
-from core import format_timestamp
+from core import format_timestamp, format_report, summarize_sandbox
 from db import ThreatDB
 from isolate import Isolate
 from recon import LocalRecon, ReconFeeds
@@ -53,7 +53,7 @@ class AppServices:
         lynis_result: List[KernelAuditItem] = self.lr.get_lynis_scan_details()
         logger.info(f"Lynis scan completed: {len(lynis_result)}")
         linpeas_result: KernelLPE | None = self.lr.get_linpeas_scan_details()
-        logger.info(f"LinPEAS scan completed")
+        logger.info("LinPEAS scan completed")
         les_result: list[LesCVEItem] = self.lr.get_les_scan_details()
         logger.info(f"LES scan completed: {len(les_result)}")
 
@@ -89,66 +89,6 @@ class AppServices:
 
         return FeedsReconResult(findings=findings, pocs=pocs)
 
-    def _load_and_store_kev(self) -> None:
-        """Load CISA KEV catalog and persist in DB."""
-        try:
-            self.rf.get_kev()
-            self.rf.load_kev()
-            logger.info(f"Loaded {len(self.rf.kev_kern_vuln)} "
-                  f"kernel-related KEV entries")
-        except Exception as e:
-            logger.exception("Failed to load CISA KEV catalog", e)
-            return
-
-        stored = 0
-        skipped = 0
-        for kev_item in self.rf.kev_kern_vuln:
-            cve_id = kev_item.get("cveID")
-            if not cve_id:
-                continue
-
-            date_added = None
-            due_date = None
-            try:
-                date_str = kev_item.get("dateAdded")
-                if date_str:
-                    date_added = datetime.strptime(date_str, "%Y-%m-%d")
-                due_str = kev_item.get("dueDate")
-                if due_str:
-                    due_date = datetime.strptime(due_str, "%Y-%m-%d")
-            except Exception as e:
-                logger.debug("Failed to parse date", e)
-
-            kev_data = {
-                "date_added": date_added,
-                "due_date": due_date,
-                "required_action": kev_item.get("requiredAction"),
-                "known_ransomware": kev_item.get(
-                    "knownRansomwareCampaignUse") == "Known",
-                "vendor_project": kev_item.get("vendorProject"),
-                "product": kev_item.get("product"),
-                "notes": kev_item.get("notes", ""),
-            }
-
-            vuln_data = {
-                "cve_id": cve_id,
-                "description": kev_item.get("shortDescription", ""),
-                "in_cisa_kev": True,
-                "sources": ["CISA_KEV"],
-            }
-            logger.debug(f"N KEV: {kev_data} | N VULN: {vuln_data}")
-            try:
-                self.db.upsert_vulnerability(vuln_data)
-                self.db.add_cisa_kev(cve_id, kev_data)
-                stored += 1
-            except Exception as e:
-                if "UNIQUE constraint failed" in str(e):
-                    skipped += 1
-                else:
-                    logger.warning(f"Error storing {cve_id}: {e}")
-
-        logger.info(f"Stored {stored} CISA KEV entries, {skipped} already existed")
-
     def run_full_recon(self) -> ReconResult:
         """Run local + online recon and return combined result."""
         local_r = self.run_local_recon()
@@ -157,58 +97,115 @@ class AppServices:
         return ReconResult(local=local_r, feeds=feeds_r)
 
     def run_execution_tests(self) -> dict:
-        """Validate kernel CVEs by sandbox-executing PoCs."""
-        kernel = self.lr.get_kernel_version_simple()
-        build_date = self.lr.get_kernel_build_date(kernel)
-        cve_hints = self._collect_kernel_cves()
-        context = {"kernel_version": kernel, "build_date": build_date}
+        """validate kernel CVEs by sandbox-executing PoC """
+        context = self._build_execution_context()
         logger.info(f"execution tests started in context: {context}")
-
+        cve_hints = self._collect_kernel_cves()
         report_entries = []
-        for cve_id, hint in cve_hints.items():
-            entry = self._persist_cve_hint(cve_id, hint, context)
-            if entry is None:
-                logger.warning(f"{cve_id} additional info hint is not saved")
-                continue
-            entry["pocs"] = []
-            repos = self.poc_searcher.search_repositories(
-                cve_id, max_results=3)
-            downloads = GitHubExploitSearcher.load_xpls(repos)
-            for poc in downloads:
-                summary_of_exec = self._record_poc_for_cve(cve_id, poc)
-                if summary_of_exec:
-                    logger.debug(f"{cve_id} summary of exec poc: {summary_of_exec}")
-                    entry["pocs"].append(summary_of_exec)
-                else:
-                    logger.debug(f"something wrong in the execution of {cve_id}: {poc}")
-            report_entries.append(entry)
 
-        stats = self.db.get_statistics()
-        p_build = None
-        if build_date is not None:
-            p_build = format_timestamp(build_date)
-        return {
-            "kernel": kernel,
-            "build_date": p_build,
-            "cves_processed": len(report_entries),
-            "stats": stats,
-            "entries": report_entries,
+        for cve_id, hint in cve_hints.items():
+            entry = self._process_single_cve(cve_id, hint, context)
+
+            if entry is not None:
+                report_entries.append(entry)
+
+        return self._build_execution_report(context, report_entries)
+
+    @staticmethod
+    def _parse_kev_date(value: str | None) -> datetime | None:
+        if not value:
+            return None
+
+        try:
+            return datetime.strptime(value, "%Y-%m-%d")
+        except Exception as exc:
+            logger.debug(f"Failed to parse date '{value}': {exc}")
+            return None
+
+    def _build_kev_records(
+        self,
+        kev_item: Dict[str, Any],
+    ) -> tuple[str | None, Dict[str, Any], Dict[str, Any]]:
+
+        cve_id = kev_item.get("cveID")
+        kev_data = {
+            "date_added": self._parse_kev_date(kev_item.get("dateAdded")),
+            "due_date": self._parse_kev_date(kev_item.get("dueDate")),
+            "required_action": kev_item.get("requiredAction"),
+            "known_ransomware": (kev_item.get("knownRansomwareCampaignUse") == "Known"),
+            "vendor_project": kev_item.get("vendorProject"),
+            "product": kev_item.get("product"),
+            "notes": kev_item.get("notes", ""),
+        }
+        vuln_data = {
+            "cve_id": cve_id,
+            "description": kev_item.get("shortDescription", ""),
+            "in_cisa_kev": True,
+            "sources": ["CISA_KEV"],
         }
 
+        return cve_id, kev_data, vuln_data
+
+    def _save_kev_entry(
+        self,
+        cve_id: str,
+        kev_data: Dict[str, Any],
+        vuln_data: Dict[str, Any],
+    ) -> bool:
+        try:
+            self.db.upsert_vulnerability(vuln_data)
+            self.db.add_cisa_kev(cve_id, kev_data)
+            return True
+
+        except Exception as exc:
+            if "UNIQUE constraint failed" in str(exc):
+                return False
+            logger.warning(f"Error storing {cve_id}: {exc}")
+            return False
+
+    def _load_and_store_kev(self) -> None:
+        """load CISA KEV feed and persist in DB"""
+        try:
+            self.rf.get_kev()
+            self.rf.load_kev()
+            logger.info(
+                f"Loaded {len(self.rf.kev_kern_vuln)} kernel-related KEV entries"
+            )
+
+        except Exception as e:
+            logger.exception(f"Failed to load CISA KEV catalog: {e}")
+            return
+
+        stored = 0
+        skipped = 0
+        for kev_item in self.rf.kev_kern_vuln:
+            cve_id, kev_data, vuln_data = self._build_kev_records(kev_item)
+
+            if not cve_id:
+                continue
+            logger.debug(f"N KEV: {kev_data} | N VULN: {vuln_data}")
+
+            if self._save_kev_entry(cve_id, kev_data, vuln_data):
+                stored += 1
+            else:
+                skipped += 1
+
+        logger.info(f"Stored {stored} CISA KEV entries, {skipped} already existed")
+
     def _collect_kernel_cves(self) -> Dict[str, Dict[str, Any]]:
-        logger.info(f"Collecting kernel cves by local scans")
+        logger.info("Collecting kernel cves by local scans")
         cves: Dict[str, Dict[str, Any]] = {}
         linpeas: KernelLPE | None = self.lr.get_linpeas_scan_details()
         if linpeas is None:
             logger.warning("No linpeas scans found")
             return cves
-        logger.info(f"linpeas scan completed")
+        logger.info("linpeas scan completed")
         for entry in linpeas.cves:
             if isinstance(entry, str) and entry:
                 cves.setdefault(entry, {})["source"] = "linpeas"
 
         les_items: list[LesCVEItem] = self.lr.get_les_scan_details()
-        logger.info(f"les scan completed")
+        logger.info("les scan completed")
         for entry_les in les_items:
             cve_id: str = entry_les.cve_id
             if not cve_id:
@@ -218,88 +215,172 @@ class AppServices:
             target["source"] = "les"
         return cves
 
+    @staticmethod
+    def _normalize_source(source: str) -> str:
+        return "LES" if source.lower() == "les" else source.upper()
+
+    def _build_vulnerability(
+        self,
+        cve_id: str,
+        hint: Dict[str, Any],
+        metadata: Dict[str, Any],
+        context: Dict[str, Any] | None,
+    ) -> Dict[str, Any]:
+
+        description = (
+            hint.get("details") or hint.get("title") or metadata.get("description")
+        )
+        severity = hint.get("severity") or metadata.get("severity")
+        raw_data = {"hint": hint, "metadata": metadata.get("raw")}
+
+        if context:
+            raw_data["context"] = context
+
+        return {
+            "cve_id": cve_id,
+            "description": description,
+            "cvss_v3_score": metadata.get("cvss_v3_score"),
+            "severity": severity,
+            "sources": [self._normalize_source(hint.get("source", "linpeas"))],
+            "raw_data": raw_data,
+        }
+
     def _persist_cve_hint(
         self,
         cve_id: str,
         hint: Dict[str, Any],
         context: Dict[str, Any] | None = None,
     ) -> Dict[str, Any] | None:
-        metadata = self.rf.get_cve_details(cve_id) or {}
-        description = hint.get("details") or hint.get(
-            "title") or metadata.get("description")
-        severity = hint.get("severity") or metadata.get("severity")
-        raw_source = hint.get("source", "linpeas")
-        normalized_source = "LES" if raw_source == "les" \
-            else raw_source.upper()
-        vuln: dict[str, Any] = {
-            "cve_id": cve_id,
-            "description": description,
-            "cvss_v3_score": metadata.get("cvss_v3_score"),
-            "severity": severity,
-            "sources": [normalized_source],
-            "raw_data": {
-                "hint": hint,
-                "metadata": metadata.get("raw"),
-            },
-        }
-        if context:
-            vuln["raw_data"]["context"] = context
 
+        metadata = self.rf.get_cve_details(cve_id) or {}
+        vuln = self._build_vulnerability(cve_id, hint, metadata, context)
         logger.debug(f"{cve_id} hint/refs vuln: {vuln}")
         self.db.upsert_vulnerability(vuln)
+
         if metadata.get("nist_url"):
             self.db.add_reference(
-                cve_id, metadata["nist_url"], ref_type="ADVISORY",
-                source="NIST")
+                cve_id, metadata["nist_url"], ref_type="ADVISORY", source="NIST"
+            )
+
         return {
-            "cve_id": cve_id,
-            "description": description,
-            "cvss_v3_score": metadata.get("cvss_v3_score"),
-            "severity": severity,
-            "sources": [normalized_source],
+            "cve_id": vuln["cve_id"],
+            "description": vuln["description"],
+            "cvss_v3_score": vuln["cvss_v3_score"],
+            "severity": vuln["severity"],
+            "sources": vuln["sources"],
         }
 
-    def _record_poc_for_cve(
-        self, cve_id: str, poc: Dict[str, Any]
+    def _build_execution_context(self) -> Dict[str, Any]:
+        kernel = self.lr.get_kernel_version_simple()
+        return {
+            "kernel_version": kernel,
+            "build_date": self.lr.get_kernel_build_date(kernel),
+        }
+
+    def _process_single_cve(
+        self,
+        cve_id: str,
+        hint: Dict[str, Any],
+        context: Dict[str, Any],
     ) -> Dict[str, Any] | None:
+
+        entry = self._persist_cve_hint(cve_id, hint, context,)
+        if entry is None:
+            logger.warning(f"{cve_id} additional info hint is not saved")
+            return None
+
+        repos = self.poc_searcher.search_repositories(cve_id, max_results=3,)
+        downloads = GitHubExploitSearcher.load_xpls(repos)
+        entry["pocs"] = [self._record_poc_for_cve(cve_id, poc) for poc in downloads]
+
+        return entry
+
+    def _build_execution_report(
+        self,
+        context: Dict[str, Any],
+        entries: List[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+
+        build_date = context["build_date"]
+        return {
+            "kernel": context["kernel_version"],
+            "build_date": (
+                format_timestamp(build_date) if build_date is not None else None
+            ),
+            "cves_processed": len(entries),
+            "stats": self.db.get_statistics(),
+            "entries": entries,
+        }
+
+    def _register_poc(self, cve_id: str, poc: Dict[str, Any]) -> None:
         exploit_meta = {
             "exploit_type": "PoC",
             "source": "GitHub",
             "url": poc.get("url"),
             "verified": True,
         }
+
         logger.debug(f"record poc meta: {exploit_meta}")
         self.db.add_exploit(cve_id, exploit_meta)
+
         if poc.get("url"):
-            self.db.add_reference(
-                cve_id, poc["url"], ref_type="EXPLOIT", source="GitHub")
-        summary = {
+            self.db.add_reference(cve_id, poc["url"], ref_type="EXPLOIT", source="GitHub")
+
+    @staticmethod
+    def _build_poc_summary(poc: Dict[str, Any]) -> Dict[str, Any]:
+        return {
             "url": poc.get("url"),
             "language": poc.get("language"),
             "stars": poc.get("stars"),
             "compile_cmd": poc.get("compile_cmd"),
             "test_cmd": poc.get("test_cmd"),
         }
+
+    def _execute_poc(
+        self,
+        cve_id: str,
+        poc: Dict[str, Any],
+    ) -> Dict[str, Any]:
         command = poc.get("test_cmd") or poc.get("compile_cmd")
-        repo = poc.get("local_path")
-        if command and repo:
-            script = self._build_runner_script(Path(repo), str(command))
-            logger.debug(f"build runner script: {script}")
+        repo: str = poc.get("local_path", "")
+
+        if not command or not repo:
+            return {}
+
+        script = self._build_runner_script(Path(repo), str(command))
+        logger.debug(f"build runner script: {script}")
+
+        try:
+            logger.info(f"{cve_id}: {command} - is started")
+            result = self.isolate.run_binary(script)
+            if not result:
+                return {}
+
+            logger.info(f"{cve_id} poc - is finished")
+            self._store_sandbox_run(cve_id, result, str(command))
+
+            return {"sandbox": summarize_sandbox(result),}
+
+        except Exception as exc:
+            logger.warning(f"{cve_id}: {command} - is failed: {exc}")
+
+            return {"sandbox_error": str(exc),}
+
+        finally:
             try:
-                logger.info(f"{cve_id}: {command} - is started")
-                result = self.isolate.run_binary(script)
-                if result:
-                    summary["sandbox"] = self._summarize_sandbox(result)
-                    logger.info(f"{cve_id} poc - is finished")
-                    self._store_sandbox_run(cve_id, result, str(command))
-            except Exception as exc:
-                summary["sandbox_error"] = str(exc)
-                logger.warning(f"{cve_id}: {command} - is failed: {exc}")
-            finally:
-                try:
-                    script.unlink()
-                except FileNotFoundError as e:
-                    logger.debug(f"unlink failed, we are missing script: {e}")
+                script.unlink()
+            except FileNotFoundError as exc:
+                logger.debug(f"unlink failed, missing script: {exc}")
+
+    def _record_poc_for_cve(
+        self,
+        cve_id: str,
+        poc: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        self._register_poc(cve_id, poc)
+        summary = self._build_poc_summary(poc)
+        summary.update(self._execute_poc(cve_id, poc))
+
         return summary
 
     @staticmethod
@@ -316,23 +397,6 @@ class AppServices:
         )
         script.chmod(0o755)
         return script
-
-    @staticmethod
-    def _summarize_sandbox(result) -> Dict[str, Any]:
-        return {
-            "mode": getattr(result, "execution_mode", "unknown"),
-            "returncode": getattr(result, "returncode", None),
-            "success": getattr(result, "returncode", 1) == 0,
-            "crashed": getattr(result, "crashed", False),
-            "stdout": getattr(result, "stdout", " "),
-            "stderr": getattr(result, "stderr", " "),
-            "logs": getattr(result, "logs", {}),
-            "kernel_info": getattr(result, "kernel_info", {}),
-            "resources": getattr(result, "resources", {}),
-            "modules": getattr(result, "modules", []),
-            "files": getattr(result, "files", []),
-            "processes": getattr(result, "processes", []),
-        }
 
     def _store_sandbox_run(self, cve_id: str, result, command: str) -> None:
         logs = getattr(result, "logs", {}) or {}
@@ -430,32 +494,7 @@ class AppServices:
     def generate_report(self):
         logger.debug(f"generating base report")
         data = self.run_full_recon()
-        return self._format_report(asdict(data))
-
-    @staticmethod
-    def _format_report(data: dict) -> dict:
-        feeds = data.get("feeds", {}) or {}
-        findings = feeds.get("findings", [])
-        pocs = feeds.get("pocs", [])
-
-        nist_count = 0
-        osv_count = 0
-
-        for f in findings:
-            src = (f.get("source") or "").upper()
-            if src == "NIST":
-                nist_count += 1
-            elif src == "OSV":
-                osv_count += 1
-
-        return {
-            "kernel": data.get("kernel", ""),
-            "system": data.get("system", ""),
-            "build_date": data.get("build_date", 0),
-            "nist_count": nist_count,
-            "osv_count": osv_count,
-            "github_count": len(pocs),
-        }
+        return format_report(asdict(data))
 
 
 __all__ = ["AppServices"]

@@ -971,7 +971,7 @@ class GUIApp:
     async def _process_feeds(self):
         self._show_progress("Fetching threat intel feeds...", None)
         try:
-            result = self.services.run_feeds_recon()
+            result = await asyncio.to_thread(self.services.run_feeds_recon)
 
             # FIXME: nist wrong format
             for item in getattr(result, "nist", []):
@@ -1014,7 +1014,7 @@ class GUIApp:
     async def _process_execution_tests(self):
         self._show_progress("Running sandbox execution tests...", None)
         try:
-            report = self.services.run_execution_tests()
+            report = await asyncio.to_thread(self.services.run_execution_tests)
             self._log_terminal(f"Verification payload complete:\n{report}", "OK")
             self._load_sandbox_runs()
         except Exception as e:

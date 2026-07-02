@@ -410,3 +410,43 @@ def update_config_file(
         )
 
     config_path.write_text(config_content)
+
+def format_report(data: dict) -> dict:
+    feeds = data.get("feeds", {}) or {}
+    findings = feeds.get("findings", [])
+    pocs = feeds.get("pocs", [])
+
+    nist_count = 0
+    osv_count = 0
+
+    for f in findings:
+        src = (f.get("source") or "").upper()
+        if src == "NIST":
+            nist_count += 1
+        elif src == "OSV":
+            osv_count += 1
+
+    return {
+        "kernel": data.get("kernel", ""),
+        "system": data.get("system", ""),
+        "build_date": data.get("build_date", 0),
+        "nist_count": nist_count,
+        "osv_count": osv_count,
+        "github_count": len(pocs),
+    }
+
+def summarize_sandbox(result) -> Dict[str, Any]:
+    return {
+        "mode": getattr(result, "execution_mode", "unknown"),
+        "returncode": getattr(result, "returncode", None),
+        "success": getattr(result, "returncode", 1) == 0,
+        "crashed": getattr(result, "crashed", False),
+        "stdout": getattr(result, "stdout", " "),
+        "stderr": getattr(result, "stderr", " "),
+        "logs": getattr(result, "logs", {}),
+        "kernel_info": getattr(result, "kernel_info", {}),
+        "resources": getattr(result, "resources", {}),
+        "modules": getattr(result, "modules", []),
+        "files": getattr(result, "files", []),
+        "processes": getattr(result, "processes", []),
+    }

@@ -10,8 +10,8 @@ dependencies = [
     "flet-desktop==0.85.3",
     "httpx>=0.28.1",
     "mypy>=2.1.0",
+    "pylint>=4.0.6",
     "pytest==9.1.1",
-    "ruff>=0.15.20",
     "sqlalchemy==2.0.51",
     "streamlit>=1.58.0",
 ]

@@ -178,7 +178,8 @@ class GitHubExploitSearcher:
 
         return compile_cmd, test_cmd, requirements
 
-    def _extract_c_compile(self, readme: str) -> Optional[str]:
+    @staticmethod
+    def _extract_c_compile(readme: str) -> Optional[str]:
         patterns = [
             r'gcc\s+[^\n]+',
             r'make\s*(?:all)?',
@@ -199,8 +200,9 @@ class GitHubExploitSearcher:
 
         return None
 
+    @staticmethod
     def _extract_test_command(
-        self, readme: str, language: str
+            readme: str, language: str
     ) -> Optional[str]:
         patterns = []
 
@@ -227,7 +229,8 @@ class GitHubExploitSearcher:
 
         return None
 
-    def _extract_requirements(self, readme: str) -> Optional[str]:
+    @staticmethod
+    def _extract_requirements(readme: str) -> Optional[str]:
         req_patterns = [REQUIREMENTS_RE, VERSIONS_RE]
         extracted = extract_section_by_header(
             readme, req_patterns, max_length=500)
@@ -241,7 +244,8 @@ class GitHubExploitSearcher:
 
         return None
 
-    def _extract_notes(self, readme: str) -> str:
+    @staticmethod
+    def _extract_notes(readme: str) -> str:
         """Extract notes or warnings from README"""
         note_patterns = [
             r'(?:note|warning|important|disclaimer)[\s:]+([^\n#]+)',
