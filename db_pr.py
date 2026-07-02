@@ -1,12 +1,11 @@
+import json
 import logging
 import sqlite3
-import json
-from typing import List, Dict, Any, Optional
 from contextlib import contextmanager
+from typing import List, Dict, Any, Optional
 
 from core import calculate_criticality_score
 from db_orm import SecurityRecommendation
-
 
 logger = logging.getLogger(f"kernel_audit.{__name__}")
 
@@ -270,7 +269,7 @@ class SimpleThreatDB:
             return cursor.lastrowid
 
     def get_vulnerability(
-        self, cve_id: str
+            self, cve_id: str
     ) -> Optional[Dict[str, Any]]:
         conn = self._get_conn()
         cursor = conn.execute("SELECT * FROM vulnerabilities WHERE cve_id = ?", (cve_id,))
@@ -281,7 +280,7 @@ class SimpleThreatDB:
         return None
 
     def add_affected_product(
-        self, vuln_id: int, product_data: Dict[str, Any]
+            self, vuln_id: int, product_data: Dict[str, Any]
     ):
         """affected product/package to further support vulns like in sudo, GNU utils"""
         conn = self._get_conn()
@@ -301,7 +300,7 @@ class SimpleThreatDB:
         conn.commit()
 
     def get_affected_products(
-        self, vuln_id: int
+            self, vuln_id: int
     ) -> List[Dict[str, Any]]:
         """all affected products for vuln"""
         conn = self._get_conn()
@@ -312,8 +311,8 @@ class SimpleThreatDB:
         return [dict(row) for row in cursor.fetchall()]
 
     def _do_add_reference(
-        self, vuln_id: int, url: str,
-        ref_type: str = "OTHER", source: str | None = None
+            self, vuln_id: int, url: str,
+            ref_type: str = "OTHER", source: str | None = None
     ):
         """Add reference/link"""
         conn = self._get_conn()
@@ -324,8 +323,8 @@ class SimpleThreatDB:
         conn.commit()
 
     def add_reference(
-        self, cve_id: str, url: str,
-        ref_type: str = "OTHER", source: str | None = None
+            self, cve_id: str, url: str,
+            ref_type: str = "OTHER", source: str | None = None
     ) -> None:
         """add reference by cve_id (ORM compat)"""
         vuln_id = self._resolve_vuln_id(cve_id)
@@ -413,7 +412,7 @@ class SimpleThreatDB:
         return dict(row) if row else None
 
     def _do_add_sandbox_run(
-        self, vuln_id: int, sandbox_data: Dict[str, Any]
+            self, vuln_id: int, sandbox_data: Dict[str, Any]
     ):
         """Add isolated execution data"""
         conn = self._get_conn()
@@ -449,7 +448,7 @@ class SimpleThreatDB:
         conn.commit()
 
     def add_sandbox_run(
-        self, cve_id: str, sandbox_data: Dict[str, Any]
+            self, cve_id: str, sandbox_data: Dict[str, Any]
     ) -> None:
         """add sandbox run by cve_id (ORM compat)"""
         vuln_id = self._resolve_vuln_id(cve_id)
@@ -491,7 +490,7 @@ class SimpleThreatDB:
         return dict(row) if row else None
 
     def get_full_vulnerability(
-        self, cve_id: str
+            self, cve_id: str
     ) -> Optional[Dict[str, Any]]:
         """get vuln with all related data (exploits, KEV, runs)"""
         vuln = self.get_vulnerability(cve_id)
@@ -508,7 +507,7 @@ class SimpleThreatDB:
         return vuln
 
     def get_vulnerability_with_details(
-        self, cve_id: str
+            self, cve_id: str
     ) -> Optional[Dict[str, Any]]:
         """alias for get_full_vulnerability (ORM compat)"""
         return self.get_full_vulnerability(cve_id)
@@ -521,17 +520,17 @@ class SimpleThreatDB:
         return vuln['id']
 
     def search(
-        self,
-        min_cvss: float | int | None = None,
-        severity: str | None = None,
-        has_exploit: bool | None = None,
-        in_cisa_kev: bool | None = None,
-        min_criticality: int | None = None,
-        vendor: str | None = None,
-        product: str | None = None,
-        package_ecosystem: str | None = None,
-        limit: int = 100,
-        offset: int = 0
+            self,
+            min_cvss: float | int | None = None,
+            severity: str | None = None,
+            has_exploit: bool | None = None,
+            in_cisa_kev: bool | None = None,
+            min_criticality: int | None = None,
+            vendor: str | None = None,
+            product: str | None = None,
+            package_ecosystem: str | None = None,
+            limit: int = 100,
+            offset: int = 0
     ) -> List[Dict[str, Any]]:
         """Search vulnerabilities with filters"""
         conn = self._get_conn()
@@ -583,17 +582,17 @@ class SimpleThreatDB:
         return self.search(min_criticality=60, limit=limit)
 
     def get_by_severity(
-        self, severity: str, limit: int = 100
+            self, severity: str, limit: int = 100
     ) -> List[Dict[str, Any]]:
         return self.search(severity=severity, limit=limit)
 
     def get_with_exploits(
-        self, limit: int = 100
+            self, limit: int = 100
     ) -> List[Dict[str, Any]]:
         return self.search(has_exploit=True, limit=limit)
 
     def get_cisa_kev_list(
-        self, limit: int = 100
+            self, limit: int = 100
     ) -> List[Dict[str, Any]]:
         return self.search(in_cisa_kev=True, limit=limit)
 
@@ -605,7 +604,8 @@ class SimpleThreatDB:
         cursor = conn.execute("SELECT COUNT(*) FROM vulnerabilities")
         stats['total'] = cursor.fetchone()[0]
 
-        cursor = conn.execute("SELECT severity, COUNT(*) FROM vulnerabilities WHERE severity IS NOT NULL GROUP BY severity")
+        cursor = conn.execute(
+            "SELECT severity, COUNT(*) FROM vulnerabilities WHERE severity IS NOT NULL GROUP BY severity")
         stats['by_severity'] = dict(cursor.fetchall())
         cursor = conn.execute("SELECT COUNT(*) FROM vulnerabilities WHERE has_exploit = 1")
         stats['with_exploits'] = cursor.fetchone()[0]
@@ -652,7 +652,7 @@ class SimpleThreatDB:
         return d
 
     def bulk_insert(
-        self, vulnerabilities: List[Dict[str, Any]]
+            self, vulnerabilities: List[Dict[str, Any]]
     ) -> int:
         """Bulk insert vulnerabilities (faster for large datasets)"""
         count = 0
@@ -693,7 +693,7 @@ class SimpleThreatDB:
         return cursor.lastrowid
 
     def bulk_insert_recommendations(
-        self, recommendations: List[SecurityRecommendation]
+            self, recommendations: List[SecurityRecommendation]
     ) -> int:
         """Bulk insert security recommendations"""
         count = 0
@@ -706,8 +706,8 @@ class SimpleThreatDB:
         return count
 
     def get_security_recommendations(
-        self, category: str | None = None, status: str | None = None,
-        limit: int = 100, offset: int = 0
+            self, category: str | None = None, status: str | None = None,
+            limit: int = 100, offset: int = 0
     ) -> List[Dict[str, Any]]:
         """Get security recommendations with optional filters"""
         conn = self._get_conn()

@@ -1,11 +1,10 @@
 import logging
-from typing import List, Dict, Any, Optional
 from datetime import datetime, timezone
+from typing import List, Dict, Any, Optional
 
-from db import ThreatDB
 from core import calculate_criticality_score
+from db import ThreatDB
 from db_orm import SecurityRecommendation
-
 
 logger = logging.getLogger(f"kernel_audit.{__name__}")
 
@@ -41,14 +40,14 @@ class InMemoryThreatDB(ThreatDB):
             vuln['updated_at'] = now
         else:
             vuln = {
-                'id': self._next_id,    'cve_id': cve_id, 'description': None,
+                'id': self._next_id, 'cve_id': cve_id, 'description': None,
                 'published_date': None, 'last_modified_date': None,
-                'cvss_v2_score': None,  'cvss_v3_score': None,
+                'cvss_v2_score': None, 'cvss_v3_score': None,
                 'cvss_v3_vector': None, 'severity': None, 'cwe_ids': [],
-                'in_cisa_kev': False,   'has_exploit': False,
+                'in_cisa_kev': False, 'has_exploit': False,
                 'exploit_count': 0, 'github_refs': 0, 'exploitdb_refs': 0,
-                'sources': [],      'raw_data': {}, 'criticality_score': 0,
-                'created_at': now,  'updated_at': now,
+                'sources': [], 'raw_data': {}, 'criticality_score': 0,
+                'created_at': now, 'updated_at': now,
             }
             vuln.update(data)
             vuln['id'] = self._next_id
@@ -63,7 +62,7 @@ class InMemoryThreatDB(ThreatDB):
         return dict(vuln) if vuln else None
 
     def get_vulnerability_with_details(
-        self, cve_id: str
+            self, cve_id: str
     ) -> Optional[Dict[str, Any]]:
         vuln = self.get_vulnerability(cve_id)
         if not vuln:
@@ -106,7 +105,7 @@ class InMemoryThreatDB(ThreatDB):
         vuln['criticality_score'] = calculate_criticality_score(vuln)
 
     def add_sandbox_run(
-        self, cve_id: str, sandbox_data: Dict[str, Any]
+            self, cve_id: str, sandbox_data: Dict[str, Any]
     ) -> None:
         vuln = self._require(cve_id)
         entry = dict(sandbox_data)
@@ -118,8 +117,8 @@ class InMemoryThreatDB(ThreatDB):
         return list(self._sandbox.get(cve_id, []))
 
     def add_reference(
-        self, cve_id: str, url: str,
-        ref_type: str = "OTHER", source: str | None = None
+            self, cve_id: str, url: str,
+            ref_type: str = "OTHER", source: str | None = None
     ) -> None:
         vuln = self._require(cve_id)
         entry = {
@@ -136,14 +135,14 @@ class InMemoryThreatDB(ThreatDB):
         vuln['criticality_score'] = calculate_criticality_score(vuln)
 
     def search(
-        self,
-        min_cvss: float | int | None = None,
-        severity: str | None = None,
-        has_exploit: bool | None = None,
-        in_cisa_kev: bool | None = None,
-        min_criticality: int | None = None,
-        limit: int = 100,
-        offset: int = 0,
+            self,
+            min_cvss: float | int | None = None,
+            severity: str | None = None,
+            has_exploit: bool | None = None,
+            in_cisa_kev: bool | None = None,
+            min_criticality: int | None = None,
+            limit: int = 100,
+            offset: int = 0,
     ) -> List[Dict[str, Any]]:
 
         results = []
@@ -220,7 +219,7 @@ class InMemoryThreatDB(ThreatDB):
         }
 
     def add_security_recommendation(
-        self, rec_data: Dict[str, Any]
+            self, rec_data: Dict[str, Any]
     ) -> int:
         rec = dict(rec_data)
         rec['id'] = len(self._recommendations) + 1
@@ -228,7 +227,7 @@ class InMemoryThreatDB(ThreatDB):
         return rec['id']
 
     def bulk_insert_recommendations(
-        self, recommendations: List[SecurityRecommendation]
+            self, recommendations: List[SecurityRecommendation]
     ) -> int:
         count = 0
         for rec in recommendations:
@@ -240,8 +239,8 @@ class InMemoryThreatDB(ThreatDB):
         return count
 
     def get_security_recommendations(
-        self, category: str | None = None, status: str | None = None,
-        limit: int = 100, offset: int = 0
+            self, category: str | None = None, status: str | None = None,
+            limit: int = 100, offset: int = 0
     ) -> List[Dict[str, Any]]:
         results = []
         for rec in self._recommendations:

@@ -1,5 +1,9 @@
 from __future__ import annotations
+
 import logging
+from datetime import datetime
+from typing import List, Dict, Any, Optional
+
 from sqlalchemy import (
     create_engine, Integer, String,
     Float, Boolean, Text, DateTime,
@@ -11,14 +15,13 @@ from sqlalchemy.orm import (
     Mapped, mapped_column
 )
 from sqlalchemy.pool import StaticPool
-from datetime import datetime
-from typing import List, Dict, Any, Optional
 
 from core import calculate_criticality_score
 
 
 class Base(DeclarativeBase):
     pass
+
 
 logger = logging.getLogger(f"kernel_audit.{__name__}")
 
@@ -77,7 +80,6 @@ class Vulnerability(Base):
         back_populates="vulnerability",
         cascade="all, delete-orphan",
     )
-
 
     def to_dict(self) -> Dict[str, Any]:
         """convert to dictionary for json and report"""
@@ -398,7 +400,7 @@ class ThreatIntelligenceORM:
             session.close()
 
     def get_vulnerability_with_details(
-        self, cve_id: str
+            self, cve_id: str
     ) -> Optional[Dict[str, Any]]:
         session = self.get_session()
         try:
@@ -425,7 +427,7 @@ class ThreatIntelligenceORM:
             session.close()
 
     def add_affected_product(
-        self, cve_id: str, product_data: Dict[str, Any]
+            self, cve_id: str, product_data: Dict[str, Any]
     ) -> AffectedProduct:
         session = self.get_session()
         try:
@@ -455,8 +457,8 @@ class ThreatIntelligenceORM:
             session.close()
 
     def add_reference(
-        self, cve_id: str, url: str,
-        ref_type: str = "OTHER", source: str | None = None
+            self, cve_id: str, url: str,
+            ref_type: str = "OTHER", source: str | None = None
     ) -> Reference:
         session = self.get_session()
         try:
@@ -492,7 +494,7 @@ class ThreatIntelligenceORM:
             session.close()
 
     def add_exploit(
-        self, cve_id: str, exploit_data: Dict[str, Any]
+            self, cve_id: str, exploit_data: Dict[str, Any]
     ) -> Optional[Exploit]:
         session = self.get_session()
         try:
@@ -524,7 +526,7 @@ class ThreatIntelligenceORM:
             session.close()
 
     def add_cisa_kev(
-        self, cve_id: str, kev_data: Dict[str, Any]
+            self, cve_id: str, kev_data: Dict[str, Any]
     ) -> CISAKEVEntry | None:
         session = self.get_session()
         try:
@@ -568,7 +570,7 @@ class ThreatIntelligenceORM:
             session.close()
 
     def add_sandbox_run(
-        self, cve_id: str, sandbox_data: Dict[str, Any]
+            self, cve_id: str, sandbox_data: Dict[str, Any]
     ) -> SandboxRun:
         """Add sandbox execution data"""
         session = self.get_session()
@@ -614,11 +616,11 @@ class ThreatIntelligenceORM:
             session.close()
 
     def search(
-        self, min_cvss: float | int | None = None, severity: str | None = None,
-        has_exploit: bool | None = None, in_cisa_kev: bool | None = None,
-        min_criticality: int | None = None, vendor: str | None = None,
-        product: str | None = None, package_ecosystem: str | None = None,
-        limit: int = 100, offset: int = 0
+            self, min_cvss: float | int | None = None, severity: str | None = None,
+            has_exploit: bool | None = None, in_cisa_kev: bool | None = None,
+            min_criticality: int | None = None, vendor: str | None = None,
+            product: str | None = None, package_ecosystem: str | None = None,
+            limit: int = 100, offset: int = 0
     ) -> List[Dict[str, Any]]:
         """search vulns with filters"""
         session = self.get_session()
@@ -672,12 +674,12 @@ class ThreatIntelligenceORM:
         return self.search(min_criticality=60, limit=limit)
 
     def get_with_exploits(
-        self, limit: int = 100
+            self, limit: int = 100
     ) -> List[Dict[str, Any]]:
         return self.search(has_exploit=True, limit=limit)
 
     def get_cisa_kev_list(
-        self, limit: int = 100
+            self, limit: int = 100
     ) -> List[Dict[str, Any]]:
         return self.search(in_cisa_kev=True, limit=limit)
 
@@ -739,7 +741,7 @@ class ThreatIntelligenceORM:
             session.close()
 
     def add_security_recommendation(
-        self, rec_data: SecurityRecommendation
+            self, rec_data: SecurityRecommendation
     ) -> SecurityRecommendation:
         """add security recommendation"""
         session = self.get_session()
@@ -757,7 +759,7 @@ class ThreatIntelligenceORM:
             session.close()
 
     def bulk_insert_recommendations(
-        self, recommendations: List[SecurityRecommendation]
+            self, recommendations: List[SecurityRecommendation]
     ) -> int:
         """bulk insert security recommendations"""
         count = 0
@@ -770,8 +772,8 @@ class ThreatIntelligenceORM:
         return count
 
     def get_security_recommendations(
-        self, category: str | None = None, status: str | None = None,
-        limit: int = 100, offset: int = 0
+            self, category: str | None = None, status: str | None = None,
+            limit: int = 100, offset: int = 0
     ) -> List[Dict[str, Any]]:
         """get security recommendations with filters"""
         session = self.get_session()

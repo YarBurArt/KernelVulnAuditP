@@ -24,23 +24,23 @@ class ThreatDB(ABC):
 
     @abstractmethod
     def get_vulnerability_with_details(
-        self, cve_id: str
+            self, cve_id: str
     ) -> Optional[Dict[str, Any]]:
         """Fetch vulnerability + all related data (exploits, KEV, runs)."""
 
     @abstractmethod
     def add_exploit(
-        self, cve_id: str, exploit_data: Dict[str, Any]
+            self, cve_id: str, exploit_data: Dict[str, Any]
     ) -> None: ...
 
     @abstractmethod
     def add_cisa_kev(
-        self, cve_id: str, kev_data: Dict[str, Any]
+            self, cve_id: str, kev_data: Dict[str, Any]
     ) -> None: ...
 
     @abstractmethod
     def add_sandbox_run(
-        self, cve_id: str, sandbox_data: Dict[str, Any]
+            self, cve_id: str, sandbox_data: Dict[str, Any]
     ) -> None: ...
 
     @abstractmethod
@@ -48,20 +48,20 @@ class ThreatDB(ABC):
 
     @abstractmethod
     def add_reference(
-        self, cve_id: str, url: str,
-        ref_type: str = "OTHER", source: str | None = None
+            self, cve_id: str, url: str,
+            ref_type: str = "OTHER", source: str | None = None
     ) -> None: ...
 
     @abstractmethod
     def search(
-        self,
-        min_cvss: float | int | None = None,
-        severity: str | None = None,
-        has_exploit: bool | None = None,
-        in_cisa_kev: bool | None = None,
-        min_criticality: int | None = None,
-        limit: int = 100,
-        offset: int = 0,
+            self,
+            min_cvss: float | int | None = None,
+            severity: str | None = None,
+            has_exploit: bool | None = None,
+            in_cisa_kev: bool | None = None,
+            min_criticality: int | None = None,
+            limit: int = 100,
+            offset: int = 0,
     ) -> List[Dict[str, Any]]: ...
 
     @abstractmethod
@@ -69,12 +69,12 @@ class ThreatDB(ABC):
 
     @abstractmethod
     def get_with_exploits(
-        self, limit: int = 100
+            self, limit: int = 100
     ) -> List[Dict[str, Any]]: ...
 
     @abstractmethod
     def get_cisa_kev_list(
-        self, limit: int = 100
+            self, limit: int = 100
     ) -> List[Dict[str, Any]]: ...
 
     @abstractmethod
@@ -82,18 +82,18 @@ class ThreatDB(ABC):
 
     @abstractmethod
     def add_security_recommendation(
-        self, rec_data: Dict[str, Any]
+            self, rec_data: Dict[str, Any]
     ) -> int: ...
 
     @abstractmethod
     def bulk_insert_recommendations(
-        self, recommendations: List[SecurityRecommendation]
+            self, recommendations: List[SecurityRecommendation]
     ) -> int: ...
 
     @abstractmethod
     def get_security_recommendations(
-        self, category: str | None = None, status: str | None = None,
-        limit: int = 100, offset: int = 0
+            self, category: str | None = None, status: str | None = None,
+            limit: int = 100, offset: int = 0
     ) -> List[Dict[str, Any]]: ...
 
     @abstractmethod
@@ -101,7 +101,7 @@ class ThreatDB(ABC):
 
     @abstractmethod
     def bulk_insert(
-        self, vulnerabilities: List[Dict[str, Any]]
+            self, vulnerabilities: List[Dict[str, Any]]
     ) -> int: ...
 
     @abstractmethod
@@ -132,7 +132,7 @@ class SimpleThreatDBAdapter(ThreatDB):
         return self._db.get_vulnerability(cve_id)
 
     def get_vulnerability_with_details(
-        self, cve_id: str
+            self, cve_id: str
     ) -> Optional[Dict[str, Any]]:
         return self._db.get_vulnerability_with_details(cve_id)
 
@@ -143,7 +143,7 @@ class SimpleThreatDBAdapter(ThreatDB):
         self._db.add_cisa_kev(cve_id, kev_data)
 
     def add_sandbox_run(
-        self, cve_id: str, sandbox_data: Dict[str, Any]
+            self, cve_id: str, sandbox_data: Dict[str, Any]
     ) -> None:
         self._db.add_sandbox_run(cve_id, sandbox_data)
 
@@ -151,16 +151,16 @@ class SimpleThreatDBAdapter(ThreatDB):
         return self._db.get_sandbox_runs(cve_id)
 
     def add_reference(
-        self, cve_id: str, url: str,
-        ref_type: str = "OTHER", source: str | None = None
+            self, cve_id: str, url: str,
+            ref_type: str = "OTHER", source: str | None = None
     ) -> None:
         self._db.add_reference(cve_id, url, ref_type, source)
 
     def search(
-        self, min_cvss: float | int | None = None, severity: str | None = None,
-        has_exploit: bool | None = None, in_cisa_kev: bool | None = None,
-        min_criticality: int | None = None,
-        limit: int = 100, offset: int = 0,
+            self, min_cvss: float | int | None = None, severity: str | None = None,
+            has_exploit: bool | None = None, in_cisa_kev: bool | None = None,
+            min_criticality: int | None = None,
+            limit: int = 100, offset: int = 0,
     ) -> List[Dict[str, Any]]:
         return self._db.search(
             min_cvss=min_cvss, severity=severity,
@@ -182,18 +182,18 @@ class SimpleThreatDBAdapter(ThreatDB):
         return self._db.get_statistics()
 
     def add_security_recommendation(
-        self, rec_data: Dict[str, Any]
+            self, rec_data: Dict[str, Any]
     ) -> int:
         return self._db.add_security_recommendation(rec_data)
 
     def bulk_insert_recommendations(
-        self, recommendations: List[SecurityRecommendation]
+            self, recommendations: List[SecurityRecommendation]
     ) -> int:
         return self._db.bulk_insert_recommendations(recommendations)
 
     def get_security_recommendations(
-        self, category: str | None = None, status: str | None = None,
-        limit: int = 100, offset: int = 0
+            self, category: str | None = None, status: str | None = None,
+            limit: int = 100, offset: int = 0
     ) -> List[Dict[str, Any]]:
         return self._db.get_security_recommendations(
             category=category, status=status,
@@ -228,7 +228,7 @@ class ThreatIntelligenceORMAdapter(ThreatDB):
         return vuln.to_dict() if vuln else None
 
     def get_vulnerability_with_details(
-        self, cve_id: str
+            self, cve_id: str
     ) -> Optional[Dict[str, Any]]:
         return self._db.get_vulnerability_with_details(cve_id)
 
@@ -239,7 +239,7 @@ class ThreatIntelligenceORMAdapter(ThreatDB):
         self._db.add_cisa_kev(cve_id, kev_data)
 
     def add_sandbox_run(
-        self, cve_id: str, sandbox_data: Dict[str, Any]
+            self, cve_id: str, sandbox_data: Dict[str, Any]
     ) -> None:
         self._db.add_sandbox_run(cve_id, sandbox_data)
 
@@ -247,16 +247,16 @@ class ThreatIntelligenceORMAdapter(ThreatDB):
         return self._db.get_sandbox_runs(cve_id)
 
     def add_reference(
-        self, cve_id: str, url: str,
-        ref_type: str = "OTHER", source: str | None = None
+            self, cve_id: str, url: str,
+            ref_type: str = "OTHER", source: str | None = None
     ) -> None:
         self._db.add_reference(cve_id, url, ref_type, source)
 
     def search(
-        self, min_cvss: float | int | None = None, severity: str | None = None,
-        has_exploit: bool | None = None, in_cisa_kev: bool | None = None,
-        min_criticality: int | None = None,
-        limit: int = 100, offset: int = 0,
+            self, min_cvss: float | int | None = None, severity: str | None = None,
+            has_exploit: bool | None = None, in_cisa_kev: bool | None = None,
+            min_criticality: int | None = None,
+            limit: int = 100, offset: int = 0,
     ) -> List[Dict[str, Any]]:
         return self._db.search(
             min_cvss=min_cvss, severity=severity,
@@ -278,18 +278,18 @@ class ThreatIntelligenceORMAdapter(ThreatDB):
         return self._db.get_statistics()
 
     def add_security_recommendation(
-        self, rec_data: Dict[str, Any]
+            self, rec_data: Dict[str, Any]
     ) -> int:
         return self._db.add_security_recommendation(rec_data)
 
     def bulk_insert_recommendations(
-        self, recommendations: List[SecurityRecommendation]
+            self, recommendations: List[SecurityRecommendation]
     ) -> int:
         return self._db.bulk_insert_recommendations(recommendations)
 
     def get_security_recommendations(
-        self, category: str | None = None, status: str | None = None,
-        limit: int = 100, offset: int = 0
+            self, category: str | None = None, status: str | None = None,
+            limit: int = 100, offset: int = 0
     ) -> List[Dict[str, Any]]:
         return self._db.get_security_recommendations(
             category=category, status=status,
