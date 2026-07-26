@@ -1,18 +1,23 @@
 [project]
 name = "kernelvulnauditp"
-version = "0.1.0"
+version = "0.1.1"
 description = "This tool checks the practical functionality of linux kernel exploits"
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
-    "black>=26.5.1",
     "flet==0.86.2",
     "flet-desktop==0.86.2",
     "httpx>=0.28.1",
-    "mypy==2.3.0",
-    "pylint>=4.0.6",
-    "pytest==9.1.1",
     "sqlalchemy==2.0.51",
     "streamlit==1.60.0",
+]
+
+[dependency-groups]
+dev = [
+    "mypy==2.3.0",
+    "bandit>=1.9.4",
+    "pytest==9.1.1",
+    "pylint>=4.0.6",
+    "black>=26.5.1",
 ]
 

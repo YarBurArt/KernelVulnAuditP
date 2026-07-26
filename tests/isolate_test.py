@@ -1,5 +1,3 @@
-# tests/test_isolate.py
-
 import json
 import subprocess
 from pathlib import Path

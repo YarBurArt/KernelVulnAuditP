@@ -1,0 +1,100 @@
+name: CI-micro
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+jobs:
+  bandit:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.1.0
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install
+
+      - name: Run Bandit and Generate SARIF
+        continue-on-error: true
+        run: |
+          uv run --frozen bandit -r . \
+            -x .venv,venv,.git,__pycache__,tests,tests_integration,migrations,lib_tools,assets \
+            -ll -i \
+            -f sarif -o bandit-results.sarif
+          echo $? > bandit_rc.txt
+
+      - name: Upload Bandit SARIF to Security Tab
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: bandit-results.sarif
+        if: always()
+
+      - name: Fail job if Bandit found issues
+        run: |
+          if [ -f bandit_rc.txt ]; then
+            RC=$(cat bandit_rc.txt)
+            if [ "$RC" -ne 0 ]; then
+              echo "Bandit found vulnerabilities of MEDIUM severity or higher."
+              exit 1
+            fi
+          fi
+
+  pylint:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.1.0
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install
+
+      - name: Run pylint
+        run: |
+          FILES=$(git ls-files '*.py' \
+            ':!.venv/**' \
+            ':!venv/**' \
+            ':!tests/**' \
+            ':!tests_integration/**' \
+            ':!migrations/**' \
+            ':!lib_tools/**' \
+            ':!assets/**')
+            
+          OUTPUT=$(uv run --frozen env PYTHONPATH=. pylint \
+            --disable=E1136,E1101,E1102 \
+            $FILES) || echo "$?" > rc.txt
+            
+          echo "$OUTPUT"
+          echo "$OUTPUT" > output.txt
+
+      - name: Check code rating > 6.0
+        run: |
+          RATING=$(grep "Your code has been rated at" output.txt \
+            | sed -E 's/.*rated at (-?[0-9]+(\.[0-9]+)?).*/\1/')
+          echo "Rating is $RATING"
+          awk -v r="$RATING" 'BEGIN { exit (r < 6.0) }'
+
+      - name: Check for Fatal/Error messages
+        run: |
+          if [ -f rc.txt ]; then
+            PYLINT_RC=$(cat rc.txt)
+            if [ $(( PYLINT_RC & 3 )) -ne 0 ]; then
+              echo "Fatal/Error detected (code $PYLINT_RC)"
+              exit 1
+            fi
+          fi
