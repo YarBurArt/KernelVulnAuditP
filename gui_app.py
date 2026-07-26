@@ -57,12 +57,12 @@ class GUIApp:
         page.window.width = 950
         page.window.height = 600
         page.theme_mode = ft.ThemeMode.DARK
-        page.padding = 20
-        page.spacing = 15
+        page.padding = 8
+        page.spacing = 6
 
         page.theme = ft.Theme(
             button_theme=ft.ButtonTheme(
-                style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=4))
+                style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=7))
             )
         )
 
@@ -483,19 +483,20 @@ class GUIApp:
                     ft.Button(
                         "Local Recon",
                         on_click=self._start_local,
-                        style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=2)),
+                        style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=7)),
                     ),
                     ft.Button(
                         "TI Feeds",
                         on_click=self._start_feeds,
-                        style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=2)),
+                        style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=7)),
                     ),
                 ],
-                spacing=8,
+                spacing=4,
+                tight=True,
             ),
             padding=ft.Padding.symmetric(horizontal=8, vertical=6),
             border=ft.Border.all(1, ft.Colors.OUTLINE_VARIANT),
-            border_radius=2,
+            border_radius=7,
             bgcolor=ft.Colors.SURFACE_CONTAINER_LOW,
         )
         metrics_panel = ft.Container(
@@ -523,18 +524,19 @@ class GUIApp:
                 ft.Button(
                     "Full Cycle",
                     on_click=self._start_recon,
-                    style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=2)),
+                    style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=7)),
                 ),
                 ft.Button(
                     "Exec Tests",
                     on_click=self._run_execution_tests,
-                    style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=2)),
+                    style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=7)),
                 ),
                 ft.Container(expand=True),
                 metrics_panel,
             ],
             alignment=ft.MainAxisAlignment.START,
             spacing=8,
+            tight=True,
         )
 
         progress_row = ft.Column(
