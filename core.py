@@ -450,3 +450,18 @@ def summarize_sandbox(result) -> Dict[str, Any]:
         "files": getattr(result, "files", []),
         "processes": getattr(result, "processes", []),
     }
+
+def norm_sysctl_value(value: Any) -> str:
+    if value is None:
+        return ""
+    text = str(value).strip().strip('"').strip("'")
+    if not text:
+        return ""
+    low = text.lower()
+    if low in ("yes", "true", "on", "enabled"):
+        return "1"
+    if low in ("no", "false", "off", "disabled"):
+        return "0"
+    if re.fullmatch(r"[+-]?\d+", text):
+        return str(int(text))
+    return low

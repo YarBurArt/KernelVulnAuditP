@@ -96,7 +96,8 @@ class CLIReportRenderer:
                     )
         return section
 
-    def _build_stats_section(self, stats: Dict[str, Any]) -> str:
+    @staticmethod
+    def _build_stats_section(stats: Dict[str, Any]) -> str:
         """Build database statistics section string."""
         if not stats:
             return ""
@@ -118,7 +119,8 @@ class CLIReportRenderer:
                 section += f"    {sev}: {count}\n"
         return section
 
-    def _build_exploits_section(self, exploits: List[Dict[str, Any]]) -> str:
+    @staticmethod
+    def _build_exploits_section(exploits: List[Dict[str, Any]]) -> str:
         """Build exploits section string."""
         if not exploits:
             return ""
@@ -204,8 +206,9 @@ class CLIReportRenderer:
 
         return section
 
+    @staticmethod
     def _build_recommendations_section(
-        self, recs: List[Dict[str, Any]], stats: Dict[str, Any]
+            recs: List[Dict[str, Any]], stats: Dict[str, Any]
     ) -> str:
         """Build security recommendations section string."""
         if not recs:

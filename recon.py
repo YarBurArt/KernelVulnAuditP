@@ -34,9 +34,17 @@ from core import (
     parse_key_value_pairs,
     parse_key_with_brackets,
     strip_ansi_sequences,
+    norm_sysctl_value,
 )
 from lib_tools.peas2json import parse_peass
-from schemas import CVEFinding, GitHubPoC, KernelAuditItem, KernelLPE, LesCVEItem
+from schemas import (
+    CVEFinding,
+    GitHubPoC,
+    KernelAuditItem,
+    KernelLPE,
+    LesCVEItem,
+    SecurityRecommendation,
+)
 
 logger = logging.getLogger(f"kernel_audit.{__name__}")
 CVE_RE = re.compile(r"(CVE-\d{4}-\d+)", re.IGNORECASE)
@@ -153,6 +161,7 @@ class LocalRecon:
 
     @staticmethod
     def run_lynis_audit() -> bool:
+        """ much more detailed scan """
         cmd = [
             LYNIS_BINARY, "audit", "system",
             "-Q", "-q", "--no-colors",  # minimal scan
@@ -238,7 +247,7 @@ class LocalRecon:
         )
 
     def extract_lynis_kernel_details(
-        self, parsed_data: dict, category_prefix: str = "KRNL",
+        self, parsed_data: dict, category_prefix: str = "KRNL", # TODO: parse more usefull
         type_ent: str = "details"
     ) -> List[KernelAuditItem]:
         """
@@ -494,6 +503,183 @@ class LocalRecon:
             current.download_urls.append(value)
         elif base == "comments":
             current.comments = value
+
+    @staticmethod
+    def get_loaded_kernel_modules() -> list[str]:
+        """ basically just cat /proc/modules, for later cmp inside VM """
+        modules: list[str] = []
+        try:
+            with Path("/proc/modules").open(
+                "r", encoding="utf-8", errors="ignore"
+            ) as f:
+                for line in f:
+                    line = line.strip()
+                    if line:
+                        modules.append(line.split(None, 1)[0])
+            logger.debug(f"loaded {len(modules)} kernel modules")
+            return modules
+        except FileNotFoundError as e:
+            logger.warning(f"/proc/modules not found: {e}")
+            return []
+        except PermissionError as e:
+            logger.warning(f"permission denied reading /proc/modules: {e}")
+            return []
+        except OSError as e:
+            logger.warning(f"os error reading /proc/modules: {e}")
+            return []
+        except Exception as e:
+            logger.exception(f"unexpected error reading kernel modules: {e}")
+            return []
+
+    @staticmethod
+    def _load_sysctl_values() -> dict[str, str]:
+        values: dict[str, str] = {}
+        root = Path("/proc/sys")
+        try:
+            if not root.exists():
+                logger.warning("/proc/sys not found")
+                return values
+
+            for path in root.rglob("*"):
+                try:
+                    if not path.is_file():
+                        continue
+                    key = ".".join(path.relative_to(root).parts)
+                    if not key:
+                        continue
+                    try:
+                        value = path.read_text(encoding="utf-8", errors="ignore").strip()
+                    except PermissionError:
+                        continue
+                    except OSError as e:
+                        logger.debug(f"skip sysctl key {key}: {e}")
+                        continue
+                    if value:
+                        values[key] = value
+                except Exception as e:
+                    logger.debug(f"skip sysctl entry {path}: {e}")
+                    continue
+
+            logger.debug(f"loaded {len(values)} sysctl values")
+            return values
+        except Exception as e:
+            logger.exception(f"unexpected error loading sysctl values: {e}")
+            return {}
+
+    @staticmethod
+    def _load_lynis_params_prf(
+        params_path: str | Path = "params.prf",
+    ) -> dict[str, list[dict[str, str]]]:
+        """
+        parse Lynis profile-like params.prf and collect sysctl recommendations
+        from format like:
+        config-data=sysctl;setting;expected;points;description;related;solution;...
+        """
+        path = Path(params_path)
+        if not path.is_file():
+            raise FileNotFoundError(f"Lynis params.prf not found: {path}")
+
+        result: dict[str, list[dict[str, str]]] = {}
+        try:
+            with path.open("r", encoding="utf-8", errors="ignore") as f:
+                for line_no, raw_line in enumerate(f, start=1):
+                    line = raw_line.strip()
+                    if not line or line.startswith("#") or not line.startswith("config-data="):
+                        continue
+
+                    payload = line.removeprefix("config-data=")
+                    parts = [p.strip() for p in payload.split(";")]
+                    if len(parts) < 6:
+                        logger.debug(f"skip malformed params.prf line {line_no}: {line}")
+                        continue
+
+                    kind = parts[0].lower()
+                    if kind != "sysctl":
+                        continue
+
+                    setting = parts[1]
+                    expected = parts[2]
+                    desc = parts[4] if len(parts) > 4 else ""
+                    related = parts[5] if len(parts) > 5 else ""
+                    solution = parts[6] if len(parts) > 6 else ""
+
+                    item = {
+                        "test_id": "KRNL-6000",
+                        "category": "Kernel",
+                        "field_name": setting,
+                        "expected_value": expected,
+                        "description": desc,
+                        "related": related,
+                        "solution": solution,
+                        "raw": line,
+                    }
+                    result.setdefault(setting, []).append(item)
+
+            logger.debug(f"loaded {sum(len(v) for v in result.values())} sysctl recommendations")
+            return result
+        except FileNotFoundError:
+            raise
+        except PermissionError as e:
+            logger.warning(f"permission denied reading params.prf: {e}")
+            return {}
+        except OSError as e:
+            logger.warning(f"os error reading params.prf: {e}")
+            return {}
+        except Exception as e:
+            logger.exception(f"unexpected error parsing params.prf: {e}")
+            return {}
+
+    def get_lynis_kernel_hardening_details(
+        self,
+        params_path: str | Path = "params.prf",
+    ) -> list[SecurityRecommendation]:
+        """cmp current sysctl values with kernel recommendations from lynis"""
+        try:
+            prf = self._load_lynis_params_prf(params_path)
+            current = self._load_sysctl_values()
+            results: list[SecurityRecommendation] = []
+
+            for field_name, entries in prf.items():
+                actual_raw = current.get(field_name, "")
+                actual_norm = norm_sysctl_value(actual_raw)
+
+                for entry in entries:
+                    expected_raw = entry.get("expected_value", "")
+                    expected_norm = norm_sysctl_value(expected_raw)
+                    ok_s = actual_raw != "" and expected_norm == actual_norm
+
+                    results.append(
+                        SecurityRecommendation(
+                            test_id=entry.get("test_id", "KRNL-6000"),
+                            category=entry.get("category", "Kernel"),
+                            description=entry.get("description", ""),
+                            field_name=field_name,
+                            expected_value=expected_raw,
+                            actual_value=actual_raw,
+                            status=(
+                                "ok" if ok_s else ("missing" if actual_raw == "" else "mismatch")
+                            ),
+                            severity="medium",
+                            source="lynis",
+                            raw_data={
+                                "related": entry.get("related", ""),
+                                "solution": entry.get("solution", ""),
+                                "raw": entry.get("raw", ""),
+                                "expected_normalized": expected_norm,
+                                "actual_normalized": actual_norm,
+                            },
+                        )
+                    )
+
+            logger.debug(f"prepared {len(results)} lynis kernel hardening recommendations")
+            return results
+
+        except FileNotFoundError as e:
+            logger.warning(f"params.prf not found: {e}")
+            return []
+        except Exception as e:
+            logger.exception(f"get_lynis_kernel_hardening_details failed: {e}")
+            return []
 
 
 class ReconFeeds:

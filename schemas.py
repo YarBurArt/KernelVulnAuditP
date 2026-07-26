@@ -131,7 +131,6 @@ class LocalReconResult:
     kernel: str = ""
     system: str = ""
     build_date: int = 0
-    kernel_audit: List[KernelAuditItem] = field(default_factory=list)
     kernel_lpe: KernelLPE = field(default_factory=KernelLPE)
     possible_cves: List[LesCVEItem] = field(default_factory=list)
     security_recommendations: List[SecurityRecommendation] = field(

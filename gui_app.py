@@ -54,7 +54,7 @@ class GUIApp:
     def _main_page(self, page: ft.Page):
         self._page = page
         page.title = "Kernel Vulnerability Auditor"
-        page.window.width = 900
+        page.window.width = 950
         page.window.height = 600
         page.theme_mode = ft.ThemeMode.DARK
         page.padding = 20

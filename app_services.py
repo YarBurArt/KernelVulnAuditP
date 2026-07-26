@@ -50,23 +50,18 @@ class AppServices:
         kernel: str = self.lr.get_kernel_version_simple()
         build_date: int = self.lr.get_kernel_build_date(kernel)
         logger.info(f"Local recon started in context {kernel} {build_date}")
-        lynis_result: List[KernelAuditItem] = self.lr.get_lynis_scan_details()
+        # TODO: lynis_result: List[KernelAuditItem] = self.lr.get_lynis_scan_details()
+        lynis_result = self.lr.get_lynis_kernel_hardening_details()
         logger.info(f"Lynis scan completed: {len(lynis_result)}")
         linpeas_result: KernelLPE | None = self.lr.get_linpeas_scan_details()
         logger.info("LinPEAS scan completed")
         les_result: list[LesCVEItem] = self.lr.get_les_scan_details()
         logger.info(f"LES scan completed: {len(les_result)}")
 
-        recs = [
-            SecurityRecommendation.from_kernel_audit(item)
-            for item in lynis_result
-        ]
-
         return LocalReconResult(
             system=self.lr.environment_info.get("system", ""),
             build_date=build_date,
-            kernel_audit=lynis_result,
-            security_recommendations=recs,
+            security_recommendations=lynis_result,
             kernel_lpe=linpeas_result or KernelLPE(),
             kernel=kernel,
             possible_cves=les_result,
