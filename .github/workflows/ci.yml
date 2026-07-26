@@ -17,39 +17,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@v8.1.0
+      - name: Run Bandit Analysis
+        uses: PyCQA/bandit-action@v1
         with:
-          enable-cache: true
-
-      - name: Set up Python
-        run: uv python install
-
-      - name: Run Bandit and Generate SARIF
-        continue-on-error: true
-        run: |
-          uv run --frozen bandit -r . \
-            -x .venv,venv,.git,__pycache__,tests,tests_integration,migrations,lib_tools,assets \
-            -ll -i \
-            -f sarif -o bandit-results.sarif
-          echo $? > bandit_rc.txt
-
-      - name: Upload Bandit SARIF to Security Tab
-        uses: github/codeql-action/upload-sarif@v3
-        with:
-          sarif_file: bandit-results.sarif
-        if: always()
-
-      - name: Fail job if Bandit found issues
-        run: |
-          if [ -f bandit_rc.txt ]; then
-            RC=$(cat bandit_rc.txt)
-            if [ "$RC" -ne 0 ]; then
-              echo "Bandit found vulnerabilities of MEDIUM severity or higher."
-              exit 1
-            fi
-          fi
-
+          severity: "medium"
+          confidence: "medium"
+          exclude: ".venv,venv,.git,__pycache__,tests,tests_integration,migrations,lib_tools,assets"
+          targets: "."
   pylint:
     runs-on: ubuntu-latest
 
