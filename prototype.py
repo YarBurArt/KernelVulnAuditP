@@ -1,10 +1,10 @@
 import os
 import json
 import stat
-import httpx
 import shutil
 import subprocess
 from typing import List
+import httpx
 
 
 CISA_KEV_URL = "https://www.cisa.gov/sites/default/files/feeds/" \

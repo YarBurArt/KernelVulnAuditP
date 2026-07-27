@@ -69,8 +69,7 @@ class CLIReportRenderer:
             if len(kev_data) > 10:
                 section += f"  ... and {len(kev_data) - 10} more\n"
             return section
-        else:
-            return f"  {len(kev_data)} CVEs in CISA KEV list\n"
+        return f"  {len(kev_data)} CVEs in CISA KEV list\n"
 
     def _build_runs_section(self, runs: List[Dict[str, Any]]) -> str:
         """Build execution logs section string."""

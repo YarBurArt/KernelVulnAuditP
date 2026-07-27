@@ -769,10 +769,10 @@ class QEMUEnvironmentMicrovm(IsolationEnvironment):
             if "=== BINARY OUTPUT START ===" in line:
                 in_output = True
                 continue
-            elif "=== BINARY OUTPUT END ===" in line:
+            if "=== BINARY OUTPUT END ===" in line:
                 in_output = False
                 continue
-            elif line.startswith("EXIT_CODE="):
+            if line.startswith("EXIT_CODE="):
                 try:
                     exit_code = int(line.split("=")[1])
                 except Exception as e:

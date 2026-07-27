@@ -679,7 +679,9 @@ class GUIApp:
                         style=self.mono_style,
                     ),
                     ft.Text(
-                        f"Details: {rec.raw_data.get('suggestion', rec.raw_data.get('solution', 'N/A'))}",
+                        f"Details: {
+                            rec.raw_data.get('suggestion', rec.raw_data.get('solution', 'N/A'))
+                        }",
                         style=self.mono_style,
                         color=ft.Colors.ON_SURFACE_VARIANT,
                     ),
@@ -859,7 +861,9 @@ class GUIApp:
             if meminfo:
                 detail_items.append(
                     ft.Text(
-                        f"Memory: {meminfo.split(chr(10))[0] if chr(10) in meminfo else meminfo[:80]}",
+                        f"Memory: {
+                            meminfo.split(chr(10))[0] if chr(10) in meminfo else meminfo[:80]
+                        }",
                         style=self.mono_style,
                         color=ft.Colors.ON_SURFACE_VARIANT,
                     )
@@ -867,7 +871,9 @@ class GUIApp:
             if cpuinfo:
                 detail_items.append(
                     ft.Text(
-                        f"CPU: {cpuinfo.split(chr(10))[0] if chr(10) in cpuinfo else cpuinfo[:80]}",
+                        f"CPU: {
+                            cpuinfo.split(chr(10))[0] if chr(10) in cpuinfo else cpuinfo[:80]
+                        }",
                         style=self.mono_style,
                         color=ft.Colors.ON_SURFACE_VARIANT,
                     )
@@ -883,7 +889,9 @@ class GUIApp:
         if open_processes:
             detail_items.append(
                 ft.Text(
-                    f"Processes: {', '.join(open_processes[:5])}{'...' if len(open_processes) > 5 else ''}",
+                    f"Processes: {
+                        ', '.join(open_processes[:5])
+                    }{'...' if len(open_processes) > 5 else ''}",
                     style=self.mono_style,
                     color=ft.Colors.ON_SURFACE_VARIANT,
                 )

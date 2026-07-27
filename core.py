@@ -8,51 +8,51 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
 
+
+def try_parse(date_str: str, fmt: str) -> Optional[datetime]:
+    try:
+        return datetime.strptime(date_str, fmt)
+    except ValueError:
+        return None
+
+
 def parse_date_string(date_str: str) -> Optional[datetime]:
-    """parse date string to datetime, various formats"""
     if not date_str:
         return None
 
-    dt = None
-
-    # ISO-like
     try:
-        dt = datetime.fromisoformat(date_str.replace('Z', '+00:00'))
-    except Exception:
-        pass
+        dt = datetime.fromisoformat(date_str.replace("Z", "+00:00"))
+    except ValueError:
+        dt = None
 
-    # RFC-like
     if dt is None:
-        try:
-            dt = datetime.strptime(date_str, '%a %b %d %H:%M:%S %Y %z')
-        except Exception:
-            pass
+        dt = try_parse(date_str, "%a %b %d %H:%M:%S %Y %z")
 
-    # Fallback
     if dt is None:
-        try:
-            base = date_str.split('.')[0]
-            dt = datetime.strptime(base, '%Y-%m-%dT%H:%M:%S')
+        base = date_str.split(".")[0]
+        dt = try_parse(base, "%Y-%m-%dT%H:%M:%S")
+        if dt is not None:
             dt = dt.replace(tzinfo=timezone.utc)
-        except Exception:
-            pass
 
-    # More formats
     if dt is None:
-        for fmt in ('%Y-%m-%d %H:%M:%S', '%d %b %Y %H:%M:%S',
-                    '%a, %d %b %Y %H:%M:%S %z', '%Y-%m-%d'):
-            try:
-                dt = datetime.strptime(date_str, fmt)
+        for fmt in (
+            "%Y-%m-%d %H:%M:%S",
+            "%d %b %Y %H:%M:%S",
+            "%a, %d %b %Y %H:%M:%S %z",
+            "%Y-%m-%d",
+        ):
+            dt = try_parse(date_str, fmt)
+            if dt is not None:
                 break
-            except Exception:
-                continue
 
-    if dt is not None and dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
-    elif dt is not None:
-        dt = dt.astimezone(timezone.utc)
+    if dt is None:
+        return None
 
-    return dt
+    return (
+        dt.replace(tzinfo=timezone.utc)
+        if dt.tzinfo is None
+        else dt.astimezone(timezone.utc)
+    )
 
 
 def filter_items_by_date(
@@ -98,7 +98,7 @@ def format_timestamp(
     try:
         dt = datetime.fromtimestamp(ts, tz=timezone.utc)
         return dt.strftime(fmt)
-    except Exception:
+    except ValueError:
         return None
 
 
@@ -188,7 +188,7 @@ def extract_code_block_commands(
     command_patterns: List[str],
     languages: List[str] | Any= None
 ) -> List[str]:
-    """extract commands from markdown code blocks"""
+    """extract commands from Markdown code blocks"""
     commands = []
 
     lang_pattern = r'(?:' + '|'.join(languages) + r')?' if languages else r''
@@ -204,7 +204,7 @@ def extract_code_block_commands(
 
 
 def clean_command_string(cmd: str) -> str:
-    """clean command string from markdown"""
+    """clean command string from Markdown"""
     cmd = cmd.replace('```', '').replace('`', '')
     cmd = cmd.split('\n')[0]
     return cmd.strip()
@@ -390,7 +390,7 @@ def update_config_file(
     where value includes quotes if needed
     """
     config_path = Path(config_path)
-    config_content = config_path.read_text()
+    config_content = config_path.read_text(encoding="utf-8")
 
     for key, replacement in updates.items():
         if replacement.isdigit() or (
@@ -409,9 +409,10 @@ def update_config_file(
             flags=re.MULTILINE
         )
 
-    config_path.write_text(config_content)
+    config_path.write_text(config_content, encoding="utf-8")
 
 def format_report(data: dict) -> dict:
+    """ filter data to format useful report """
     feeds = data.get("feeds", {}) or {}
     findings = feeds.get("findings", [])
     pocs = feeds.get("pocs", [])
@@ -436,6 +437,7 @@ def format_report(data: dict) -> dict:
     }
 
 def summarize_sandbox(result) -> Dict[str, Any]:
+    """summarize sandbox result by reformat and filter"""
     return {
         "mode": getattr(result, "execution_mode", "unknown"),
         "returncode": getattr(result, "returncode", None),
@@ -452,6 +454,7 @@ def summarize_sandbox(result) -> Dict[str, Any]:
     }
 
 def norm_sysctl_value(value: Any) -> str:
+    """ normalize sysctl possible values for kernel params check """
     if value is None:
         return ""
     text = str(value).strip().strip('"').strip("'")

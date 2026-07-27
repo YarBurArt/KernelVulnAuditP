@@ -16,7 +16,6 @@ from schemas import (
     CVEFinding,
     FeedsReconResult,
     GitHubPoC,
-    KernelAuditItem,
     KernelLPE,
     LesCVEItem,
     LocalReconResult,
@@ -49,14 +48,14 @@ class AppServices:
         """Run local recon and optionally store recommendations."""
         kernel: str = self.lr.get_kernel_version_simple()
         build_date: int = self.lr.get_kernel_build_date(kernel)
-        logger.info(f"Local recon started in context {kernel} {build_date}")
+        logger.info("Local recon started in context %s %s", kernel, build_date)
         # TODO: lynis_result: List[KernelAuditItem] = self.lr.get_lynis_scan_details()
         lynis_result = self.lr.get_lynis_kernel_hardening_details()
-        logger.info(f"Lynis scan completed: {len(lynis_result)}")
+        logger.info("Lynis scan completed: %s", len(lynis_result))
         linpeas_result: KernelLPE | None = self.lr.get_linpeas_scan_details()
         logger.info("LinPEAS scan completed")
         les_result: list[LesCVEItem] = self.lr.get_les_scan_details()
-        logger.info(f"LES scan completed: {len(les_result)}")
+        logger.info("LES scan completed: %s", len(les_result))
 
         return LocalReconResult(
             system=self.lr.environment_info.get("system", ""),
@@ -72,7 +71,7 @@ class AppServices:
         kernel: str = self.lr.get_kernel_version_simple()
         build_date: int = self.lr.get_kernel_build_date(kernel)
 
-        logger.debug(f"Search feeds for kernel {kernel} build_date {build_date}")
+        logger.debug("Search feeds for kernel %s build_date %s", kernel, build_date)
         if store_kev:
             self._load_and_store_kev()
 
@@ -92,9 +91,9 @@ class AppServices:
         return ReconResult(local=local_r, feeds=feeds_r)
 
     def run_execution_tests(self) -> dict:
-        """validate kernel CVEs by sandbox-executing PoC """
+        """validate kernel CVEs by sandbox-executing PoC"""
         context = self._build_execution_context()
-        logger.info(f"execution tests started in context: {context}")
+        logger.info("execution tests started in context: %s", context)
         cve_hints = self._collect_kernel_cves()
         report_entries = []
 
@@ -114,7 +113,7 @@ class AppServices:
         try:
             return datetime.strptime(value, "%Y-%m-%d")
         except Exception as exc:
-            logger.debug(f"Failed to parse date '{value}': {exc}")
+            logger.debug("Failed to parse date '%s': %s", value, exc)
             return None
 
     def _build_kev_records(
@@ -155,7 +154,7 @@ class AppServices:
         except Exception as exc:
             if "UNIQUE constraint failed" in str(exc):
                 return False
-            logger.warning(f"Error storing {cve_id}: {exc}")
+            logger.warning("Error storing %s: %s", cve_id, exc)
             return False
 
     def _load_and_store_kev(self) -> None:
@@ -164,11 +163,11 @@ class AppServices:
             self.rf.get_kev()
             self.rf.load_kev()
             logger.info(
-                f"Loaded {len(self.rf.kev_kern_vuln)} kernel-related KEV entries"
+                "Loaded %s kernel-related KEV entries", len(self.rf.kev_kern_vuln)
             )
 
         except Exception as e:
-            logger.exception(f"Failed to load CISA KEV catalog: {e}")
+            logger.exception("Failed to load CISA KEV catalog: %s", e)
             return
 
         stored = 0
@@ -178,14 +177,14 @@ class AppServices:
 
             if not cve_id:
                 continue
-            logger.debug(f"N KEV: {kev_data} | N VULN: {vuln_data}")
+            logger.debug("N KEV: %s | N VULN: %s", kev_data, vuln_data)
 
             if self._save_kev_entry(cve_id, kev_data, vuln_data):
                 stored += 1
             else:
                 skipped += 1
 
-        logger.info(f"Stored {stored} CISA KEV entries, {skipped} already existed")
+        logger.info("Stored %s CISA KEV entries, %s already existed", stored, skipped)
 
     def _collect_kernel_cves(self) -> Dict[str, Dict[str, Any]]:
         logger.info("Collecting kernel cves by local scans")
@@ -249,7 +248,7 @@ class AppServices:
 
         metadata = self.rf.get_cve_details(cve_id) or {}
         vuln = self._build_vulnerability(cve_id, hint, metadata, context)
-        logger.debug(f"{cve_id} hint/refs vuln: {vuln}")
+        logger.debug("%s hint/refs vuln: %s", cve_id, vuln)
         self.db.upsert_vulnerability(vuln)
 
         if metadata.get("nist_url"):
@@ -281,7 +280,7 @@ class AppServices:
 
         entry = self._persist_cve_hint(cve_id, hint, context,)
         if entry is None:
-            logger.warning(f"{cve_id} additional info hint is not saved")
+            logger.warning("%s additional info hint is not saved", cve_id)
             return None
 
         repos = self.poc_searcher.search_repositories(cve_id, max_results=3,)
@@ -315,7 +314,7 @@ class AppServices:
             "verified": True,
         }
 
-        logger.debug(f"record poc meta: {exploit_meta}")
+        logger.debug("record poc meta: %s", exploit_meta)
         self.db.add_exploit(cve_id, exploit_meta)
 
         if poc.get("url"):
@@ -343,21 +342,21 @@ class AppServices:
             return {}
 
         script = self._build_runner_script(Path(repo), str(command))
-        logger.debug(f"build runner script: {script}")
+        logger.debug("build runner script: %s", script)
 
         try:
-            logger.info(f"{cve_id}: {command} - is started")
+            logger.info("%s: %s - is started", cve_id, command)
             result = self.isolate.run_binary(script)
             if not result:
                 return {}
 
-            logger.info(f"{cve_id} poc - is finished")
+            logger.info("%s poc - is finished", cve_id)
             self._store_sandbox_run(cve_id, result, str(command))
 
             return {"sandbox": summarize_sandbox(result),}
 
         except Exception as exc:
-            logger.warning(f"{cve_id}: {command} - is failed: {exc}")
+            logger.warning("%s: %s - is failed: %s", cve_id, command, exc)
 
             return {"sandbox_error": str(exc),}
 
@@ -365,7 +364,7 @@ class AppServices:
             try:
                 script.unlink()
             except FileNotFoundError as exc:
-                logger.debug(f"unlink failed, missing script: {exc}")
+                logger.debug("unlink failed, missing script: %s", exc)
 
     def _record_poc_for_cve(
         self,
@@ -415,7 +414,7 @@ class AppServices:
             "notes": logs.get("command"),
         }
 
-        logger.debug(f"{cve_id} full sandbox POC data: {sandbox_data}")
+        logger.debug("%s full sandbox POC data: %s", cve_id, sandbox_data)
         self.db.add_sandbox_run(cve_id, sandbox_data)
 
     def save_recon_results(self, results: dict) -> int:
@@ -439,8 +438,8 @@ class AppServices:
                     "context": context,
                 },
             }
-            logger.info(f"saving recon results for {cve_id}")
-            logger.debug(f"recon item for {cve_id} is: {vuln}")
+            logger.info("saving recon results for %s", cve_id)
+            logger.debug("recon item for %s is: %s", cve_id, vuln)
             self.db.upsert_vulnerability(vuln)
             saved += 1
         return saved
@@ -459,7 +458,7 @@ class AppServices:
                 raw = vuln.get("raw_data", {})
                 context = raw.get("context", {})
                 if context.get("kernel_version") == kernel:
-                    logger.debug(f"found cached recon entry: {vuln}")
+                    logger.debug("found cached recon entry: %s", vuln)
                     results.append(vuln)
             if len(batch) < chunk:
                 break
