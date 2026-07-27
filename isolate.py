@@ -98,7 +98,7 @@ class IsolationEnvironment:
 
     def _log(self, key: str, value: str):
         self.logs[key] = value
-        logger.debug(f"internal log {key}: {value}")
+        logger.debug("internal log %s: %s", key, value)
 
 
 class VirtmeNGEnvironment(IsolationEnvironment):
@@ -175,7 +175,7 @@ class VirtmeNGEnvironment(IsolationEnvironment):
             )
             return result.stdout.strip()
         except Exception as e:
-            logger.debug(f"virtme-ng version not found cuz {e}")
+            logger.debug("virtme-ng version not found cuz %s", e)
             return "unknown"
 
     @staticmethod
@@ -185,7 +185,7 @@ class VirtmeNGEnvironment(IsolationEnvironment):
             with open("/proc/version", "r") as f:
                 return f.read().strip()
         except Exception as e:
-            logger.debug(f"kernel version not found cuz {e}")
+            logger.debug("kernel version not found cuz %s", e)
             return "unknown"
 
     @staticmethod
@@ -287,8 +287,8 @@ class QemuEnvironment(IsolationEnvironment):
                 for line in stdout.splitlines():
                     if line.startswith("EXIT_CODE="):
                         try:
-                            exit_code = int(line.split("=")[1])
-                        except Exception:
+                            exit_code = int(line.removeprefix("EXIT_CODE="))
+                        except ValueError:
                             pass
                 self._log("exit_code", str(exit_code))
 
@@ -536,7 +536,7 @@ class QemuEnvironment(IsolationEnvironment):
                 import re
 
                 for line in dmesg:
-                    match = re.search(r"\] ([a-zA-Z0-9_]+) loaded", line)
+                    match = re.search(r"] ([a-zA-Z0-9_]+) loaded", line)
                     if match:
                         modules.append(match.group(1))
         except Exception as e:
@@ -583,7 +583,7 @@ class QEMUEnvironmentMicrovm(IsolationEnvironment):
             self._log("initrd_created", str(initrd_path))
             kernel_path = self._find_kernel()
             if not kernel_path:
-                logger.warning(f"No kernel found for {self.binary_path}")
+                logger.warning("No kernel found for %s", self.binary_path)
                 raise RuntimeError("No kernel image found")
 
             self._log("kernel_path", str(kernel_path))
@@ -611,7 +611,7 @@ class QEMUEnvironmentMicrovm(IsolationEnvironment):
                 cmd.extend(["-enable-kvm", "-cpu", "host"])
             self._log("command", " ".join(cmd))  # log stdin
             self._log("stage", "vm_created")
-            logger.info(f"VM CREATION STARTED for {self.binary_path}")
+            logger.info("VM CREATION STARTED for %s", self.binary_path)
             try:
                 result = subprocess.run(
                     cmd, capture_output=True, text=True, timeout=self.timeout
@@ -620,7 +620,7 @@ class QEMUEnvironmentMicrovm(IsolationEnvironment):
                 self._log("qemu_returncode", str(result.returncode))
                 self._log("stdout_size", str(len(result.stdout)))
                 self._log("stderr_size", str(len(result.stderr)))
-                logger.debug(f"Qemu microvm completed, stdout {result.stdout}")
+                logger.debug("Qemu microvm completed, stdout %s", result.stdout)
                 duration = (datetime.now() - start).total_seconds() * 1000
                 stdout, stderr = self._parse_qemu_output(result.stdout, result.stderr)
                 crashed = self._detect_crash(stdout + stderr)
@@ -679,19 +679,20 @@ class QEMUEnvironmentMicrovm(IsolationEnvironment):
 
             init_data: str = BIN_INIT.format(bin_path="/binary")
             logger.debug(
-                f"Local script path is: {self.binary_path.absolute()}, binary path in /binary"
+                "Local script path is: %s, binary path in /binary",
+                self.binary_path.absolute(),
             )
             init_script = tmpdir / "init"
             init_script.write_text(init_data)
             init_script.chmod(0o755)
-            logger.debug(f"BIN_INIT: {init_data}")
+            logger.debug("BIN_INIT: %s", init_data)
 
             shutil.copy(self.binary_path, tmpdir / "binary")
             (tmpdir / "binary").chmod(0o755)
-            logger.info(f"Copied binary for initrd: {tmpdir / 'binary'}")
+            logger.info("Copied binary for initrd: %s", tmpdir / "binary")
 
             logger.debug(
-                f"Creating initrd file for {self.binary_path}, path {init_script}"
+                "Creating initrd file for %s, path %s", self.binary_path, init_script
             )
             subprocess.run(
                 f"cd {tmpdir} && find . | cpio -o -H newc > {output_path}",
@@ -711,17 +712,17 @@ class QEMUEnvironmentMicrovm(IsolationEnvironment):
         for path in kernel_paths:
             p = Path(path)
             if p.exists():
-                logger.debug(f"Found kernel {p}")
+                logger.debug("Found kernel %s", p)
                 return p
 
         boot_dir = Path("/boot")
         if boot_dir.exists():
             vmlinuz_files = sorted(boot_dir.glob("vmlinuz-*"), reverse=True)
             if vmlinuz_files:
-                logger.debug(f"Found {len(vmlinuz_files)} vmlinuz files")
+                logger.debug("Found %d vmlinuz files", len(vmlinuz_files))
                 return vmlinuz_files[0]
 
-        logger.warning(f"No kernel found in {kernel_paths}")
+        logger.warning("No kernel found in %s", kernel_paths)
         return None
 
     @staticmethod
@@ -749,12 +750,12 @@ class QEMUEnvironmentMicrovm(IsolationEnvironment):
                         for prefix in ["root=", "rootfstype=", "ro", "rw"]
                     )
                 ]
-                logger.debug(f"Found host cmd krnl params: {len(relevant_params)}")
+                logger.debug("Found host cmd krnl params: %d", len(relevant_params))
                 base_params.extend(relevant_params)
         except Exception as e:  # FIXME
-            logger.warning(f"Failed to get kernel cmdline: {e}")
+            logger.warning("Failed to get kernel cmdline: %s", e)
 
-        logger.debug(f"Using default cmdline: {base_params}")
+        logger.debug("Using default cmdline: %s", base_params)
         return " ".join(base_params)
 
     def _parse_qemu_output(self, stdout: str, stderr: str) -> tuple[str, str]:
@@ -775,7 +776,7 @@ class QEMUEnvironmentMicrovm(IsolationEnvironment):
                 try:
                     exit_code = int(line.split("=")[1])
                 except Exception as e:
-                    logger.debug(f"mistake parse exit_code: {e}")
+                    logger.debug("mistake parse exit_code: %s", e)
                     pass
                 continue
 
@@ -803,7 +804,7 @@ class QEMUEnvironmentMicrovm(IsolationEnvironment):
 class HostEnvironment(IsolationEnvironment):
     """
     try direct execution like in prototype,
-    on host with extended logging, docs whats need:
+    on host with extended logging, docs what's need:
     https://docs.python.org/3/library/subprocess.html#using-the-subprocess-module
     """
 
@@ -881,21 +882,21 @@ class CCompiler:
 
     def compile(self, extra_flags: list[str] | None = None) -> Path | None:
         if not self.source_path.exists():
-            logger.warning(f"Source path {self.source_path} does not exist")
+            logger.warning("Source path %s does not exist", self.source_path)
             raise FileNotFoundError(f"Source file not found: {self.source_path}")
         self.binary_path = self.output_dir / f"{self.source_path.stem}.out"
 
         flags = ["-static", "-O2", "-Wall", "-Wextra"]  # static for microvm
         if extra_flags:
-            logger.debug(f"Extra flags: {extra_flags}")
+            logger.debug("Extra flags: %s", extra_flags)
             flags.extend(extra_flags)
 
         cmd = ["gcc"] + flags + ["-o", str(self.binary_path), str(self.source_path)]
-        logger.debug(f"Compiling: {' '.join(cmd)}")
+        logger.debug("Compiling: %s", " ".join(cmd))
         result = subprocess.run(cmd, capture_output=True, text=True)
 
         if result.returncode != 0:
-            logger.warning(f"Compilation failed with exit code {result.returncode}")
+            logger.warning("Compilation failed with exit code %d", result.returncode)
             raise RuntimeError(f"Compilation failed:\n{result.stderr}")
 
         return self.binary_path
@@ -916,12 +917,12 @@ class Isolate:
     ) -> ExecutionResult | None:
         compiler = CCompiler(source_path)
         binary_path: Path | None = compiler.compile(compile_flags)
-        logger.info(f"Compiling completed: {source_path}")
+        logger.info("Compiling completed: %s", source_path)
 
         if binary_path:
             return self.run_binary(binary_path)
 
-        logger.warning(f"Binary path {binary_path} does not exist")
+        logger.warning("Binary path %s does not exist", binary_path)
         return None
 
     def run_binary(self, binary_path: Path) -> ExecutionResult | None:
@@ -932,7 +933,7 @@ class Isolate:
 
         for env in environments:
             if env.is_available():
-                logger.info(f"Using {env.__class__.__name__}")
+                logger.info("Using %s", env.__class__.__name__)
                 return env.execute()
 
         if not self.allow_host_execution:

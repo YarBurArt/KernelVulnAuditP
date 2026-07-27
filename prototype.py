@@ -52,7 +52,7 @@ def get_vulns():
     return kern_cve
 
 
-def compile_and_run(src="./data/xpl.c", out="./xpl/tmp.out"):
+def compile_and_run(src="./data/xpl.c", out="./xpl/tmp.out") ->  tuple[str, str] | None:
     """ cc -o ./xpl/tmp.out ./data/xpl.c 
     chmod u+x ./xpl/tmp.out; ./xpl/tmp.out """
     os.makedirs(os.path.dirname(out), exist_ok=True)
@@ -60,12 +60,12 @@ def compile_and_run(src="./data/xpl.c", out="./xpl/tmp.out"):
     compiler = next((
         shutil.which(c) for c in ("gcc", "clang", "cc")
         if shutil.which(c)), None)
-    if compiler is None: return
+    if compiler is None: return None
 
     proc = subprocess.run([
         compiler, "-o", out, src], stdout=subprocess.PIPE,
         stderr=subprocess.PIPE, text=True)
-    if proc.returncode != 0: return
+    if proc.returncode != 0: return None
 
     os.chmod(out, os.stat(out).st_mode | stat.S_IXUSR)
 
@@ -74,21 +74,29 @@ def compile_and_run(src="./data/xpl.c", out="./xpl/tmp.out"):
             [out], stdout=subprocess.PIPE,
             stderr=subprocess.PIPE, text=True, timeout=24
         )
-        if proc.returncode != 0: return
-    except Exception: return
+        if proc.returncode != 0: return None
+    except Exception: return None
     return proc.stdout, proc.stderr
 
-
-def fix_filename(directory='./data'):
+def fix_filename(directory="./data"):
+    mime_to_ext = {
+        "text/x-c": ".c",
+        "text/x-ruby": ".rb",
+        "text/x-python": ".py",
+    }
     for filename in os.listdir(directory):
         if filename.isdigit():
             file_path = os.path.join(directory, filename)
-            mime_type = os.popen(
-                f'file --mime-type -b "{file_path}"'
-            ).read().strip()
-            ext = {'text/x-c': '.c', 
-                   'text/x-ruby': '.rb', 
-                   'text/x-python': '.py'}.get(mime_type)
+
+            result = subprocess.run(
+                ["file", "--mime-type", "-b", file_path],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            mime_type = result.stdout.strip()
+            ext = mime_to_ext.get(mime_type)
+
             if ext:
                 os.rename(file_path, f"{file_path}{ext}")
 
