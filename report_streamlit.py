@@ -92,7 +92,8 @@ class StreamlitReportRenderer:
         s3.metric("In CISA KEV", stats.get("in_cisa_kev", 0))
         s4.metric("Avg CVSS", f"{stats.get('avg_cvss', 0):.2f}")
 
-    def _render_exploits(self, exploits: List[Dict[str, Any]]) -> None:
+    @staticmethod
+    def _render_exploits(exploits: List[Dict[str, Any]]) -> None:
         """Render exploits/POCs section."""
         if not exploits:
             return
@@ -108,7 +109,8 @@ class StreamlitReportRenderer:
                     c3.text("N/A")
             st.divider()
 
-    def _render_references(self, references: List[Dict[str, Any]]) -> None:
+    @staticmethod
+    def _render_references(references: List[Dict[str, Any]]) -> None:
         """Render references section."""
         if not references:
             return
@@ -148,7 +150,8 @@ class StreamlitReportRenderer:
         self._render_sandbox_artifacts(run)
         st.divider()
 
-    def _render_sandbox_io(self, run: Dict[str, Any]) -> None:
+    @staticmethod
+    def _render_sandbox_io(run: Dict[str, Any]) -> None:
         """Render sandbox I/O section."""
         with st.expander("View I/O"):
             stdout = run.get("stdout")
@@ -161,7 +164,8 @@ class StreamlitReportRenderer:
             if stdin:
                 st.code(stdin, language="bash")
 
-    def _render_sandbox_artifacts(self, run: Dict[str, Any]) -> None:
+    @staticmethod
+    def _render_sandbox_artifacts(run: Dict[str, Any]) -> None:
         """Render sandbox processes and files."""
         procs = run.get("open_processes") or []
         if procs:

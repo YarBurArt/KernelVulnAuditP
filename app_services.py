@@ -177,6 +177,13 @@ class AppServices:
 
             if not cve_id:
                 continue
+
+            details = self.rf.get_cve_details(cve_id)
+            if details:
+                vuln_data["cvss_v3_score"] = details.get("cvss_v3_score")
+                vuln_data["cvss_v3_vector"] = details.get("cvss_v3_vector")
+                vuln_data["severity"] = details.get("severity")
+
             logger.debug("N KEV: %s | N VULN: %s", kev_data, vuln_data)
 
             if self._save_kev_entry(cve_id, kev_data, vuln_data):
@@ -278,12 +285,19 @@ class AppServices:
         context: Dict[str, Any],
     ) -> Dict[str, Any] | None:
 
-        entry = self._persist_cve_hint(cve_id, hint, context,)
+        entry = self._persist_cve_hint(
+            cve_id,
+            hint,
+            context,
+        )
         if entry is None:
             logger.warning("%s additional info hint is not saved", cve_id)
             return None
 
-        repos = self.poc_searcher.search_repositories(cve_id, max_results=3,)
+        repos = self.poc_searcher.search_repositories(
+            cve_id,
+            max_results=3,
+        )
         downloads = GitHubExploitSearcher.load_xpls(repos)
         entry["pocs"] = [self._record_poc_for_cve(cve_id, poc) for poc in downloads]
 
@@ -318,7 +332,9 @@ class AppServices:
         self.db.add_exploit(cve_id, exploit_meta)
 
         if poc.get("url"):
-            self.db.add_reference(cve_id, poc["url"], ref_type="EXPLOIT", source="GitHub")
+            self.db.add_reference(
+                cve_id, poc["url"], ref_type="EXPLOIT", source="GitHub"
+            )
 
     @staticmethod
     def _build_poc_summary(poc: Dict[str, Any]) -> Dict[str, Any]:
@@ -353,12 +369,16 @@ class AppServices:
             logger.info("%s poc - is finished", cve_id)
             self._store_sandbox_run(cve_id, result, str(command))
 
-            return {"sandbox": summarize_sandbox(result),}
+            return {
+                "sandbox": summarize_sandbox(result),
+            }
 
         except Exception as exc:
             logger.warning("%s: %s - is failed: %s", cve_id, command, exc)
 
-            return {"sandbox_error": str(exc),}
+            return {
+                "sandbox_error": str(exc),
+            }
 
         finally:
             try:
@@ -383,10 +403,7 @@ class AppServices:
         os.close(fd)
         script = Path(path)
         script.write_text(
-            "#!/bin/sh\n"
-            "set -e\n"
-            f"cd {shlex.quote(str(repo_path))}\n"
-            f"{command}\n",
+            f"#!/bin/sh\nset -e\ncd {shlex.quote(str(repo_path))}\n{command}\n",
             encoding="utf-8",
         )
         script.chmod(0o755)
@@ -473,13 +490,13 @@ class AppServices:
         return stats
 
     def get_security_recommendations(
-        self, category: str | None = None,
-        status: str | None = None, limit: int = 100
+        self, category: str | None = None, status: str | None = None, limit: int = 100
     ) -> List[dict]:
         """Get security recommendations with optional filters."""
         logger.debug(f"getting recommendations/params for {category}")
         return self.db.get_security_recommendations(
-            category=category, status=status, limit=limit)
+            category=category, status=status, limit=limit
+        )
 
     def get_cisa_kev_entries(self, limit: int = 100) -> List[dict]:
         """Get CISA KEV entries from DB."""

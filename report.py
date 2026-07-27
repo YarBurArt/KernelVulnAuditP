@@ -92,51 +92,29 @@ def build_security_recommendations(db) -> List[Dict[str, Any]]:
     return db.get_security_recommendations(limit=200)
 
 
-def get_kernel_info() -> Dict[str, str]:
+def get_kernel_info() -> dict[str, str | None] | dict[str, str]:
     """get kernel info from LocalRecon"""
-    try:
-        lr = LocalRecon()
-        kernel = lr.get_kernel_version_simple()
-        build_date = lr.get_kernel_build_date(kernel)
-        system = lr.environment_info.get("system", "Linux")
+    lr = LocalRecon()
+    kernel: str = lr.get_kernel_version_simple()
+    build_date: int = lr.get_kernel_build_date(kernel)
+    system: str = lr.environment_info.get("distribution", "Linux like")
 
-        # retry get version FIXME
-        latest = "Unknown"
-        try:
-            import httpx
+    import httpx # only needed here
+    resp = httpx.get("https://www.kernel.org/releases.json").json()
+    latest: str = resp["latest_stable"]["version"]
 
-            major = kernel.split(".")[0] if kernel else "6"
-            resp = httpx.get(f"https://cdn.kernel.org/pub/linux/kernel/v{major}.x/")
-            if resp.status_code == 200:
-                import re
+    p_build = None
+    if build_date:
+        p_build: str = datetime.fromtimestamp(build_date, tz=timezone.utc).strftime(
+            "%Y-%m-%d %H:%M:%S"
+        )
 
-                versions = re.findall(
-                    r"change-log-(\d+\.\d+\.\d+)", resp.text, re.IGNORECASE
-                )
-                if versions:
-                    latest = max(versions)
-        except Exception:
-            pass
-
-        p_build = None
-        if build_date:
-            p_build = datetime.fromtimestamp(build_date, tz=timezone.utc).strftime(
-                "%Y-%m-%d %H:%M:%S"
-            )
-
-        return {
-            "kernel_version": kernel,
-            "distribution": system,
-            "latest_version": latest,
-            "build_date": p_build,
-        }
-    except Exception:
-        return {
-            "kernel_version": "Unknown",
-            "distribution": "Unknown",
-            "latest_version": "Unknown",
-            "build_date": "",
-        }
+    return {
+        "kernel_version": kernel,
+        "distribution": system,
+        "latest_version": latest,
+        "build_date": p_build,
+    }
 
 
 def sort_vulnerabilities(vulns: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -162,7 +140,7 @@ def sort_vulnerabilities(vulns: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
                 year = 0
         crit = v.get("criticality_score", 0) or 0
         # Sort: -year (desc), -crit (desc)
-        return (-year, -crit)
+        return -year, -crit
 
     with_runs_sorted = sorted(with_runs, key=sort_key)
     without_runs_sorted = sorted(without_runs, key=sort_key)

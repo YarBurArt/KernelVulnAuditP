@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from isolate import ExecutionResult, QEMUEnvironment, HostEnvironment, CCompiler, Isolate
+from isolate import ExecutionResult, HostEnvironment, CCompiler, Isolate
 
 
 def test_execution_result_to_json():

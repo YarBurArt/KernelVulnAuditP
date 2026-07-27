@@ -26,6 +26,7 @@ from config import (
     NIST_API_URL,
     OSV_API_URL,
     PATH_LINPEAS,
+    NIST_CVE_DETAILS_API_URL,
 )
 from core import (
     assign_value_by_key_type,
@@ -96,10 +97,17 @@ class LocalRecon:
     def get_environment_info():
         """get information about the environment"""
         # base system information
+        os_rel_info = platform.freedesktop_os_release()
+        distro_name = os_rel_info.get("PRETTY_NAME") or os_rel_info.get("NAME", "")
         env_info = {
-            "platform": platform.platform(), "system": platform.system(), "node": platform.node(),
-            "processor": platform.processor(), "architecture": platform.architecture(),
-            "os_environ": dict(os.environ), "current_directory": os.getcwd()
+            "platform": platform.platform(),
+            "system": platform.system(),
+            "node": platform.node(),
+            "processor": platform.processor(),
+            "architecture": platform.architecture(),
+            "os_environ": dict(os.environ),
+            "current_directory": os.getcwd(),
+            "distribution": distro_name,
         }
         # TODO: check privileges via user IDs, capabilities,
         # ns, supplementary groups, and SELinux context
@@ -154,7 +162,7 @@ class LocalRecon:
 
     @staticmethod
     def run_lynis_audit() -> bool:
-        """ much more detailed scan """
+        """much more detailed scan"""
         cmd = [
             LYNIS_BINARY, "audit", "system",
             "-Q", "-q", "--no-colors",  # minimal scan
@@ -392,7 +400,7 @@ class LocalRecon:
 
     @staticmethod
     def run_les(report_path: str | None = None) -> bool:
-        """ run Linux Exploit Suggester"""
+        """run Linux Exploit Suggester"""
         cmd = [str(LES_PATH)]  # no additional flags
         if report_path:
             dest = Path(report_path)
@@ -485,7 +493,7 @@ class LocalRecon:
 
     @staticmethod
     def get_loaded_kernel_modules() -> list[str]:
-        """ basically just cat /proc/modules, for later cmp inside VM """
+        """basically just cat /proc/modules, for later cmp inside VM"""
         modules: list[str] = []
         try:
             with Path("/proc/modules").open(
@@ -549,7 +557,7 @@ class LocalRecon:
     def _parse_lynis_sysctl_line(
         line: str, line_no: int
     ) -> tuple[str, dict[str, str]] | None:
-        """ parse config-data=sysctl... line """
+        """parse config-data=sysctl... line"""
         payload = line.removeprefix("config-data=")
         parts = [part.strip() for part in payload.split(";")]
 
@@ -762,8 +770,101 @@ class ReconFeeds:
         return results
 
     @staticmethod
-    def _cve_org_details(cve_id: str) -> dict[str, Any]:
-        return httpx.get(CVEORG_BASE_URL + cve_id).json()
+    def _reformat_cve_details(data_raw: dict) -> dict:
+        vulns = data_raw.get("vulnerabilities", [])
+        if not vulns:
+            return {}
+        nist_cve = vulns[0].get("cve", {})
+        if not nist_cve:
+            return {}
+
+        descriptions = nist_cve.get("descriptions", [])
+        published = nist_cve.get("published", "")
+        modified = nist_cve.get("lastModified", "")
+        source_id = nist_cve.get("sourceIdentifier", "")
+
+        metrics = []
+        nist_metrics = nist_cve.get("metrics", {})
+        for nk, mk in (
+            ("cvssMetricV40", "cvssV4_0"),
+            ("cvssMetricV31", "cvssV3_1"),
+            ("cvssMetricV30", "cvssV3_0"),
+            ("cvssMetricV2", "cvssV2_0"),
+        ):
+            for m in nist_metrics.get(nk, []):
+                metrics.append({mk: m.get("cvssData", {})})
+
+        problem_types = []
+        for w in nist_cve.get("weaknesses", []):
+            for desc in w.get("description", []):
+                cv = desc.get("value", "")
+                problem_types.append(
+                    {
+                        "descriptions": [
+                            {
+                                "lang": desc.get("lang", "en"),
+                                "description": cv,
+                                "cweId": cv if cv.startswith("CWE-") else "",
+                                "type": "CWE",
+                            }
+                        ]
+                    }
+                )
+
+        references = []
+        for r in nist_cve.get("references", []):
+            ref = {"url": r.get("url", "")}
+            src = r.get("source")
+            if src:
+                ref["tags"] = [src]
+            references.append(ref)
+
+        affected = []
+        for a in nist_cve.get("affected", []):
+            for ad in a.get("affectedData", []):
+                item = {
+                    "vendor": ad.get("vendor", ""),
+                    "product": ad.get("product", ""),
+                    "versions": ad.get("versions", []),
+                }
+                if ad.get("modules"):
+                    item["modules"] = ad["modules"]
+                affected.append(item)
+
+        return {
+            "dataType": "CVE_RECORD",
+            "dataVersion": "5.2",
+            "cveMetadata": {
+                "cveId": nist_cve.get("id", ""),
+                "assignerOrgId": source_id,
+                "state": nist_cve.get("vulnStatus", "PUBLISHED"),
+                "datePublished": published,
+                "dateUpdated": modified,
+            },
+            "containers": {
+                "cna": {
+                    "providerMetadata": {
+                        "orgId": source_id,
+                        "dateUpdated": modified,
+                    },
+                    "descriptions": descriptions,
+                    "metrics": metrics,
+                    "problemTypes": problem_types,
+                    "references": references,
+                    "affected": affected,
+                }
+            },
+        }
+
+    def _cve_org_details(self, cve_id: str) -> dict[str, Any]:
+        """get cve details from cve.org MITRE API, if not accessible then NIST v2 API"""
+        try:
+            result = httpx.get(CVEORG_BASE_URL + cve_id).json()
+            return result
+        except Exception as e:
+            logger.warning("CVEORG_BASE_URL failed: %s", e)
+            result = httpx.get(NIST_CVE_DETAILS_API_URL + cve_id).json()
+            return self._reformat_cve_details(result)
 
     @staticmethod
     def _filter_by_date(nist_result_raw, min_ts: int) -> List[Dict]:
@@ -776,7 +877,7 @@ class ReconFeeds:
         )
 
     def nist_search(self, kern_r_version, date) -> List[CVEFinding]:
-        """ Search for vulnerabilities in NIST database """
+        """Search for vulnerabilities in NIST database"""
         url: str = NIST_API_URL.format(version=kern_r_version)
         try:
             response = httpx.get(url)
