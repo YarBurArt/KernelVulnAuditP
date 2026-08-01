@@ -1,0 +1,205 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<interface>
+  <requires lib="gtk" version="4.0"/>
+  <object class="GtkBox" id="scan_page">
+    <property name="orientation">vertical</property>
+    <property name="spacing">6</property>
+    <property name="margin-top">6</property>
+    <property name="margin-bottom">6</property>
+    <property name="margin-start">6</property>
+    <property name="margin-end">6</property>
+
+    <!-- Toolbar -->
+    <child>
+      <object class="GtkBox" id="toolbar">
+        <property name="orientation">horizontal</property>
+        <property name="spacing">8</property>
+
+        <child>
+          <object class="GtkBox" id="recon_box">
+            <property name="orientation">horizontal</property>
+            <property name="spacing">4</property>
+            <child>
+              <object class="GtkButton" id="local_btn">
+                <property name="label">Local Recon</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkButton" id="feeds_btn">
+                <property name="label">TI Feeds</property>
+              </object>
+            </child>
+          </object>
+        </child>
+
+        <child>
+          <object class="GtkButton" id="full_btn">
+            <property name="label">Full Cycle</property>
+          </object>
+        </child>
+
+        <child>
+          <object class="GtkButton" id="exec_btn">
+            <property name="label">Exec Tests</property>
+          </object>
+        </child>
+
+        <child>
+          <object class="GtkBox" id="spacer">
+            <property name="hexpand">true</property>
+          </object>
+        </child>
+
+        <child>
+          <object class="GtkBox" id="metrics">
+            <property name="orientation">horizontal</property>
+            <property name="spacing">12</property>
+
+            <child>
+              <object class="GtkLabel" id="fail_label">
+                <property name="label">CRIT: 0</property>
+                <style>
+                  <class name="crit-badge"/>
+                </style>
+              </object>
+            </child>
+            <child>
+              <object class="GtkSeparator">
+                <property name="orientation">vertical</property>
+              </object>
+            </child>
+
+            <child>
+              <object class="GtkLabel" id="warn_label">
+                <property name="label">WARN: 0</property>
+                <style>
+                  <class name="warn-badge"/>
+                </style>
+              </object>
+            </child>
+            <child>
+              <object class="GtkSeparator">
+                <property name="orientation">vertical</property>
+              </object>
+            </child>
+
+            <child>
+              <object class="GtkLabel" id="cve_label">
+                <property name="label">CVE: 0</property>
+                <style>
+                  <class name="cve-badge"/>
+                </style>
+              </object>
+            </child>
+            <child>
+              <object class="GtkSeparator">
+                <property name="orientation">vertical</property>
+              </object>
+            </child>
+
+            <child>
+              <object class="GtkLabel" id="sandbox_label">
+                <property name="label">RUNS: 0</property>
+                <style>
+                  <class name="runs-badge"/>
+                </style>
+              </object>
+            </child>
+          </object>
+        </child>
+      </object>
+    </child>
+
+    <!-- Progress -->
+    <child>
+      <object class="GtkBox" id="progress_box">
+        <property name="orientation">vertical</property>
+        <property name="spacing">2</property>
+        <property name="visible">false</property>
+
+        <child>
+          <object class="GtkProgressBar" id="progress_bar"/>
+        </child>
+        <child>
+          <object class="GtkLabel" id="progress_label">
+            <style>
+              <class name="mono"/>
+            </style>
+          </object>
+        </child>
+      </object>
+    </child>
+
+    <!-- Notebook -->
+    <child>
+      <object class="GtkNotebook" id="notebook">
+        <property name="vexpand">true</property>
+
+        <child>
+          <object class="GtkScrolledWindow" id="sw1">
+            <child>
+              <object class="GtkListBox" id="audit_list">
+                <property name="selection-mode">none</property>
+              </object>
+            </child>
+          </object>
+        </child>
+        <child type="tab">
+          <object class="GtkLabel">
+            <property name="label">Kernel Hardening</property>
+          </object>
+        </child>
+
+        <child>
+          <object class="GtkScrolledWindow" id="sw2">
+            <child>
+              <object class="GtkListBox" id="cve_list">
+                <property name="selection-mode">none</property>
+              </object>
+            </child>
+          </object>
+        </child>
+        <child type="tab">
+          <object class="GtkLabel">
+            <property name="label">Exploit Vectors</property>
+          </object>
+        </child>
+
+        <child>
+          <object class="GtkScrolledWindow" id="sw3">
+            <child>
+              <object class="GtkListBox" id="sandbox_list">
+                <property name="selection-mode">none</property>
+              </object>
+            </child>
+          </object>
+        </child>
+        <child type="tab">
+          <object class="GtkLabel">
+            <property name="label">Sandbox Runs</property>
+          </object>
+        </child>
+
+        <child>
+          <object class="GtkScrolledWindow" id="sw4">
+            <child>
+              <object class="GtkTextView" id="console_view">
+                <property name="editable">false</property>
+                <property name="monospace">true</property>
+                <style>
+                  <class name="terminal-view"/>
+                </style>
+              </object>
+            </child>
+          </object>
+        </child>
+        <child type="tab">
+          <object class="GtkLabel">
+            <property name="label">Engine stdout</property>
+          </object>
+        </child>
+
+      </object>
+    </child>
+  </object>
+</interface>

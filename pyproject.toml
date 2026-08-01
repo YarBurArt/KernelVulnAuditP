@@ -5,9 +5,9 @@ description = "This tool checks the practical functionality of linux kernel expl
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
-    "flet==0.86.2",
-    "flet-desktop==0.86.2",
     "httpx>=0.28.1",
+    "pycairo>=1.29.0",
+    "pygobject>=3.56.3",
     "sqlalchemy==2.0.51",
     "streamlit==1.60.0",
 ]
@@ -19,5 +19,6 @@ dev = [
     "pytest==9.1.1",
     "pylint>=4.0.6",
     "black>=26.5.1",
+    "pygobject-stubs>=2.17.0",
 ]
 

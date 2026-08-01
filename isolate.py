@@ -706,6 +706,6 @@ class Isolate:
         try:
             response = input("Allow host execution? [y/N]: ").strip().lower()
             return response in ["y", "yes"]
-        except EOFError, KeyboardInterrupt:
+        except (EOFError, KeyboardInterrupt):
             logger.info("\nAborted.")
             return False

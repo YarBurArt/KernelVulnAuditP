@@ -7,7 +7,7 @@ try:
     import streamlit
 
     STREAMLIT_AVAILABLE = True
-except ImportError, ModuleNotFoundError:
+except (ImportError, ModuleNotFoundError):
     STREAMLIT_AVAILABLE = False
 
 from db import get_db
@@ -136,7 +136,7 @@ def sort_vulnerabilities(vulns: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         if cve_id.startswith("CVE-"):
             try:
                 year = int(cve_id.split("-")[1])
-            except ValueError, IndexError:
+            except (ValueError, IndexError):
                 year = 0
         crit = v.get("criticality_score", 0) or 0
         # Sort: -year (desc), -crit (desc)

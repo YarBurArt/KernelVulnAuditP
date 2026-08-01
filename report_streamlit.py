@@ -4,7 +4,7 @@ from typing import Any, Dict, List
 
 try:
     import streamlit as st
-except ImportError, ModuleNotFoundError:
+except (ImportError, ModuleNotFoundError):
     st = None  # type: ignore
 
 
