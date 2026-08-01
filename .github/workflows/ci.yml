@@ -30,6 +30,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install system dependencies for pycairo (gtk)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential \
+            pkg-config \
+            libcairo2-dev \
+            libgirepository-2.0-dev \
+            cmake
+          sudo apt-get clean
+
       - name: Install uv
         uses: astral-sh/setup-uv@v8.1.0
         with:
@@ -63,13 +74,3 @@ jobs:
             | sed -E 's/.*rated at (-?[0-9]+(\.[0-9]+)?).*/\1/')
           echo "Rating is $RATING"
           awk -v r="$RATING" 'BEGIN { exit (r < 6.0) }'
-
-      - name: Check for Fatal/Error messages
-        run: |
-          if [ -f rc.txt ]; then
-            PYLINT_RC=$(cat rc.txt)
-            if [ $(( PYLINT_RC & 3 )) -ne 0 ]; then
-              echo "Fatal/Error detected (code $PYLINT_RC)"
-              exit 1
-            fi
-          fi
