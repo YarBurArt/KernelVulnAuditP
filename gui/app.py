@@ -1,14 +1,14 @@
 import gi
 
 gi.require_version("Gtk", "4.0")
-from gi.repository import Gtk, GLib, Pango
-
-import threading
 import subprocess
 import sys
+import threading
 from datetime import datetime
 from pathlib import Path
 from typing import Any, cast
+
+from gi.repository import GLib, Gtk, Pango
 
 from app_services import AppServices
 from config import (
@@ -406,23 +406,23 @@ class GUIApp:
                 if on_done is not None:
                     cb = on_done
 
-                    def _cb():
+                    def _done_cb():
                         cb(result)
                         return False
 
-                    GLib.idle_add(_cb)
+                    GLib.idle_add(_done_cb)
             except Exception as exc:
                 if on_error is not None:
                     cb = on_error
 
-                    def _cb():
+                    def _cb(exc=exc):
                         cb(exc)
                         return False
 
                     GLib.idle_add(_cb)
                 else:
 
-                    def _cb():
+                    def _cb(exc=exc):
                         self._log_terminal(f"Async error: {exc}", "FAIL")
                         return False
 
@@ -917,4 +917,4 @@ class GUIApp:
         return Gtk.LinkButton.new_with_label(url, url)
 
 
-__all__ = ["GUIApp", "GUI_E"]
+__all__ = ["GUI_E", "GUIApp"]

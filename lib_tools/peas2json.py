@@ -3,6 +3,7 @@
 import json
 import re
 import sys
+from typing import Any
 
 # Pattern to identify main section titles
 TITLE1_PATTERN = r"══════════════╣"  # The size of the first pattern varies, but at least should be that large
@@ -47,7 +48,7 @@ def is_section(line: str, pattern: str) -> bool:
 def get_colors(line: str) -> dict:
     """Given a line return the colored strings"""
 
-    colors = {}
+    colors: dict[Any, Any] = {}
     for c, regexs in COLORS.items():
         colors[c] = []
         for reg in regexs:

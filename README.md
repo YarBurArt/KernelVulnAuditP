@@ -27,7 +27,7 @@ chmod u+x ./install_tools.sh
 ./install_tools.sh
 ```
 
-run GUI (auto back to CLI if Flet missing)
+run GUI (auto back to CLI if gtk4 libs missing)
 
 ```bash
 uv run python main.py
@@ -101,7 +101,6 @@ All of this can be done conveniently in the Flet GUI.
 - httpx quickstart: https://www.python-httpx.org/
 - virtme-ng manual: https://github.com/arighi/virtme-ng
 - QEMU `microvm` machine type: https://www.qemu.org/docs/master/system/i386/microvm.html
-- Flet framework docs: https://flet.dev/docs/
 - Streamlit docs: https://docs.streamlit.io/
 - Lynis auditing tool: https://github.com/CISOfy/lynis
 - Linux Exploit Suggester (LES): https://github.com/The-Z-Labs/linux-exploit-suggester
@@ -117,7 +116,7 @@ All of this can be done conveniently in the Flet GUI.
 Of course in the future there will be more integrations with various tools and APIs :)
 
 ## base architecture 
-`main.py` hosts the CLI/optional Flet UI and delegates to `AppServices` for local probes (uname, /proc, Lynis, LinPEAS, LES), threat‑intel pulls (NVD/OSV/GitHub), and sandboxed PoC execution. `recon.py` supplies the LocalRecon/ReconFeeds helpers that actually talk to the OS and external APIs. `sqxpl.py` searches for PoCs and stages them for execution tests. `isolate.py` runs commands inside virtme-ng/QEMU microvm; `config.py` carries its timeouts and host‑escape. `db.py` defines the storage interface with adapters for SQLite (simple/ORM) or in‑memory use. `report.py` renders everything through Streamlit or a CLI view, and can save/load JSON snapshots.
+`main.py` hosts the CLI/optional GTK4 UI and delegates to `AppServices` for local probes (uname, /proc, Lynis, LinPEAS, LES), threat‑intel pulls (NVD/OSV/GitHub), and sandboxed PoC execution. `recon.py` supplies the LocalRecon/ReconFeeds helpers that actually talk to the OS and external APIs. `sqxpl.py` searches for PoCs and stages them for execution tests. `isolate.py` runs commands inside virtme-ng/QEMU microvm; `config.py` carries its timeouts and host‑escape. `db.py` defines the storage interface with adapters for SQLite (simple/ORM) or in‑memory use. `report.py` renders everything through Streamlit or a CLI view, and can save/load JSON snapshots.
 
 This base architecture is not the best and requires many fixes and improvements, but it is enough for a project with a limited time.
 

@@ -5,13 +5,9 @@ from pathlib import Path
 
 import pytest
 
-from isolate import (
-    ExecutionResult,
-    HostEnvironment,
-    QemuEnvironment,
-    CCompiler,
-    Isolate,
-)
+from isolate import CCompiler, ExecutionResult, HostEnvironment, Isolate
+from isolate.parse_vm_internal_results import QEMU_CRASH_PATTERNS, ParseVmResults
+from isolate.qemu_vm import QemuEnvironment
 
 
 class FakeTempDir:
@@ -46,7 +42,7 @@ def test_execution_result_to_json():
 
 
 def test_parse_guest_output_sections():
-    env = QemuEnvironment(Path("/tmp/test"), 10)
+    parser = ParseVmResults()
 
     output = """========== VM START ==========
 Sat Aug  1 12:00:00 UTC 2026
@@ -65,7 +61,9 @@ drwxr-xr-x bin
 PID USER
 """
 
-    kernel_info, resources, modules, files, processes = env._parse_guest_output(output)
+    kernel_info, resources, modules, files, processes = parser.parse_guest_output(
+        output
+    )
 
     assert kernel_info["date"] == "Sat Aug  1 12:00:00 UTC 2026"
     assert kernel_info["uname"] == "Linux test 6.1.0 #1 SMP"
@@ -78,9 +76,9 @@ PID USER
 
 
 def test_parse_guest_output_no_sections():
-    env = QemuEnvironment(Path("/tmp/test"), 10)
+    parser = ParseVmResults()
 
-    kernel_info, resources, modules, files, processes = env._parse_guest_output(
+    kernel_info, resources, modules, files, processes = parser.parse_guest_output(
         "random noise\nno sections here"
     )
 
@@ -102,11 +100,11 @@ def test_parse_guest_output_no_sections():
     ],
 )
 def test_qemu_detect_crash(text):
-    assert QemuEnvironment._detect_crash(text) is True
+    assert ParseVmResults.detect_crash(text, QEMU_CRASH_PATTERNS) is True
 
 
 def test_qemu_detect_crash_negative():
-    assert QemuEnvironment._detect_crash("hello world") is False
+    assert ParseVmResults.detect_crash("hello world", QEMU_CRASH_PATTERNS) is False
 
 
 def test_qemu_execute_success(monkeypatch, tmp_path):

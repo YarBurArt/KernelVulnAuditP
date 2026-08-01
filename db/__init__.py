@@ -1,7 +1,7 @@
-from db.db import get_db, ThreatDB, ThreatIntelligenceORMAdapter
+from db.db import ThreatDB, ThreatIntelligenceORMAdapter, get_db
 
 __all__ = [
-    "get_db",
     "ThreatDB",
     "ThreatIntelligenceORMAdapter",
+    "get_db",
 ]
