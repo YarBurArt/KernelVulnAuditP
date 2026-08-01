@@ -312,11 +312,11 @@ class GUIApp:
         to_entry = cast(Gtk.Entry, builder.get_object("to_entry"))
         exec_switch = cast(Gtk.Switch, builder.get_object("exec_switch"))
 
-        db_map = {0: "orm", 1: "simple", 2: "memory"}
+        db_map = {0: "orm", 1: "memory"}
         log_map = {0: "DEBUG", 1: "INFO", 2: "WARNING", 3: "ERROR", 4: "CRITICAL"}
 
         db_dropdown.set_selected(
-            {"orm": 0, "simple": 1, "memory": 2}.get(DB_BACKEND, 0)
+            {"orm": 0, "memory": 1}.get(DB_BACKEND, 0)
         )
         log_dropdown.set_selected(
             {"DEBUG": 0, "INFO": 1, "WARNING": 2, "ERROR": 3, "CRITICAL": 4}.get(

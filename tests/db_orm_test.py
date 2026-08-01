@@ -1,7 +1,7 @@
 import pytest
 from datetime import datetime
 
-from db_orm import ThreatIntelligenceORM
+from db.db_orm import ThreatIntelligenceORM
 
 
 @pytest.fixture

@@ -1,6 +1,6 @@
 import pytest
 
-from db_rd import InMemoryThreatDB
+from db.db_rd import InMemoryThreatDB
 
 
 @pytest.fixture
