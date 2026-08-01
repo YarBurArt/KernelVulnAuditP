@@ -4,7 +4,7 @@ from typing import Any, Dict, List
 
 @dataclass
 class KernelAuditItem:
-    """raw lynis audit item (legacy, kept for recon.py compat)"""
+    """raw lynis audit item (legacy, kept for recon compat)"""
     test_id: str
     category: str
     desc: str
