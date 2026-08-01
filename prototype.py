@@ -1,31 +1,34 @@
-import os
 import json
-import stat
+import os
 import shutil
+import stat
 import subprocess
-from typing import List
+
 import httpx
 
-
-CISA_KEV_URL = "https://www.cisa.gov/sites/default/files/feeds/" \
-               "known_exploited_vulnerabilities_schema.json"
+CISA_KEV_URL = (
+    "https://www.cisa.gov/sites/default/files/feeds/"
+    "known_exploited_vulnerabilities_schema.json"
+)
 
 CISA_KEV_PATH = "known_exploited_vulnerabilities.json"
 CVEORG_BASE_URL = "https://cveawg.mitre.org/api/cve/"
 GITHUB_URL = "https://github.com/search?q={}%20&type=repositories"
-PACKETSTORM_URL = "https://packetstorm.news/download/" # ...file_id
+PACKETSTORM_URL = "https://packetstorm.news/download/"  # ...file_id
 
 
 def get_vulns():
     # res = httpx.get(CISA_KEV_URL)
     # print(res.json()[0].keys())
     with open(CISA_KEV_PATH, "r") as f:
-        res: list = [json.load(f),]
+        res: list = [
+            json.load(f),
+        ]
 
     kern_cve = []
     # print(res[0]['vulnerabilities'][0].keys())
-    for vuln in res[0]['vulnerabilities']:
-        if vuln['product'] == "Kernel":  # 26
+    for vuln in res[0]["vulnerabilities"]:
+        if vuln["product"] == "Kernel":  # 26
             kern_cve.append(vuln)
 
     d_urls_list = []
@@ -52,31 +55,38 @@ def get_vulns():
     return kern_cve
 
 
-def compile_and_run(src="./data/xpl.c", out="./xpl/tmp.out") ->  tuple[str, str] | None:
-    """ cc -o ./xpl/tmp.out ./data/xpl.c 
-    chmod u+x ./xpl/tmp.out; ./xpl/tmp.out """
+def compile_and_run(src="./data/xpl.c", out="./xpl/tmp.out") -> tuple[str, str] | None:
+    """cc -o ./xpl/tmp.out ./data/xpl.c
+    chmod u+x ./xpl/tmp.out; ./xpl/tmp.out"""
     os.makedirs(os.path.dirname(out), exist_ok=True)
 
-    compiler = next((
-        shutil.which(c) for c in ("gcc", "clang", "cc")
-        if shutil.which(c)), None)
-    if compiler is None: return None
+    compiler = next(
+        (shutil.which(c) for c in ("gcc", "clang", "cc") if shutil.which(c)), None
+    )
+    if compiler is None:
+        return None
 
-    proc = subprocess.run([
-        compiler, "-o", out, src], stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE, text=True)
-    if proc.returncode != 0: return None
+    proc = subprocess.run(
+        [compiler, "-o", out, src],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    if proc.returncode != 0:
+        return None
 
     os.chmod(out, os.stat(out).st_mode | stat.S_IXUSR)
 
     try:
         proc = subprocess.run(
-            [out], stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE, text=True, timeout=24
+            [out], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=24
         )
-        if proc.returncode != 0: return None
-    except Exception: return None
+        if proc.returncode != 0:
+            return None
+    except Exception:
+        return None
     return proc.stdout, proc.stderr
+
 
 def fix_filename(directory="./data"):
     mime_to_ext = {
@@ -102,18 +112,20 @@ def fix_filename(directory="./data"):
 
 
 def get_description(filename):
-    with open(filename, 'r', encoding='utf-8') as f:
-        if f.read(2) != '/*': return ""
+    with open(filename, "r", encoding="utf-8") as f:
+        if f.read(2) != "/*":
+            return ""
         lines = []
         for line in f:
-            if '*/' in line:
-                lines.append(line.split('*/')[0])
+            if "*/" in line:
+                lines.append(line.split("*/")[0])
                 return "".join(lines).strip()
             lines.append(line)
     return ""
 
+
 def main():
-    kern_cve: List[dict] = get_vulns()
+    kern_cve: list[dict] = get_vulns()
     kern_version = subprocess.run(
         ["uname", "-r"], capture_output=True, text=True, check=True
     ).stdout.strip()
@@ -127,35 +139,43 @@ def main():
         "distribution": kern_build,
         "latest_version": "6.18.7",
         "kev_data": kern_cve,  # List[dict]
-        "runs": []
+        "runs": [],
     }
-    st_c = 0; cmpl_c = 0
-    for xpl in os.listdir('./cached_xpl'):
+    st_c = 0
+    cmpl_c = 0
+    for xpl in os.listdir("./cached_xpl"):
         if xpl.endswith(".c"):
             st_c += 1
-            descr = get_description('./cached_xpl/' + xpl)
-            res = compile_and_run('./cached_xpl/' + xpl)
+            descr = get_description("./cached_xpl/" + xpl)
+            res = compile_and_run("./cached_xpl/" + xpl)
             if res is None:
-                result_s["runs"].append({
-                    "id": xpl[:-2],
-                    "description": descr,
-                    "status": "Error",
-                    "stdout": "", "stderr": "",
-                })
+                result_s["runs"].append(
+                    {
+                        "id": xpl[:-2],
+                        "description": descr,
+                        "status": "Error",
+                        "stdout": "",
+                        "stderr": "",
+                    }
+                )
             else:
                 cmpl_c += 1
                 stdout, stderr = res
-                result_s["runs"].append({
-                    "id": xpl[:-2],
-                    "description": descr,
-                    "status": "Error",
-                    "stdout": stdout, "stderr": stderr,
-                })
+                result_s["runs"].append(
+                    {
+                        "id": xpl[:-2],
+                        "description": descr,
+                        "status": "Error",
+                        "stdout": stdout,
+                        "stderr": stderr,
+                    }
+                )
     result_s["started"] = st_c
     result_s["complated"] = cmpl_c
 
     with open("report_data.json", "w") as f:
         json.dump(result_s, f, indent=4)
+
 
 if __name__ == "__main__":
     main()

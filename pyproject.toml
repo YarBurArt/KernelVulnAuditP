@@ -20,5 +20,6 @@ dev = [
     "pylint>=4.0.6",
     "black>=26.5.1",
     "pygobject-stubs>=2.17.0",
+    "ruff>=0.16.1",
 ]
 

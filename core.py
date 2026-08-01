@@ -2,21 +2,22 @@
 Core utility functions, more independent functionality
 Date parsing, dict/list processing, text extraction, criticality calc.
 """
+
 import re
-from datetime import datetime, timezone
+from collections.abc import Callable
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any
 
 
-
-def try_parse(date_str: str, fmt: str) -> Optional[datetime]:
+def try_parse(date_str: str, fmt: str) -> datetime | None:
     try:
         return datetime.strptime(date_str, fmt)
     except ValueError:
         return None
 
 
-def parse_date_string(date_str: str) -> Optional[datetime]:
+def parse_date_string(date_str: str) -> datetime | None:
     if not date_str:
         return None
 
@@ -32,7 +33,7 @@ def parse_date_string(date_str: str) -> Optional[datetime]:
         base = date_str.split(".")[0]
         dt = try_parse(base, "%Y-%m-%dT%H:%M:%S")
         if dt is not None:
-            dt = dt.replace(tzinfo=timezone.utc)
+            dt = dt.replace(tzinfo=UTC)
 
     if dt is None:
         for fmt in (
@@ -49,26 +50,26 @@ def parse_date_string(date_str: str) -> Optional[datetime]:
         return None
 
     return (
-        dt.replace(tzinfo=timezone.utc)
+        dt.replace(tzinfo=UTC)
         if dt.tzinfo is None
-        else dt.astimezone(timezone.utc)
+        else dt.astimezone(UTC)
     )
 
 
 def filter_items_by_date(
-    items: List[Dict[str, Any]],
-    date_field: str = 'published',
-    min_timestamp: int | Any = None
-) -> List[Dict[str, Any]]:
+    items: list[dict[str, Any]],
+    date_field: str = "published",
+    min_timestamp: int | Any = None,
+) -> list[dict[str, Any]]:
     """filter list of dicts by date field"""
     if min_timestamp is None:
         return items
 
-    min_dt = datetime.fromtimestamp(min_timestamp, tz=timezone.utc)
+    min_dt = datetime.fromtimestamp(min_timestamp, tz=UTC)
     result = []
 
     for item in items:
-        cve_obj = item.get('cve', {}) if isinstance(item, dict) else {}
+        cve_obj = item.get("cve", {}) if isinstance(item, dict) else {}
         date_str = None
 
         if cve_obj and date_field in cve_obj:
@@ -89,34 +90,31 @@ def filter_items_by_date(
     return result
 
 
-def format_timestamp(
-    ts: int, fmt: str = '%Y-%m-%d %H:%M:%S %Z'
-) -> Optional[str]:
+def format_timestamp(ts: int, fmt: str = "%Y-%m-%d %H:%M:%S %Z") -> str | None:
     """format timestamp to string"""
     if ts is None:
         return None
     try:
-        dt = datetime.fromtimestamp(ts, tz=timezone.utc)
+        dt = datetime.fromtimestamp(ts, tz=UTC)
         return dt.strftime(fmt)
     except ValueError:
         return None
 
 
-def dict_to_display_rows(data: List[Dict[str, Any]]) -> List[List[Any]]:
+def dict_to_display_rows(data: list[dict[str, Any]]) -> list[list[Any]]:
     """convert list of dicts to transposed table rows"""
     if not data:
         return []
 
-    return [[key] + [d.get(key, '') for d in data] for key in data[0].keys()]
+    return [[key] + [d.get(key, "") for d in data] for key in data[0]]
 
 
 def flatten_dict_value(value: Any, max_length: int = 500) -> str:
     """convert dict/list to display string"""
     if isinstance(value, list) and value and isinstance(value[0], dict):
-        result = "\n".join([
-            ", ".join(f"{ik}: {iv}" for ik, iv in it.items())
-            for it in value
-        ])
+        result = "\n".join(
+            [", ".join(f"{ik}: {iv}" for ik, iv in it.items()) for it in value]
+        )
     elif isinstance(value, dict):
         result = ", ".join(f"{k}: {v}" for k, v in value.items())
     elif isinstance(value, list):
@@ -128,10 +126,8 @@ def flatten_dict_value(value: Any, max_length: int = 500) -> str:
 
 
 def merge_dicts_by_key(
-    target: Dict[str, Any],
-    source: Dict[str, Any],
-    keys: List[str] | Any = None
-) -> Dict[str, Any]:
+    target: dict[str, Any], source: dict[str, Any], keys: list[str] | Any = None
+) -> dict[str, Any]:
     """merge selected keys from source to target"""
     if keys is None:
         target.update(source)
@@ -142,11 +138,7 @@ def merge_dicts_by_key(
     return target
 
 
-def safe_get_nested(
-    data: Dict[str, Any],
-    *keys,
-    default: Any = None
-) -> Any:
+def safe_get_nested(data: dict[str, Any], *keys, default: Any = None) -> Any:
     """safely get nested dict value"""
     current = data
     for key in keys:
@@ -159,23 +151,21 @@ def safe_get_nested(
 
 def strip_ansi_sequences(text: str) -> str:
     """remove ANSI escape codes"""
-    ansi_pattern = re.compile(r'\x1b\[[0-9;]*m')
-    return ansi_pattern.sub('', text)
+    ansi_pattern = re.compile(r"\x1b\[[0-9;]*m")
+    return ansi_pattern.sub("", text)
 
 
 def extract_section_by_header(
-    text: str,
-    header_patterns: List[str],
-    max_length: int = 500
-) -> Optional[str]:
+    text: str, header_patterns: list[str], max_length: int = 500
+) -> str | None:
     """extract text section by header pattern"""
     for pattern in header_patterns:
         matches = re.findall(pattern, text, re.IGNORECASE | re.MULTILINE)
         if matches:
             extracted = matches[0].strip()
-            extracted = re.sub(r'\[.*?\]\(.*?\)', '', extracted)
-            extracted = extracted.replace('*', '').replace('`', '')
-            extracted = ' '.join(extracted.split())
+            extracted = re.sub(r"\[.*?\]\(.*?\)", "", extracted)
+            extracted = extracted.replace("*", "").replace("`", "")
+            extracted = " ".join(extracted.split())
 
             if 10 < len(extracted) < max_length:
                 return extracted
@@ -184,15 +174,13 @@ def extract_section_by_header(
 
 
 def extract_code_block_commands(
-    text: str,
-    command_patterns: List[str],
-    languages: List[str] | Any= None
-) -> List[str]:
+    text: str, command_patterns: list[str], languages: list[str] | Any = None
+) -> list[str]:
     """extract commands from Markdown code blocks"""
     commands = []
 
-    lang_pattern = r'(?:' + '|'.join(languages) + r')?' if languages else r''
-    block_pattern = rf'```({lang_pattern})?\n(.*?)```'
+    lang_pattern = r"(?:" + "|".join(languages) + r")?" if languages else r""
+    block_pattern = rf"```({lang_pattern})?\n(.*?)```"
 
     for block in re.findall(block_pattern, text, re.DOTALL):
         content = block[1] if isinstance(block, tuple) else block
@@ -205,8 +193,8 @@ def extract_code_block_commands(
 
 def clean_command_string(cmd: str) -> str:
     """clean command string from Markdown"""
-    cmd = cmd.replace('```', '').replace('`', '')
-    cmd = cmd.split('\n')[0]
+    cmd = cmd.replace("```", "").replace("`", "")
+    cmd = cmd.split("\n")[0]
     return cmd.strip()
 
 
@@ -218,11 +206,7 @@ def parse_key_with_brackets(raw_key: str) -> tuple:
     return match.group(1), match.group(2)
 
 
-def ensure_list_in_dict(
-    container: Dict[str, Any],
-    key: str,
-    value: Any
-) -> None:
+def ensure_list_in_dict(container: dict[str, Any], key: str, value: Any) -> None:
     """ensure key contains list, append value"""
     if key not in container:
         container[key] = [value]
@@ -233,10 +217,7 @@ def ensure_list_in_dict(
 
 
 def assign_value_by_key_type(
-    results: Dict[str, Any],
-    base: str,
-    inner: Optional[str],
-    value: str
+    results: dict[str, Any], base: str, inner: str | None, value: str
 ) -> None:
     """assign value based on key type: scalar, list, or dict"""
     if inner is None:  # key=value
@@ -255,10 +236,8 @@ def assign_value_by_key_type(
 
 
 def parse_key_value_pairs(
-    blob: str,
-    separator: str = ";",
-    kv_delim: str = ":"
-) -> Dict[str, str]:
+    blob: str, separator: str = ";", kv_delim: str = ":"
+) -> dict[str, str]:
     """parse key:value;key:value blob"""
     result = {}
     for pair in blob.split(separator):
@@ -267,7 +246,8 @@ def parse_key_value_pairs(
             result[key.strip()] = value.strip()
     return result
 
-def calculate_criticality_score(data: Dict[str, Any]) -> int:
+
+def calculate_criticality_score(data: dict[str, Any]) -> int:
     """calc criticality score in range 0..100."""
 
     def clamp(value: int) -> int:
@@ -276,7 +256,7 @@ def calculate_criticality_score(data: Dict[str, Any]) -> int:
     def as_float(value: Any) -> float:
         try:
             return float(value)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             return 0.0
 
     score = 0
@@ -286,7 +266,7 @@ def calculate_criticality_score(data: Dict[str, Any]) -> int:
 
     if cvss >= 9.0:
         score += 65
-        score += int((cvss - 9.0) * 10)   # 9.8 -> +8
+        score += int((cvss - 9.0) * 10)  # 9.8 -> +8
     elif cvss >= 7.0:
         score += 45
         score += int((cvss - 7.0) * 10)
@@ -317,10 +297,7 @@ def calculate_criticality_score(data: Dict[str, Any]) -> int:
 
 
 def chain_get(
-    data: Dict[str, Any],
-    path: str,
-    default: Any = None,
-    separator: str = '.'
+    data: dict[str, Any], path: str, default: Any = None, separator: str = "."
 ) -> Any:
     """get nested value using dot notation"""
     keys = path.split(separator)
@@ -333,7 +310,7 @@ def chain_get(
             try:
                 idx = int(key)
                 current = current[idx]
-            except (ValueError, IndexError):
+            except ValueError, IndexError:
                 return default
         else:
             return default
@@ -342,10 +319,8 @@ def chain_get(
 
 
 def filter_list_by_pred(
-    items: List[Any],
-    predicate: Callable,
-    limit: int | Any = None
-) -> List[Any]:
+    items: list[Any], predicate: Callable, limit: int | Any = None
+) -> list[Any]:
     """filter list by predicate with optional limit"""
     result = [item for item in items if predicate(item)]
     if limit is not None:
@@ -354,11 +329,10 @@ def filter_list_by_pred(
 
 
 def group_by_key(
-    items: List[Dict[str, Any]],
-    key: str
-) -> Dict[str, List[Dict[str, Any]]]:
+    items: list[dict[str, Any]], key: str
+) -> dict[str, list[dict[str, Any]]]:
     """group list of dicts by key"""
-    result: dict[Any, List[Dict[str, Any]]] = {}
+    result: dict[Any, list[dict[str, Any]]] = {}
     for item in items:
         group_key = item.get(key)
         if group_key is not None:
@@ -368,10 +342,7 @@ def group_by_key(
     return result
 
 
-def count_by_key(
-    items: List[Dict[str, Any]],
-    key: str
-) -> Dict[str, int]:
+def count_by_key(items: list[dict[str, Any]], key: str) -> dict[str, int]:
     """count occurrences by key"""
     result: dict[Any, int] = {}
     for item in items:
@@ -381,10 +352,7 @@ def count_by_key(
     return result
 
 
-def update_config_file(
-    config_path: Path,
-    updates: Dict[str, str]
-) -> None:
+def update_config_file(config_path: Path, updates: dict[str, str]) -> None:
     """
     update config by dict of {VAR_NAME: new_value}
     where value includes quotes if needed
@@ -394,25 +362,23 @@ def update_config_file(
 
     for key, replacement in updates.items():
         if replacement.isdigit() or (
-            replacement.startswith('-') and replacement[1:].isdigit()
+            replacement.startswith("-") and replacement[1:].isdigit()
         ):
-            pattern = rf'^{key}\s*=\s*\d+'
-        elif replacement in ('True', 'False'):
-            pattern = rf'^{key}\s*=\s*(True|False)'
+            pattern = rf"^{key}\s*=\s*\d+"
+        elif replacement in ("True", "False"):
+            pattern = rf"^{key}\s*=\s*(True|False)"
         else:
             pattern = rf'^{key}\s*=\s*["\'].*["\']'
 
         config_content = re.sub(
-            pattern,
-            f'{key} = {replacement}',
-            config_content,
-            flags=re.MULTILINE
+            pattern, f"{key} = {replacement}", config_content, flags=re.MULTILINE
         )
 
     config_path.write_text(config_content, encoding="utf-8")
 
+
 def format_report(data: dict) -> dict:
-    """ filter data to format useful report """
+    """filter data to format useful report"""
     feeds = data.get("feeds", {}) or {}
     findings = feeds.get("findings", [])
     pocs = feeds.get("pocs", [])
@@ -436,7 +402,8 @@ def format_report(data: dict) -> dict:
         "github_count": len(pocs),
     }
 
-def summarize_sandbox(result) -> Dict[str, Any]:
+
+def summarize_sandbox(result) -> dict[str, Any]:
     """summarize sandbox result by reformat and filter"""
     return {
         "mode": getattr(result, "execution_mode", "unknown"),
@@ -453,8 +420,9 @@ def summarize_sandbox(result) -> Dict[str, Any]:
         "processes": getattr(result, "processes", []),
     }
 
+
 def norm_sysctl_value(value: Any) -> str:
-    """ normalize sysctl possible values for kernel params check """
+    """normalize sysctl possible values for kernel params check"""
     if value is None:
         return ""
     text = str(value).strip().strip('"').strip("'")

@@ -1,17 +1,17 @@
 """Streamlit renderer for kernel vulnerability reports."""
 
-from typing import Any, Dict, List
+from typing import Any
 
 try:
     import streamlit as st
-except (ImportError, ModuleNotFoundError):
+except ImportError, ModuleNotFoundError:
     st = None  # type: ignore
 
 
 class StreamlitReportRenderer:
     """Render report using Streamlit web UI."""
 
-    def __init__(self, data: Dict[str, Any]):
+    def __init__(self, data: dict[str, Any]):
         self.data = data
 
     def render(self) -> None:
@@ -30,6 +30,7 @@ class StreamlitReportRenderer:
 
     def _render_header(self) -> None:
         """Render header metrics."""
+        assert st is not None
         c1, c2, c3, c4, c5 = st.columns(5)
         c1.metric("Started", self.data.get("started", "N/A"))
         c2.metric("Completed", self.data.get("completed", "N/A"))
@@ -40,6 +41,7 @@ class StreamlitReportRenderer:
     def _render_kev_stats(self) -> None:
         """Render KEV stats section."""
         kev_data = self.data.get("kev_data", [])
+        assert st is not None
         with st.expander(f"KEV Stats ({len(kev_data)})"):
             if kev_data:
                 st.markdown(
@@ -53,7 +55,7 @@ class StreamlitReportRenderer:
                     unsafe_allow_html=True,
                 )
                 transposed = [
-                    [k] + [d[k] for d in kev_data] for k in kev_data[0].keys()
+                    [k] + [d[k] for d in kev_data] for k in kev_data[0]
                 ]
                 st.table(transposed)
             else:
@@ -61,6 +63,7 @@ class StreamlitReportRenderer:
 
     def _render_execution_logs(self) -> None:
         """Render execution logs section."""
+        assert st is not None
         st.subheader("Execution Logs")
         runs = self.data.get("runs", [])
         for idx, run in enumerate(runs):
@@ -85,6 +88,7 @@ class StreamlitReportRenderer:
         stats = self.data.get("statistics", {})
         if not stats:
             return
+        assert st is not None
         st.subheader("Database Statistics")
         s1, s2, s3, s4 = st.columns(4)
         s1.metric("Total Vulnerabilities", stats.get("total", 0))
@@ -93,10 +97,11 @@ class StreamlitReportRenderer:
         s4.metric("Avg CVSS", f"{stats.get('avg_cvss', 0):.2f}")
 
     @staticmethod
-    def _render_exploits(exploits: List[Dict[str, Any]]) -> None:
+    def _render_exploits(exploits: list[dict[str, Any]]) -> None:
         """Render exploits/POCs section."""
         if not exploits:
             return
+        assert st is not None
         with st.expander(f"Exploits / POCs ({len(exploits)})"):
             for expl in exploits:
                 c1, c2, c3 = st.columns([1, 1, 3])
@@ -110,10 +115,11 @@ class StreamlitReportRenderer:
             st.divider()
 
     @staticmethod
-    def _render_references(references: List[Dict[str, Any]]) -> None:
+    def _render_references(references: list[dict[str, Any]]) -> None:
         """Render references section."""
         if not references:
             return
+        assert st is not None
         with st.expander(f"References ({len(references)})"):
             for ref in references:
                 c1, c2, c3 = st.columns([1, 1, 3])
@@ -125,11 +131,12 @@ class StreamlitReportRenderer:
                 else:
                     c3.text("N/A")
 
-    def _render_sandbox_run(self, run: Dict[str, Any]) -> None:
+    def _render_sandbox_run(self, run: dict[str, Any]) -> None:
         """Render single sandbox run."""
         success = run.get("execution_success", False)
         exit_code = run.get("exit_code", -1)
 
+        assert st is not None
         if success:
             st.success(f"Execution successful (exit code: {exit_code})")
         elif exit_code == 0:
@@ -151,8 +158,9 @@ class StreamlitReportRenderer:
         st.divider()
 
     @staticmethod
-    def _render_sandbox_io(run: Dict[str, Any]) -> None:
+    def _render_sandbox_io(run: dict[str, Any]) -> None:
         """Render sandbox I/O section."""
+        assert st is not None
         with st.expander("View I/O"):
             stdout = run.get("stdout")
             if stdout:
@@ -165,9 +173,10 @@ class StreamlitReportRenderer:
                 st.code(stdin, language="bash")
 
     @staticmethod
-    def _render_sandbox_artifacts(run: Dict[str, Any]) -> None:
+    def _render_sandbox_artifacts(run: dict[str, Any]) -> None:
         """Render sandbox processes and files."""
         procs = run.get("open_processes") or []
+        assert st is not None
         if procs:
             st.write("Processes:", ", ".join(procs))
         files = run.get("open_files") or []
@@ -183,10 +192,11 @@ class StreamlitReportRenderer:
                     else:
                         st.text(f"{k}: {v}")
 
-    def _render_sandbox_runs(self, sandbox_runs: List[Dict[str, Any]]) -> None:
+    def _render_sandbox_runs(self, sandbox_runs: list[dict[str, Any]]) -> None:
         """Render sandbox runs section."""
         if not sandbox_runs:
             return
+        assert st is not None
         with st.expander(f"Sandbox Runs ({len(sandbox_runs)})"):
             all_modules = set()
             for run in sandbox_runs:
@@ -199,8 +209,9 @@ class StreamlitReportRenderer:
             for run in sandbox_runs:
                 self._render_sandbox_run(run)
 
-    def _render_vulnerability(self, vuln: Dict[str, Any]) -> None:
+    def _render_vulnerability(self, vuln: dict[str, Any]) -> None:
         """Render single vulnerability."""
+        assert st is not None
         with st.expander(
             f"{vuln.get('cve_id')} - {vuln.get('severity', 'N/A')} "
             f"(CVSS: {vuln.get('cvss_v3_score', 'N/A')})"
@@ -220,6 +231,7 @@ class StreamlitReportRenderer:
         vulns = self.data.get("vulnerabilities", [])
         if not vulns:
             return
+        assert st is not None
         st.subheader(f"Vulnerabilities ({len(vulns)})")
         for vuln in vulns:
             self._render_vulnerability(vuln)
@@ -229,7 +241,7 @@ class StreamlitReportRenderer:
         recs = self.data.get("security_recommendations", [])
         if not recs:
             return
-
+        assert st is not None
         st.subheader(f"Security Recommendations ({len(recs)})")
 
         stats = self.data.get("statistics", {}).get("security_recommendations", {})

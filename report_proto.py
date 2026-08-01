@@ -17,17 +17,19 @@ def generate_report(raw_d):
     with st.expander(f"KEV stats ({len(raw_d['kev_data'])})"):
         if raw_d["kev_data"]:
             # table fix
-            st.markdown("""
+            st.markdown(
+                """
                 <style>
                     .stTable { overflow-x: auto; }
                     table td { white-space: normal !important; }
                     td { max-width: 400pt; min-width: 100pt; }
                 </style>
-            """, unsafe_allow_html=True)
+            """,
+                unsafe_allow_html=True,
+            )
             # print(data["kev_data"])
             transposed = [
-                [k] + [d[k]
-                for d in raw_d["kev_data"]]
+                [k] + [d[k] for d in raw_d["kev_data"]]
                 for k in raw_d["kev_data"][0].keys()
             ]
             st.table(transposed)  # List[Dict[Dict|List]]
@@ -37,11 +39,10 @@ def generate_report(raw_d):
     st.subheader("Execution logs")
     for run in raw_d["runs"]:
         with st.expander(f"Run {run['id']} - [{run['status']}]"):
-            st.write(run['description'])
+            st.write(run["description"])
             col_out, col_err = st.columns(2)
             col_out.text_area(
-                "STDOUT", run["stdout"],
-                height=100, key=f"out_{run['id']}"
+                "STDOUT", run["stdout"], height=100, key=f"out_{run['id']}"
             )
             col_err.write("STDERR")
             if run["stderr"]:

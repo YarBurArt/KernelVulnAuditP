@@ -1,16 +1,16 @@
 import re
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any
 
 from core import (
-    parse_key_with_brackets,
-    ensure_list_in_dict,
     assign_value_by_key_type,
+    ensure_list_in_dict,
     parse_key_value_pairs,
+    parse_key_with_brackets,
     strip_ansi_sequences,
 )
 from lib_tools.peas2json import parse_peass
-from recon.remote_feeds_recon import logger, CVE_RE
+from recon.remote_feeds_recon import CVE_RE, logger
 from schemas import KernelAuditItem, KernelLPE, LesCVEItem
 
 
@@ -33,7 +33,7 @@ class ParseReports:
     ) -> None:
         assign_value_by_key_type(results, base, inner, value)
 
-    def parse_lynis_dat_report(self, report_path) -> Dict:
+    def parse_lynis_dat_report(self, report_path) -> dict:
         """
         Parse Lynis .dat file (key=value per line or key[]=v1|v2)
         Returns nested dict structure.
@@ -89,7 +89,7 @@ class ParseReports:
         parsed_data: dict,
         category_prefix: str = "KRNL",  # TODO: parse more usefull
         type_ent: str = "details",
-    ) -> List[KernelAuditItem]:
+    ) -> list[KernelAuditItem]:
         """
         Parse dat entries by category and filters it
         """
@@ -110,7 +110,11 @@ class ParseReports:
 
     @staticmethod
     def convert_linpeas_to_dict(output_path: str, json_path: str = "") -> dict:
-        return parse_peass(output_path, json_path)
+        res: dict | None = parse_peass(output_path, json_path)
+        if res is None:
+            logger.debug("lynis report not found or not parsed at %s", output_path)
+            raise ValueError("Could not parse PEAS output")
+        return res
 
     @staticmethod
     def _extract_basic_info_peas(data: dict) -> dict:
@@ -212,7 +216,7 @@ class ParseReports:
         # New LES format:
         # [+] [CVE-2025-32463] sudo-chwoot
         match = re.match(
-            r"^\[\+\]\s*\[(CVE-\d{4}-\d+)\]\s*(.+)$", line, flags=re.IGNORECASE
+            r"^\[\+]\s*\[(CVE-\d{4}-\d+)]\s*(.+)$", line, flags=re.IGNORECASE
         )
         if match:
             return "header", {
@@ -257,6 +261,19 @@ class ParseReports:
 
         setting = parts[1]
 
+        solution = parts[6] if len(parts) > 6 else ""
+        details = ""
+        if solution.startswith("url:"):
+            details = solution[4:]
+        elif solution.startswith("text:"):
+            details = solution[5:]
+        elif solution not in ("-", ""):
+            logger.debug(
+                "skip non-solution field %s in params.prf line %d", solution, line_no
+            )
+        else:
+            details = ""
+
         return setting, {
             "test_id": "KRNL-6000",
             "category": "Kernel",
@@ -264,7 +281,8 @@ class ParseReports:
             "expected_value": parts[2],
             "description": parts[4] if len(parts) > 4 else "",
             "related": parts[5] if len(parts) > 5 else "",
-            "solution": parts[6] if len(parts) > 6 else "",
+            "solution": details,
+            "details": details,
             "raw": line,
         }
 
@@ -311,6 +329,4 @@ class ParseReports:
             logger.warning("permission denied reading params.prf: %s", e)
         except OSError as e:
             logger.warning("os error reading params.prf: %s", e)
-        except Exception as e:
-            logger.exception("unexpected error parsing params.prf: %s", e)
         return {}

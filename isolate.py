@@ -111,6 +111,7 @@ class VirtmeNGEnvironment(IsolationEnvironment):
     def is_available(self) -> bool:
         # return shutil.which("virtme-ng") is not None
         return False  # FIXME
+
     def execute(self) -> ExecutionResult:
         start = datetime.now()
         cmd = [
@@ -437,8 +438,20 @@ class QemuEnvironment(IsolationEnvironment):
         # the necessary minimum for info about the environment inside
         shutil.copy2(busybox, bin_dir / "busybox")
         for name in [
-            "sh", "mount", "cat", "ps", "ls", "echo", "find", "date", "uname",
-            "dmesg", "sync", "poweroff", "sort", "lsmod",
+            "sh",
+            "mount",
+            "cat",
+            "ps",
+            "ls",
+            "echo",
+            "find",
+            "date",
+            "uname",
+            "dmesg",
+            "sync",
+            "poweroff",
+            "sort",
+            "lsmod",
         ]:
             (bin_dir / name).symlink_to("busybox")
 
@@ -706,6 +719,6 @@ class Isolate:
         try:
             response = input("Allow host execution? [y/N]: ").strip().lower()
             return response in ["y", "yes"]
-        except (EOFError, KeyboardInterrupt):
+        except EOFError, KeyboardInterrupt:
             logger.info("\nAborted.")
             return False

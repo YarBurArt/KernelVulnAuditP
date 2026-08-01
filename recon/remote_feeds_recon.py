@@ -2,7 +2,7 @@ import json
 import logging
 import os
 import re
-from typing import Any, Dict, List
+from typing import Any
 
 import httpx
 
@@ -12,8 +12,8 @@ from config import (
     CVEORG_BASE_URL,
     GITHUB_API_URL,
     NIST_API_URL,
-    OSV_API_URL,
     NIST_CVE_DETAILS_API_URL,
+    OSV_API_URL,
 )
 from core import (
     filter_items_by_date,
@@ -35,6 +35,7 @@ class ReconFeeds:
 
     def __init__(self):
         self.kev_kern_vuln = []
+        self._mitre_available = True
 
     @staticmethod
     def get_kev():
@@ -43,7 +44,7 @@ class ReconFeeds:
             CISA_KEV_URL, follow_redirects=True, headers={"User-Agent": "Mozilla/5.0"}
         )
         res.raise_for_status()
-        with open(CISA_KEV_PATH, 'wb') as f:
+        with open(CISA_KEV_PATH, "wb") as f:
             f.write(res.content)
         logger.info("Downloaded KEV catalog: %d bytes", len(res.content))
 
@@ -58,7 +59,7 @@ class ReconFeeds:
 
         # CISA KEV format: {"title": "...", "vulnerabilities": [...]}
         if isinstance(data, dict):
-            vulns = data.get('vulnerabilities', [])
+            vulns = data.get("vulnerabilities", [])
         elif isinstance(data, list):
             vulns = data
         else:
@@ -67,11 +68,9 @@ class ReconFeeds:
 
         self.kev_kern_vuln = []
         for vuln in vulns:
-            product = vuln.get('product', '')
-            vendor = vuln.get('vendorProject', '')
-            if product and 'kernel' in product.lower():
-                self.kev_kern_vuln.append(vuln)
-            elif vendor and 'linux' in vendor.lower():
+            product = vuln.get("product", "")
+            vendor = vuln.get("vendorProject", "")
+            if product and "kernel" in product.lower() or vendor and "linux" in vendor.lower():
                 self.kev_kern_vuln.append(vuln)
 
         logger.debug("KEV vulnerabilities: %d", len(self.kev_kern_vuln))
@@ -86,11 +85,13 @@ class ReconFeeds:
         seen: set[str] = set()
 
         for repo in data.get("items", []):
-            text = " ".join([
-                repo.get("name", "") or "",
-                repo.get("full_name", "") or "",
-                repo.get("description", "") or "",
-            ])
+            text = " ".join(
+                [
+                    repo.get("name", "") or "",
+                    repo.get("full_name", "") or "",
+                    repo.get("description", "") or "",
+                ]
+            )
             # check also cve-poc names
             matches = re.findall(r"CVE-\d{4}-\d+", text, flags=re.IGNORECASE)
 
@@ -207,25 +208,34 @@ class ReconFeeds:
 
     def _cve_org_details(self, cve_id: str) -> dict[str, Any]:
         """get cve details from cve.org MITRE API, if not accessible then NIST v2 API"""
-        try:
-            result = httpx.get(CVEORG_BASE_URL + cve_id).json()
-            return result
-        except Exception as e:
-            logger.warning("CVEORG_BASE_URL failed: %s", e)
-            result = httpx.get(NIST_CVE_DETAILS_API_URL + cve_id).json()
-            return self._reformat_cve_details(result)
+        if self._mitre_available:
+            try:
+                response = httpx.get(CVEORG_BASE_URL + cve_id, timeout=5.0)
+                response.raise_for_status()
+                return response.json()
+
+            except httpx.HTTPError as exc:
+                logger.warning(
+                    "MITRE API unavailable, switching to NIST: %s",
+                    exc,
+                )
+                self._mitre_available = False
+
+        response = httpx.get(NIST_CVE_DETAILS_API_URL + cve_id, timeout=5.0)
+        response.raise_for_status()
+        return self._reformat_cve_details(response.json())
 
     @staticmethod
-    def _filter_by_date(nist_result_raw, min_ts: int) -> List[Dict]:
+    def _filter_by_date(nist_result_raw, min_ts: int) -> list[dict]:
         if min_ts is None:
-            return nist_result_raw.get('vulnerabilities', [])
+            return nist_result_raw.get("vulnerabilities", [])
         return filter_items_by_date(
-            nist_result_raw.get('vulnerabilities', []),
-            date_field='published',
-            min_timestamp=min_ts
+            nist_result_raw.get("vulnerabilities", []),
+            date_field="published",
+            min_timestamp=min_ts,
         )
 
-    def nist_search(self, kern_r_version, date) -> List[CVEFinding]:
+    def nist_search(self, kern_r_version, date) -> list[CVEFinding]:
         """Search for vulnerabilities in NIST database"""
         url: str = NIST_API_URL.format(version=kern_r_version)
         try:
@@ -254,10 +264,17 @@ class ReconFeeds:
                 if "cvssMetricV31" in metrics:
                     cvss = metrics["cvssMetricV31"][0]["cvssData"]["baseScore"]
 
-                findings.append(CVEFinding(
-                    cve_id=str(cve_id), description=desc, severity="", cvss_score=cvss,
-                    source="NIST", references=[], raw_data=item
-                ))
+                findings.append(
+                    CVEFinding(
+                        cve_id=str(cve_id),
+                        description=desc,
+                        severity="",
+                        cvss_score=cvss,
+                        source="NIST",
+                        references=[],
+                        raw_data=item,
+                    )
+                )
             return findings
 
         except Exception as e:
@@ -279,11 +296,17 @@ class ReconFeeds:
             findings: list[CVEFinding] = []
 
             for v in data.get("vulns", []):
-                findings.append(CVEFinding(
-                    cve_id=v.get("id", ""), description=v.get("summary", ""),
-                    severity="", cvss_score=None, source="OSV",
-                    references=v.get("references", []), raw_data=v
-                ))
+                findings.append(
+                    CVEFinding(
+                        cve_id=v.get("id", ""),
+                        description=v.get("summary", ""),
+                        severity="",
+                        cvss_score=None,
+                        source="OSV",
+                        references=v.get("references", []),
+                        raw_data=v,
+                    )
+                )
 
             return findings
 

@@ -1,3 +1,3 @@
-from gui import GUIApp, GUI_E
+from gui import GUI_E, GUIApp
 
-__all__ = ["GUIApp", "GUI_E"]
+__all__ = ["GUI_E", "GUIApp"]

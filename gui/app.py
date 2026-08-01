@@ -1,7 +1,7 @@
 import gi
 
 gi.require_version("Gtk", "4.0")
-from gi.repository import Gtk, GLib, GObject, Gdk, Gio, Pango
+from gi.repository import Gtk, GLib, Pango
 
 import threading
 import subprocess
@@ -26,7 +26,7 @@ from config import (
     POCS_BASE_PATH,
 )
 from core import flatten_dict_value, update_config_file
-from db import ThreatDB
+from db.db import ThreatDB
 
 GUI_E = True
 
@@ -315,9 +315,7 @@ class GUIApp:
         db_map = {0: "orm", 1: "memory"}
         log_map = {0: "DEBUG", 1: "INFO", 2: "WARNING", 3: "ERROR", 4: "CRITICAL"}
 
-        db_dropdown.set_selected(
-            {"orm": 0, "memory": 1}.get(DB_BACKEND, 0)
-        )
+        db_dropdown.set_selected({"orm": 0, "memory": 1}.get(DB_BACKEND, 0))
         log_dropdown.set_selected(
             {"DEBUG": 0, "INFO": 1, "WARNING": 2, "ERROR": 3, "CRITICAL": 4}.get(
                 LOG_LEVEL, 1
@@ -525,7 +523,7 @@ class GUIApp:
                 return 0, "CRIT"
             if diff == 1:
                 return 1, "WARN"
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             pass
         return 2, "INFO"
 
@@ -543,7 +541,7 @@ class GUIApp:
             elif diff == 1:
                 severity = "WARN"
                 indicator_css = "indicator-warn"
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             if rec.status == "FAIL":
                 severity = "CRIT"
                 indicator_css = "indicator-crit"
@@ -601,10 +599,17 @@ class GUIApp:
             val_lbl.add_css_class("mono")
             details.append(val_lbl)
 
-        suggestion = rec.raw_data.get("suggestion", rec.raw_data.get("solution", "N/A"))
-        sugg_lbl = Gtk.Label(label=f"Details: {suggestion}")
-        sugg_lbl.set_xalign(0.0)
-        sugg_lbl.add_css_class("mono")
+        suggestion = rec.raw_data.get(
+            "suggestion",
+            rec.raw_data.get("details", rec.raw_data.get("solution", "N/A")),
+        )
+
+        if self._is_url(suggestion):
+            sugg_lbl = self._make_link(suggestion)
+        else:
+            sugg_lbl = Gtk.Label(label=f"Details: {suggestion}")
+            sugg_lbl.set_xalign(0.0)
+            sugg_lbl.add_css_class("mono")
         details.append(sugg_lbl)
 
         expander = Gtk.Expander()

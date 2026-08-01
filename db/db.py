@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Optional
+from typing import Any
 
-from schemas import SecurityRecommendation
+from db.models import SecurityRecommendation
 
 
 class ThreatDB(ABC):
@@ -15,94 +15,80 @@ class ThreatDB(ABC):
     """
 
     @abstractmethod
-    def upsert_vulnerability(self, data: Dict[str, Any]) -> int:
+    def upsert_vulnerability(self, data: dict[str, Any]) -> int:
         """Add or update a vulnerability. Returns internal integer id."""
 
     @abstractmethod
-    def get_vulnerability(self, cve_id: str) -> Optional[Dict[str, Any]]:
+    def get_vulnerability(self, cve_id: str) -> dict[str, Any] | None:
         """Fetch a single vulnerability as a dict, or None."""
 
     @abstractmethod
-    def get_vulnerability_with_details(
-            self, cve_id: str
-    ) -> Optional[Dict[str, Any]]:
+    def get_vulnerability_with_details(self, cve_id: str) -> dict[str, Any] | None:
         """Fetch vulnerability + all related data (exploits, KEV, runs)."""
 
     @abstractmethod
-    def add_exploit(
-            self, cve_id: str, exploit_data: Dict[str, Any]
-    ) -> None: ...
+    def add_exploit(self, cve_id: str, exploit_data: dict[str, Any]) -> None: ...
 
     @abstractmethod
-    def add_cisa_kev(
-            self, cve_id: str, kev_data: Dict[str, Any]
-    ) -> None: ...
+    def add_cisa_kev(self, cve_id: str, kev_data: dict[str, Any]) -> None: ...
 
     @abstractmethod
-    def add_sandbox_run(
-            self, cve_id: str, sandbox_data: Dict[str, Any]
-    ) -> None: ...
+    def add_sandbox_run(self, cve_id: str, sandbox_data: dict[str, Any]) -> None: ...
 
     @abstractmethod
-    def get_sandbox_runs(self, cve_id: str) -> List[Dict[str, Any]]: ...
+    def get_sandbox_runs(self, cve_id: str) -> list[dict[str, Any]]: ...
 
     @abstractmethod
     def add_reference(
-            self, cve_id: str, url: str,
-            ref_type: str = "OTHER", source: str | None = None
+        self, cve_id: str, url: str, ref_type: str = "OTHER", source: str | None = None
     ) -> None: ...
 
     @abstractmethod
     def search(
-            self,
-            min_cvss: float | int | None = None,
-            severity: str | None = None,
-            has_exploit: bool | None = None,
-            in_cisa_kev: bool | None = None,
-            min_criticality: int | None = None,
-            limit: int = 100,
-            offset: int = 0,
-    ) -> List[Dict[str, Any]]: ...
+        self,
+        min_cvss: float | None = None,
+        severity: str | None = None,
+        has_exploit: bool | None = None,
+        in_cisa_kev: bool | None = None,
+        min_criticality: int | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[dict[str, Any]]: ...
 
     @abstractmethod
-    def get_critical(self, limit: int = 50) -> List[Dict[str, Any]]: ...
+    def get_critical(self, limit: int = 50) -> list[dict[str, Any]]: ...
 
     @abstractmethod
-    def get_with_exploits(
-            self, limit: int = 100
-    ) -> List[Dict[str, Any]]: ...
+    def get_with_exploits(self, limit: int = 100) -> list[dict[str, Any]]: ...
 
     @abstractmethod
-    def get_cisa_kev_list(
-            self, limit: int = 100
-    ) -> List[Dict[str, Any]]: ...
+    def get_cisa_kev_list(self, limit: int = 100) -> list[dict[str, Any]]: ...
 
     @abstractmethod
-    def get_statistics(self) -> Dict[str, Any]: ...
+    def get_statistics(self) -> dict[str, Any]: ...
 
     @abstractmethod
-    def add_security_recommendation(
-            self, rec_data: Dict[str, Any]
-    ) -> int: ...
+    def add_security_recommendation(self, rec_data: SecurityRecommendation) -> int: ...
 
     @abstractmethod
     def bulk_insert_recommendations(
-            self, recommendations: List[SecurityRecommendation]
+        self, recommendations: list[SecurityRecommendation]
     ) -> int: ...
 
     @abstractmethod
     def get_security_recommendations(
-            self, category: str | None = None, status: str | None = None,
-            limit: int = 100, offset: int = 0
-    ) -> List[Dict[str, Any]]: ...
+        self,
+        category: str | None = None,
+        status: str | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[dict[str, Any]]: ...
 
     @abstractmethod
-    def get_recommendations_stats(self) -> Dict[str, Any]: ...
+    def get_recommendations_stats(self) -> dict[str, Any]: ...
 
     @abstractmethod
-    def bulk_insert(
-            self, vulnerabilities: List[Dict[str, Any]]
-    ) -> int: ...
+    def bulk_insert(self, vulnerabilities: list[dict[str, Any]]) -> int: ...
 
     @abstractmethod
     def close(self) -> None: ...
@@ -113,96 +99,100 @@ class ThreatDB(ABC):
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.close()
 
+
 class ThreatIntelligenceORMAdapter(ThreatDB):
     """Wraps ThreatIntelligenceORM (db_orm.py) behind ThreatDB.
     ORM uses cve_id strings in add_* methods
-    but upsert returns an ORM object, then normalise it to int here."""
+    but upsert returns an ORM object, then normalize it to int here."""
 
     def __init__(self, db_url: str):
         from db.db_orm import ThreatIntelligenceORM
+
         self._db = ThreatIntelligenceORM(db_url)
 
-    def upsert_vulnerability(self, data: Dict[str, Any]) -> int:
+    def upsert_vulnerability(self, data: dict[str, Any]) -> int:
         vuln = self._db.upsert_vulnerability(data)
         return vuln.id
 
-    def get_vulnerability(self, cve_id: str) -> Optional[Dict[str, Any]]:
+    def get_vulnerability(self, cve_id: str) -> dict[str, Any] | None:
         vuln = self._db.get_vulnerability(cve_id)
         return vuln.to_dict() if vuln else None
 
-    def get_vulnerability_with_details(
-            self, cve_id: str
-    ) -> Optional[Dict[str, Any]]:
+    def get_vulnerability_with_details(self, cve_id: str) -> dict[str, Any] | None:
         return self._db.get_vulnerability_with_details(cve_id)
 
-    def add_exploit(self, cve_id: str, exploit_data: Dict[str, Any]) -> None:
+    def add_exploit(self, cve_id: str, exploit_data: dict[str, Any]) -> None:
         self._db.add_exploit(cve_id, exploit_data)
 
-    def add_cisa_kev(self, cve_id: str, kev_data: Dict[str, Any]) -> None:
+    def add_cisa_kev(self, cve_id: str, kev_data: dict[str, Any]) -> None:
         self._db.add_cisa_kev(cve_id, kev_data)
 
-    def add_sandbox_run(
-            self, cve_id: str, sandbox_data: Dict[str, Any]
-    ) -> None:
+    def add_sandbox_run(self, cve_id: str, sandbox_data: dict[str, Any]) -> None:
         self._db.add_sandbox_run(cve_id, sandbox_data)
 
-    def get_sandbox_runs(self, cve_id: str) -> List[Dict[str, Any]]:
+    def get_sandbox_runs(self, cve_id: str) -> list[dict[str, Any]]:
         return self._db.get_sandbox_runs(cve_id)
 
     def add_reference(
-            self, cve_id: str, url: str,
-            ref_type: str = "OTHER", source: str | None = None
+        self, cve_id: str, url: str, ref_type: str = "OTHER", source: str | None = None
     ) -> None:
         self._db.add_reference(cve_id, url, ref_type, source)
 
     def search(
-            self, min_cvss: float | int | None = None, severity: str | None = None,
-            has_exploit: bool | None = None, in_cisa_kev: bool | None = None,
-            min_criticality: int | None = None,
-            limit: int = 100, offset: int = 0,
-    ) -> List[Dict[str, Any]]:
+        self,
+        min_cvss: float | None = None,
+        severity: str | None = None,
+        has_exploit: bool | None = None,
+        in_cisa_kev: bool | None = None,
+        min_criticality: int | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[dict[str, Any]]:
         return self._db.search(
-            min_cvss=min_cvss, severity=severity,
-            has_exploit=has_exploit, in_cisa_kev=in_cisa_kev,
+            min_cvss=min_cvss,
+            severity=severity,
+            has_exploit=has_exploit,
+            in_cisa_kev=in_cisa_kev,
             min_criticality=min_criticality,
-            limit=limit, offset=offset,
+            limit=limit,
+            offset=offset,
         )
 
-    def get_critical(self, limit: int = 50) -> List[Dict[str, Any]]:
+    def get_critical(self, limit: int = 50) -> list[dict[str, Any]]:
         return self._db.get_critical(limit)
 
-    def get_with_exploits(self, limit: int = 100) -> List[Dict[str, Any]]:
+    def get_with_exploits(self, limit: int = 100) -> list[dict[str, Any]]:
         return self._db.get_with_exploits(limit)
 
-    def get_cisa_kev_list(self, limit: int = 100) -> List[Dict[str, Any]]:
+    def get_cisa_kev_list(self, limit: int = 100) -> list[dict[str, Any]]:
         return self._db.get_cisa_kev_list(limit)
 
-    def get_statistics(self) -> Dict[str, Any]:
+    def get_statistics(self) -> dict[str, Any]:
         return self._db.get_statistics()
 
-    def add_security_recommendation(
-            self, rec_data: Dict[str, Any]
-    ) -> int:
+    def add_security_recommendation(self, rec_data: SecurityRecommendation) -> int:
         return self._db.add_security_recommendation(rec_data)
 
     def bulk_insert_recommendations(
-            self, recommendations: List[SecurityRecommendation]
+        self, recommendations: list[SecurityRecommendation]
     ) -> int:
         return self._db.bulk_insert_recommendations(recommendations)
 
     def get_security_recommendations(
-            self, category: str | None = None, status: str | None = None,
-            limit: int = 100, offset: int = 0
-    ) -> List[Dict[str, Any]]:
+        self,
+        category: str | None = None,
+        status: str | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[dict[str, Any]]:
         return self._db.get_security_recommendations(
-            category=category, status=status,
-            limit=limit, offset=offset
+            category=category, status=status, limit=limit, offset=offset
         )
 
-    def get_recommendations_stats(self) -> Dict[str, Any]:
+    def get_recommendations_stats(self) -> dict[str, Any]:
         return self._db.get_recommendations_stats()
 
-    def bulk_insert(self, vulnerabilities: List[Dict[str, Any]]) -> int:
+    def bulk_insert(self, vulnerabilities: list[dict[str, Any]]) -> int:
         return self._db.bulk_insert(vulnerabilities)
 
     def close(self) -> None:
@@ -220,7 +210,9 @@ def get_db(backend: str = "orm") -> ThreatDB:
         return ThreatIntelligenceORMAdapter(db_url="sqlite:///ti.db")
     elif backend == "memory":
         from db.db_rd import InMemoryThreatDB
+
         return InMemoryThreatDB()
     else:
         raise ValueError(
-            f"Unknown backend: {backend!r}. Use 'simple', 'orm', or 'memory'.")
+            f"Unknown backend: {backend!r}. Use 'simple', 'orm', or 'memory'."
+        )

@@ -5,24 +5,24 @@ import shutil
 import subprocess
 from datetime import datetime
 from pathlib import Path
-from typing import Any, List
+from typing import Any
 
 import httpx
 
 from config import (
     CH_API_URL,
-    LYNIS_BINARY,
-    LYNIS_REPORT_FILE,
-    LYNIS_LOG_FILE,
-    PATH_LINPEAS,
-    LINPEAS_OUT_JSON,
-    LES_REPORT_PATH,
     LES_PATH,
+    LES_REPORT_PATH,
+    LINPEAS_OUT_JSON,
+    LYNIS_BINARY,
+    LYNIS_LOG_FILE,
+    LYNIS_REPORT_FILE,
+    PATH_LINPEAS,
 )
 from core import norm_sysctl_value
 from recon.parse_recon_reports import ParseReports
 from recon.remote_feeds_recon import logger
-from schemas import KernelAuditItem, KernelLPE, LesCVEItem, SecurityRecommendation
+from schemas import KernelAuditItem, KernelLPE, LesCVEItem, SecurityRecommendationType
 
 
 class LocalRecon:
@@ -165,9 +165,8 @@ class LocalRecon:
     @staticmethod
     def _find_linpeas() -> str | None:
         """Find linpeas.sh custom script"""
-        if path := PATH_LINPEAS:
-            if os.path.isfile(path) and os.access(path, os.X_OK):
-                return path
+        if (path := PATH_LINPEAS) and os.path.isfile(path) and os.access(path, os.X_OK):
+            return path
         # try common locations
         for loc in [
             "/opt/linpeas/linpeas.sh",
@@ -200,7 +199,7 @@ class LocalRecon:
 
     def get_lynis_scan_details(
         self, report_path: str = LYNIS_REPORT_FILE
-    ) -> List[KernelAuditItem]:
+    ) -> list[KernelAuditItem]:
         """lynis facade and filter"""
         try:
             self.run_lynis_audit()
@@ -324,13 +323,13 @@ class LocalRecon:
 
     def get_lynis_kernel_hardening_details(
         self,
-        params_path: str | Path = "params.prf",
-    ) -> list[SecurityRecommendation]:
+        params_path: str | Path = "recon/params.prf",
+    ) -> list[SecurityRecommendationType]:
         """cmp current sysctl values with kernel recommendations from lynis"""
         try:
             prf = self.parser.load_lynis_params_prf(params_path)
             current = self._load_sysctl_values()
-            results: list[SecurityRecommendation] = []
+            results: list[SecurityRecommendationType] = []
 
             for field_name, entries in prf.items():
                 actual_raw = current.get(field_name, "")
@@ -342,7 +341,7 @@ class LocalRecon:
                     ok_s = actual_raw != "" and expected_norm == actual_norm
 
                     results.append(
-                        SecurityRecommendation(
+                        SecurityRecommendationType(
                             test_id=entry.get("test_id", "KRNL-6000"),
                             category=entry.get("category", "Kernel"),
                             description=entry.get("description", ""),
@@ -359,6 +358,7 @@ class LocalRecon:
                             raw_data={
                                 "related": entry.get("related", ""),
                                 "solution": entry.get("solution", ""),
+                                "details": entry.get("details", ""),
                                 "raw": entry.get("raw", ""),
                                 "expected_normalized": expected_norm,
                                 "actual_normalized": actual_norm,

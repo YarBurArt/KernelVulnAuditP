@@ -1,10 +1,28 @@
 import json
 import subprocess
+import tempfile
 from pathlib import Path
 
 import pytest
 
-from isolate import ExecutionResult, HostEnvironment, CCompiler, Isolate
+from isolate import (
+    ExecutionResult,
+    HostEnvironment,
+    QemuEnvironment,
+    CCompiler,
+    Isolate,
+)
+
+
+class FakeTempDir:
+    def __init__(self, path: Path):
+        self.path = str(path)
+
+    def __enter__(self):
+        return self.path
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        return False
 
 
 def test_execution_result_to_json():
@@ -26,79 +44,88 @@ def test_execution_result_to_json():
     assert data["execution_mode"] == "qemu"
     assert data["crashed"] is False
 
-def test_parse_qemu_output_basic():
-    env = QEMUEnvironment(Path("/tmp/test"), 10)
 
-    stdout = """
-noise
+def test_parse_guest_output_sections():
+    env = QemuEnvironment(Path("/tmp/test"), 10)
 
-=== BINARY OUTPUT START ===
-hello
-world
-=== BINARY OUTPUT END ===
-
-EXIT_CODE=7
+    output = """========== VM START ==========
+Sat Aug  1 12:00:00 UTC 2026
+Linux test 6.1.0 #1 SMP
+========== CMDLINE ==========
+console=ttyS0
+========== RESOURCES ==========
+0.00 0.01 0.02 1/123 456
+some stat line
+========== MODULES ==========
+mod1
+mod2
+========== FILESYSTEM SNAPSHOT ==========
+drwxr-xr-x bin
+========== PROCESS LIST ==========
+PID USER
 """
 
-    out, err = env._parse_qemu_output(stdout, "")
+    kernel_info, resources, modules, files, processes = env._parse_guest_output(output)
 
-    assert out == "hello\nworld"
-    assert err == ""
-    assert env.logs["exit_code"] == "7"
-
-
-def test_parse_qemu_output_missing_end_marker():
-    env = QEMUEnvironment(Path("/tmp/test"), 10)
-    stdout = "\n=== BINARY OUTPUT START ===\nhello\nworld"
-
-    out, _ = env._parse_qemu_output(stdout, "")
-
-    assert out == "hello\nworld"
-    assert env.logs["exit_code"] == "0"
+    assert kernel_info["date"] == "Sat Aug  1 12:00:00 UTC 2026"
+    assert kernel_info["uname"] == "Linux test 6.1.0 #1 SMP"
+    assert kernel_info["cmdline"] == "console=ttyS0"
+    assert resources["loadavg"] == "0.00 0.01 0.02 1/123 456"
+    assert resources["stat"] == "some stat line"
+    assert modules == ["mod1", "mod2"]
+    assert files == ["drwxr-xr-x bin"]
+    assert processes == ["PID USER"]
 
 
-def test_parse_qemu_output_no_markers():
-    env = QEMUEnvironment(Path("/tmp/test"), 10)
+def test_parse_guest_output_no_sections():
+    env = QemuEnvironment(Path("/tmp/test"), 10)
 
-    out, _ = env._parse_qemu_output("random noise", "")
+    kernel_info, resources, modules, files, processes = env._parse_guest_output(
+        "random noise\nno sections here"
+    )
 
-    assert out == ""
-    assert env.logs["exit_code"] == "0"
+    assert kernel_info == {}
+    assert resources == {}
+    assert modules == []
+    assert files == []
+    assert processes == []
+
 
 @pytest.mark.parametrize(
     "text",
     [
-        "Kernel panic", "BUG:", "Oops:", "RIP:",
-        "general protection fault", "segmentation fault",
+        "Kernel panic",
+        "BUG:",
+        "Oops:",
+        "segfault",
+        "general protection fault",
     ],
 )
 def test_qemu_detect_crash(text):
-    assert QEMUEnvironment._detect_crash(text) is True
+    assert QemuEnvironment._detect_crash(text) is True
 
 
 def test_qemu_detect_crash_negative():
-    assert QEMUEnvironment._detect_crash("hello world") is False
+    assert QemuEnvironment._detect_crash("hello world") is False
+
 
 def test_qemu_execute_success(monkeypatch, tmp_path):
     binary = tmp_path / "bin"
     binary.write_text("x")
-    env = QEMUEnvironment(binary, 10)
-    monkeypatch.setattr(QEMUEnvironment, "is_available", lambda self: True)
-
-    monkeypatch.setattr(env, "_create_initrd", lambda path: None)
+    env = QemuEnvironment(binary, 10)
+    monkeypatch.setattr(QemuEnvironment, "is_available", lambda self: True)
+    monkeypatch.setattr(env, "_build_initrd", lambda workdir: tmp_path / "initrd.cpio")
     monkeypatch.setattr(env, "_find_kernel", lambda: Path("/boot/vmlinuz"))
-    monkeypatch.setattr(env, "_get_kernel_cmdline", lambda: "console=ttyS0")
+    monkeypatch.setattr(tempfile, "TemporaryDirectory", lambda: FakeTempDir(tmp_path))
 
-    qemu_stdout = "noise\n=== BINARY OUTPUT START ===\nok_qemu\n=== BINARY OUTPUT END ===\nEXIT_CODE=42"
-    completed = subprocess.CompletedProcess(
-        args=[], returncode=0, stdout=qemu_stdout, stderr=""
-    )
+    (tmp_path / "serial.log").write_text("noise\nEXIT_CODE=42\n")
+    completed = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
     monkeypatch.setattr(subprocess, "run", lambda *a, **k: completed)
 
     result = env.execute()
 
     assert result.returncode == 0
-    assert result.stdout == "ok_qemu"
+    assert result.stdout == "noise\nEXIT_CODE=42\n"
     assert result.crashed is False
     assert result.execution_mode == "qemu"
     assert result.logs["exit_code"] == "42"
@@ -108,12 +135,11 @@ def test_qemu_execute_success(monkeypatch, tmp_path):
 def test_qemu_execute_timeout(monkeypatch, tmp_path):
     binary = tmp_path / "bin"
     binary.write_text("x")
-    env = QEMUEnvironment(binary, 5)
-    monkeypatch.setattr(QEMUEnvironment, "is_available", lambda self: True)
-
-    monkeypatch.setattr(env, "_create_initrd", lambda path: None)
+    env = QemuEnvironment(binary, 5)
+    monkeypatch.setattr(QemuEnvironment, "is_available", lambda self: True)
+    monkeypatch.setattr(env, "_build_initrd", lambda workdir: tmp_path / "initrd.cpio")
     monkeypatch.setattr(env, "_find_kernel", lambda: Path("/boot/vmlinuz"))
-    monkeypatch.setattr(env, "_get_kernel_cmdline", lambda: "console=ttyS0")
+    monkeypatch.setattr(tempfile, "TemporaryDirectory", lambda: FakeTempDir(tmp_path))
 
     def fake_run(*args, **kwargs):
         raise subprocess.TimeoutExpired(
@@ -126,8 +152,10 @@ def test_qemu_execute_timeout(monkeypatch, tmp_path):
 
     assert result.returncode == -1
     assert result.crashed is True
-    assert "Execution timeout (5s)" in result.stderr
-    assert result.logs["timeout_stdout_size"] == "7"
+    assert "execution timeout" in result.stderr
+    assert result.logs["stdout_size"] == "0"
+    assert result.logs["stderr_size"] == "7"
+
 
 def test_host_execute_success(monkeypatch, tmp_path):
     binary = tmp_path / "bin"
@@ -203,6 +231,7 @@ def test_host_execute_timeout(monkeypatch, tmp_path):
     assert result.crashed is True
     assert "Execution timeout" in result.stderr
 
+
 def test_compile_missing_source():
     compiler = CCompiler(Path("/does/not/exist.c"))
 
@@ -272,6 +301,7 @@ def test_compile_with_extra_flags(monkeypatch, tmp_path):
     assert "-DDEBUG" in captured_cmd
     assert "-O2" in captured_cmd
 
+
 def test_compile_and_run(monkeypatch, tmp_path):
     src = tmp_path / "x.c"
     src.write_text("int main(){return 0;}")
@@ -318,7 +348,7 @@ def test_run_binary_no_env_permission_denied(monkeypatch, tmp_path):
     )
 
     monkeypatch.setattr(
-        "isolate.QEMUEnvironment.is_available",
+        "isolate.QemuEnvironment.is_available",
         lambda self: False,
     )
 
@@ -344,13 +374,18 @@ def test_run_binary_host_allowed(monkeypatch, tmp_path):
         lambda self: False,
     )
     monkeypatch.setattr(
-        "isolate.QEMUEnvironment.is_available",
+        "isolate.QemuEnvironment.is_available",
         lambda self: False,
     )
 
     fake_result = ExecutionResult(
-        stdout="ok", stderr="", returncode=0,
-        execution_mode="host", logs={}, duration_ms=1.0, crashed=False
+        stdout="ok",
+        stderr="",
+        returncode=0,
+        execution_mode="host",
+        logs={},
+        duration_ms=1.0,
+        crashed=False,
     )
     monkeypatch.setattr("isolate.HostEnvironment.execute", lambda self: fake_result)
 
@@ -378,30 +413,21 @@ def test_ask_user_permission_no(monkeypatch):
 
     assert Isolate._ask_user_permission() is False
 
+
 def test_qemu_execute_detects_crash(monkeypatch, tmp_path):
     binary = tmp_path / "bin"
     binary.write_text("x")
 
-    env = QEMUEnvironment(binary, 10)
+    env = QemuEnvironment(binary, 10)
 
-    monkeypatch.setattr(QEMUEnvironment, "is_available", lambda self: True)
-    monkeypatch.setattr(env, "_create_initrd", lambda path: None)
+    monkeypatch.setattr(QemuEnvironment, "is_available", lambda self: True)
+    monkeypatch.setattr(env, "_build_initrd", lambda workdir: tmp_path / "initrd.cpio")
     monkeypatch.setattr(env, "_find_kernel", lambda: Path("/boot/vmlinuz"))
-    monkeypatch.setattr(env, "_get_kernel_cmdline", lambda: "console=ttyS0")
+    monkeypatch.setattr(tempfile, "TemporaryDirectory", lambda: FakeTempDir(tmp_path))
 
-    qemu_stdout = """
-=== BINARY OUTPUT START ===
-Kernel panic
-=== BINARY OUTPUT END ===
-EXIT_CODE=0
-"""
+    (tmp_path / "serial.log").write_text("Kernel panic\nEXIT_CODE=0\n")
 
-    completed = subprocess.CompletedProcess(
-        args=[],
-        returncode=0,
-        stdout=qemu_stdout,
-        stderr=""
-    )
+    completed = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
 
     monkeypatch.setattr(subprocess, "run", lambda *a, **k: completed)
 
@@ -409,33 +435,29 @@ EXIT_CODE=0
 
     assert result.crashed is True
 
+
 def test_qemu_execute_nonzero_exit_code(monkeypatch, tmp_path):
     binary = tmp_path / "bin"
     binary.write_text("x")
 
-    env = QEMUEnvironment(binary, 10)
-    monkeypatch.setattr(QEMUEnvironment, "is_available", lambda self: True)
-    monkeypatch.setattr(env, "_create_initrd", lambda path: None)
+    env = QemuEnvironment(binary, 10)
+    monkeypatch.setattr(QemuEnvironment, "is_available", lambda self: True)
+    monkeypatch.setattr(env, "_build_initrd", lambda workdir: tmp_path / "initrd.cpio")
     monkeypatch.setattr(env, "_find_kernel", lambda: Path("/boot/vmlinuz"))
-    monkeypatch.setattr(env, "_get_kernel_cmdline", lambda: "console=ttyS0")
+    monkeypatch.setattr(tempfile, "TemporaryDirectory", lambda: FakeTempDir(tmp_path))
 
-    qemu_stdout = """
-=== BINARY OUTPUT START ===
-ok
-=== BINARY OUTPUT END ===
-EXIT_CODE=13
-"""
+    (tmp_path / "serial.log").write_text("ok\nEXIT_CODE=13\n")
     completed = subprocess.CompletedProcess(
         args=[],
         returncode=0,
-        stdout=qemu_stdout,
+        stdout="",
         stderr="",
     )
     monkeypatch.setattr(subprocess, "run", lambda *a, **k: completed)
 
     result = env.execute()
 
-    assert result.stdout == "ok"
+    assert result.stdout == "ok\nEXIT_CODE=13\n"
     assert result.returncode == 0
     assert result.crashed is False
     assert result.logs["exit_code"] == "13"
@@ -445,29 +467,24 @@ def test_qemu_execute_preserves_qemu_stderr(monkeypatch, tmp_path):
     binary = tmp_path / "bin"
     binary.write_text("x")
 
-    env = QEMUEnvironment(binary, 10)
-    monkeypatch.setattr(QEMUEnvironment, "is_available", lambda self: True)
-    monkeypatch.setattr(env, "_create_initrd", lambda path: None)
+    env = QemuEnvironment(binary, 10)
+    monkeypatch.setattr(QemuEnvironment, "is_available", lambda self: True)
+    monkeypatch.setattr(env, "_build_initrd", lambda workdir: tmp_path / "initrd.cpio")
     monkeypatch.setattr(env, "_find_kernel", lambda: Path("/boot/vmlinuz"))
-    monkeypatch.setattr(env, "_get_kernel_cmdline", lambda: "console=ttyS0")
+    monkeypatch.setattr(tempfile, "TemporaryDirectory", lambda: FakeTempDir(tmp_path))
 
-    qemu_stdout = """
-=== BINARY OUTPUT START ===
-ok
-=== BINARY OUTPUT END ===
-EXIT_CODE=0
-"""
+    (tmp_path / "serial.log").write_text("ok\nEXIT_CODE=0\n")
     completed = subprocess.CompletedProcess(
         args=[],
         returncode=0,
-        stdout=qemu_stdout,
+        stdout="",
         stderr="qemu: warning: something minor",
     )
     monkeypatch.setattr(subprocess, "run", lambda *a, **k: completed)
 
     result = env.execute()
 
-    assert result.stdout == "ok"
+    assert result.stdout == "ok\nEXIT_CODE=0\n"
     assert result.stderr == "qemu: warning: something minor"
     assert result.crashed is False
     assert result.execution_mode == "qemu"

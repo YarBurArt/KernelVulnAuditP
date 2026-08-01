@@ -26,12 +26,7 @@ def setup_logging() -> None:
     root_logger.setLevel(level)
 
     formatter = logging.Formatter(
-        fmt=(
-            "%(asctime)s | "
-            "[%(levelname)-8s] | "
-            "%(name)s | "
-            "%(message)s"
-        ),
+        fmt=("%(asctime)s | [%(levelname)-8s] | %(name)s | %(message)s"),
         datefmt="%Y-%m-%d %H:%M:%S",
     )
 
@@ -39,8 +34,10 @@ def setup_logging() -> None:
     console_handler.setFormatter(formatter)
 
     file_handler = RotatingFileHandler(
-        LOG_FILE, maxBytes= 5 * 1024 * 1024,
-        backupCount=5, encoding="utf-8",
+        LOG_FILE,
+        maxBytes=5 * 1024 * 1024,
+        backupCount=5,
+        encoding="utf-8",
     )
     file_handler.setFormatter(formatter)
 

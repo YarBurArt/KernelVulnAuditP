@@ -3,15 +3,17 @@ import os
 import shlex
 import tempfile
 from dataclasses import asdict
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any
 
 from config import ALLOW_HOST_EXECUTION, ISOLATION_TIMEOUT_SEC
-from core import format_timestamp, format_report, summarize_sandbox
-from db import ThreatDB
+from core import format_report, format_timestamp, summarize_sandbox
+from db.db import ThreatDB
+from db.models import SecurityRecommendation
 from isolate import Isolate
-from recon import LocalRecon, ReconFeeds
+from recon.local_target_recon import LocalRecon
+from recon.remote_feeds_recon import ReconFeeds
 from schemas import (
     CVEFinding,
     FeedsReconResult,
@@ -20,7 +22,7 @@ from schemas import (
     LesCVEItem,
     LocalReconResult,
     ReconResult,
-    SecurityRecommendation,
+    SecurityRecommendationType,
 )
 from sqxpl import GitHubExploitSearcher
 
@@ -39,10 +41,12 @@ class AppServices:
         self.isolate.allow_host_execution = ALLOW_HOST_EXECUTION
 
     def store_security_recommendations(
-        self, recommendations: list[SecurityRecommendation]
+        self, recommendations: list[SecurityRecommendationType]
     ) -> int:
         """Persist security recommendations in the DB."""
-        return self.db.bulk_insert_recommendations(recommendations)
+        return self.db.bulk_insert_recommendations(
+            [SecurityRecommendation(**asdict(rec)) for rec in recommendations]
+        )
 
     def run_local_recon(self, store_recs: bool = False) -> LocalReconResult:
         """Run local recon and optionally store recommendations."""
@@ -118,8 +122,8 @@ class AppServices:
 
     def _build_kev_records(
         self,
-        kev_item: Dict[str, Any],
-    ) -> tuple[str | None, Dict[str, Any], Dict[str, Any]]:
+        kev_item: dict[str, Any],
+    ) -> tuple[str | None, dict[str, Any], dict[str, Any]]:
 
         cve_id = kev_item.get("cveID")
         kev_data = {
@@ -143,8 +147,8 @@ class AppServices:
     def _save_kev_entry(
         self,
         cve_id: str,
-        kev_data: Dict[str, Any],
-        vuln_data: Dict[str, Any],
+        kev_data: dict[str, Any],
+        vuln_data: dict[str, Any],
     ) -> bool:
         try:
             self.db.upsert_vulnerability(vuln_data)
@@ -193,9 +197,9 @@ class AppServices:
 
         logger.info("Stored %s CISA KEV entries, %s already existed", stored, skipped)
 
-    def _collect_kernel_cves(self) -> Dict[str, Dict[str, Any]]:
+    def _collect_kernel_cves(self) -> dict[str, dict[str, Any]]:
         logger.info("Collecting kernel cves by local scans")
-        cves: Dict[str, Dict[str, Any]] = {}
+        cves: dict[str, dict[str, Any]] = {}
         linpeas: KernelLPE | None = self.lr.get_linpeas_scan_details()
         if linpeas is None:
             logger.warning("No linpeas scans found")
@@ -223,10 +227,10 @@ class AppServices:
     def _build_vulnerability(
         self,
         cve_id: str,
-        hint: Dict[str, Any],
-        metadata: Dict[str, Any],
-        context: Dict[str, Any] | None,
-    ) -> Dict[str, Any]:
+        hint: dict[str, Any],
+        metadata: dict[str, Any],
+        context: dict[str, Any] | None,
+    ) -> dict[str, Any]:
 
         description = (
             hint.get("details") or hint.get("title") or metadata.get("description")
@@ -249,9 +253,9 @@ class AppServices:
     def _persist_cve_hint(
         self,
         cve_id: str,
-        hint: Dict[str, Any],
-        context: Dict[str, Any] | None = None,
-    ) -> Dict[str, Any] | None:
+        hint: dict[str, Any],
+        context: dict[str, Any] | None = None,
+    ) -> dict[str, Any] | None:
 
         metadata = self.rf.get_cve_details(cve_id) or {}
         vuln = self._build_vulnerability(cve_id, hint, metadata, context)
@@ -271,7 +275,7 @@ class AppServices:
             "sources": vuln["sources"],
         }
 
-    def _build_execution_context(self) -> Dict[str, Any]:
+    def _build_execution_context(self) -> dict[str, Any]:
         kernel = self.lr.get_kernel_version_simple()
         return {
             "kernel_version": kernel,
@@ -281,9 +285,9 @@ class AppServices:
     def _process_single_cve(
         self,
         cve_id: str,
-        hint: Dict[str, Any],
-        context: Dict[str, Any],
-    ) -> Dict[str, Any] | None:
+        hint: dict[str, Any],
+        context: dict[str, Any],
+    ) -> dict[str, Any] | None:
 
         entry = self._persist_cve_hint(
             cve_id,
@@ -305,9 +309,9 @@ class AppServices:
 
     def _build_execution_report(
         self,
-        context: Dict[str, Any],
-        entries: List[Dict[str, Any]],
-    ) -> Dict[str, Any]:
+        context: dict[str, Any],
+        entries: list[dict[str, Any]],
+    ) -> dict[str, Any]:
 
         build_date = context["build_date"]
         return {
@@ -320,7 +324,7 @@ class AppServices:
             "entries": entries,
         }
 
-    def _register_poc(self, cve_id: str, poc: Dict[str, Any]) -> None:
+    def _register_poc(self, cve_id: str, poc: dict[str, Any]) -> None:
         exploit_meta = {
             "exploit_type": "PoC",
             "source": "GitHub",
@@ -337,7 +341,7 @@ class AppServices:
             )
 
     @staticmethod
-    def _build_poc_summary(poc: Dict[str, Any]) -> Dict[str, Any]:
+    def _build_poc_summary(poc: dict[str, Any]) -> dict[str, Any]:
         return {
             "url": poc.get("url"),
             "language": poc.get("language"),
@@ -349,8 +353,8 @@ class AppServices:
     def _execute_poc(
         self,
         cve_id: str,
-        poc: Dict[str, Any],
-    ) -> Dict[str, Any]:
+        poc: dict[str, Any],
+    ) -> dict[str, Any]:
         command = poc.get("test_cmd") or poc.get("compile_cmd")
         repo: str = poc.get("local_path", "")
 
@@ -389,8 +393,8 @@ class AppServices:
     def _record_poc_for_cve(
         self,
         cve_id: str,
-        poc: Dict[str, Any],
-    ) -> Dict[str, Any]:
+        poc: dict[str, Any],
+    ) -> dict[str, Any]:
         self._register_poc(cve_id, poc)
         summary = self._build_poc_summary(poc)
         summary.update(self._execute_poc(cve_id, poc))
@@ -415,7 +419,7 @@ class AppServices:
 
         sandbox_data = {
             "sandbox_platform": getattr(result, "execution_mode", "unknown"),
-            "run_timestamp": datetime.now(timezone.utc),
+            "run_timestamp": datetime.now(UTC),
             "exploit_file_hash": xpl_hash,
             "execution_success": getattr(result, "returncode", 1) == 0,
             "exit_code": getattr(result, "returncode", -1),
@@ -491,19 +495,19 @@ class AppServices:
 
     def get_security_recommendations(
         self, category: str | None = None, status: str | None = None, limit: int = 100
-    ) -> List[dict]:
+    ) -> list[dict]:
         """Get security recommendations with optional filters."""
         logger.debug(f"getting recommendations/params for {category}")
         return self.db.get_security_recommendations(
             category=category, status=status, limit=limit
         )
 
-    def get_cisa_kev_entries(self, limit: int = 100) -> List[dict]:
+    def get_cisa_kev_entries(self, limit: int = 100) -> list[dict]:
         """Get CISA KEV entries from DB."""
         return self.db.get_cisa_kev_list(limit=limit)
 
     def generate_report(self):
-        logger.debug(f"generating base report")
+        logger.debug("generating base report")
         data = self.run_full_recon()
         return format_report(asdict(data))
 

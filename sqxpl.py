@@ -16,13 +16,14 @@ Example output: [
     "cve_id": "CVE-2024-1086"
 },]
 """
+
 import base64
 import json
 import re
 import shutil
 import subprocess
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import httpx
 
@@ -36,13 +37,20 @@ from core import (
 
 class GitHubExploitSearcher:
     """base search GitHub for CVE xpls/pocs"""
+
     SEARCH_REPOS = "https://api.github.com/search/repositories"
     SEARCH_CODE = "https://api.github.com/search/code"
-    LANGUAGES = ["C", "Python", "Ruby"]
-    EXPLOIT_KEYWORDS = [
-        "exploit", "poc", "proof-of-concept", "vulnerability",
-        "cve", "privilege escalation", "privesc", "kernel exploit"
-    ]
+    LANGUAGES = ("C", "Python", "Ruby")
+    EXPLOIT_KEYWORDS = (
+        "exploit",
+        "poc",
+        "proof-of-concept",
+        "vulnerability",
+        "cve",
+        "privilege escalation",
+        "privesc",
+        "kernel exploit",
+    )
 
     def __init__(self, templates_file: str = "tmplxpl.json"):
         """Initialize searcher"""
@@ -51,19 +59,19 @@ class GitHubExploitSearcher:
 
         self.headers = {"User-Agent": "curl/7.54.1"}
 
-    def _load_templates(self) -> Dict[str, Any]:
+    def _load_templates(self) -> dict[str, Any]:
         """load xpl templates from JSON"""
         if Path(self.templates_file).exists():
-            with open(self.templates_file, 'r') as f:
+            with open(self.templates_file, "r") as f:
                 return json.load(f)
         return {"templates": []}
 
     def _save_templates(self):
         """save templates back to JSON"""
-        with open(self.templates_file, 'w') as f:
+        with open(self.templates_file, "w") as f:
             json.dump(self.templates, f, indent=2)
 
-    def get_template(self, cve_id: str) -> Optional[Dict[str, Any]]:
+    def get_template(self, cve_id: str) -> dict[str, Any] | None:
         """get template for a CVE if it exists"""
         for tmpl in self.templates.get("templates", []):
             if tmpl.get("cve_id") == cve_id:
@@ -72,8 +80,8 @@ class GitHubExploitSearcher:
 
     def search_repositories(
         self, cve_id: str, max_results: int = 10
-    ) -> List[Dict[str, Any]]:
-        """ search by id like CVE-2024-1086 """
+    ) -> list[dict[str, Any]]:
+        """search by id like CVE-2024-1086"""
         results = []
         # check template first
         template = self.get_template(cve_id)
@@ -84,14 +92,15 @@ class GitHubExploitSearcher:
         # lang_filters = " OR ".join(
         # [f"language:{lang}" for lang in self.LANGUAGES])
         params: dict[str, str | int] = {
-            "q": cve_id, "sort": "stars", "order": "desc",
-            "per_page": min(max_results, 30)
+            "q": cve_id,
+            "sort": "stars",
+            "order": "desc",
+            "per_page": min(max_results, 30),
         }
 
         try:
             response = httpx.get(
-                self.SEARCH_REPOS, headers=self.headers,
-                params=params, timeout=30.0
+                self.SEARCH_REPOS, headers=self.headers, params=params, timeout=30.0
             )
             if response.status_code == 200:
                 data = response.json()
@@ -105,8 +114,8 @@ class GitHubExploitSearcher:
         return results
 
     def _extract_repo_info(
-        self, repo: Dict[str, Any], cve_id: str
-    ) -> Optional[Dict[str, Any]]:
+        self, repo: dict[str, Any], cve_id: str
+    ) -> dict[str, Any] | None:
         """extract relevant info from repository"""
         html_url = repo.get("html_url", "")
         language = repo.get("language", "")
@@ -115,9 +124,7 @@ class GitHubExploitSearcher:
             return None
 
         readme_content = self._get_readme(repo)
-        res_ins = self._parse_instructions(
-            readme_content, language
-        )
+        res_ins = self._parse_instructions(readme_content, language)
         compile_cmd, test_cmd, requirements = res_ins
         # TODO: typing results objects
         return {
@@ -129,10 +136,10 @@ class GitHubExploitSearcher:
             "test_cmd": test_cmd,
             "requirements": requirements,
             "notes": self._extract_notes(readme_content),
-            "cve_id": cve_id
+            "cve_id": cve_id,
         }
 
-    def _get_readme(self, repo: Dict[str, Any]) -> str:
+    def _get_readme(self, repo: dict[str, Any]) -> str:
         """fetch README content from repository
         to get run conditions"""
         owner = repo.get("owner", {}).get("login")
@@ -144,14 +151,12 @@ class GitHubExploitSearcher:
         readme_url = f"https://api.github.com/repos/{owner}/{name}/readme"
 
         try:
-            response = httpx.get(
-                readme_url, headers=self.headers, timeout=15.0
-            )
+            response = httpx.get(readme_url, headers=self.headers, timeout=15.0)
             if response.status_code == 200:
                 data = response.json()
-                content = base64.b64decode(
-                    data.get("content", "")
-                ).decode('utf-8', errors='ignore')
+                content = base64.b64decode(data.get("content", "")).decode(
+                    "utf-8", errors="ignore"
+                )
                 return content
         except Exception as e:
             print(f"[!] README fetch error: {e}")
@@ -159,7 +164,7 @@ class GitHubExploitSearcher:
 
     def _parse_instructions(
         self, readme: str, language: str
-    ) -> tuple[Optional[str], Optional[str], Optional[str]]:
+    ) -> tuple[str | None, str | None, str | None]:
         """
         trying parse compile and test instructions from README
         """
@@ -179,16 +184,16 @@ class GitHubExploitSearcher:
         return compile_cmd, test_cmd, requirements
 
     @staticmethod
-    def _extract_c_compile(readme: str) -> Optional[str]:
+    def _extract_c_compile(readme: str) -> str | None:
         patterns = [
-            r'gcc\s+[^\n]+',
-            r'make\s*(?:all)?',
-            r'cc\s+[^\n]+',
-            r'clang\s+[^\n]+'
+            r"gcc\s+[^\n]+",
+            r"make\s*(?:all)?",
+            r"cc\s+[^\n]+",
+            r"clang\s+[^\n]+",
         ]
 
         commands = extract_code_block_commands(
-            readme, patterns, languages=['bash', 'sh', 'shell', '']
+            readme, patterns, languages=["bash", "sh", "shell", ""]
         )
         if commands:
             return clean_command_string(commands[0])
@@ -201,25 +206,23 @@ class GitHubExploitSearcher:
         return None
 
     @staticmethod
-    def _extract_test_command(
-            readme: str, language: str
-    ) -> Optional[str]:
+    def _extract_test_command(readme: str, language: str) -> str | None:
         patterns = []
 
         if language == "C":
             patterns = [
-                r'\./[a-zA-Z0-9_-]+(?:\s+[^\n]+)?',
-                r'sudo\s+\./[a-zA-Z0-9_-]+(?:\s+[^\n]+)?'
+                r"\./[a-zA-Z0-9_-]+(?:\s+[^\n]+)?",
+                r"sudo\s+\./[a-zA-Z0-9_-]+(?:\s+[^\n]+)?",
             ]
         elif language == "Python":
             patterns = [
-                r'python3?\s+[a-zA-Z0-9_.-]+\.py(?:\s+[^\n]+)?',
-                r'\./[a-zA-Z0-9_-]+\.py(?:\s+[^\n]+)?'
+                r"python3?\s+[a-zA-Z0-9_.-]+\.py(?:\s+[^\n]+)?",
+                r"\./[a-zA-Z0-9_-]+\.py(?:\s+[^\n]+)?",
             ]
         elif language == "Ruby":
             patterns = [
-                r'ruby\s+[a-zA-Z0-9_.-]+\.rb(?:\s+[^\n]+)?',
-                r'\./[a-zA-Z0-9_-]+\.rb(?:\s+[^\n]+)?'
+                r"ruby\s+[a-zA-Z0-9_.-]+\.rb(?:\s+[^\n]+)?",
+                r"\./[a-zA-Z0-9_-]+\.rb(?:\s+[^\n]+)?",
             ]
 
         for pattern in patterns:
@@ -230,14 +233,13 @@ class GitHubExploitSearcher:
         return None
 
     @staticmethod
-    def _extract_requirements(readme: str) -> Optional[str]:
+    def _extract_requirements(readme: str) -> str | None:
         req_patterns = [REQUIREMENTS_RE, VERSIONS_RE]
-        extracted = extract_section_by_header(
-            readme, req_patterns, max_length=500)
+        extracted = extract_section_by_header(readme, req_patterns, max_length=500)
         if extracted:
             return extracted
 
-        kernel_pattern = r'kernel\s+(?:version\s+)?[\d.]+(?:\s*-\s*[\d.]+)?'
+        kernel_pattern = r"kernel\s+(?:version\s+)?[\d.]+(?:\s*-\s*[\d.]+)?"
         kernel_matches = re.findall(kernel_pattern, readme, re.IGNORECASE)
         if kernel_matches:
             return kernel_matches[0].strip()
@@ -248,8 +250,8 @@ class GitHubExploitSearcher:
     def _extract_notes(readme: str) -> str:
         """Extract notes or warnings from README"""
         note_patterns = [
-            r'(?:note|warning|important|disclaimer)[\s:]+([^\n#]+)',
-            r'\*\*(?:note|warning|important)\*\*[\s:]+([^\n]+)'
+            r"(?:note|warning|important|disclaimer)[\s:]+([^\n#]+)",
+            r"\*\*(?:note|warning|important)\*\*[\s:]+([^\n]+)",
         ]
 
         notes = []
@@ -258,22 +260,24 @@ class GitHubExploitSearcher:
             notes.extend(matches)
 
         if notes:
-            combined = ' | '.join([n.strip() for n in notes[:3]])
+            combined = " | ".join([n.strip() for n in notes[:3]])
             return combined[:500]
-        lines = readme.split('\n')
+        lines = readme.split("\n")
         for line in lines[:10]:  # else just description
-            if line.strip() and not line.startswith('#'):
+            if line.strip() and not line.startswith("#"):
                 return line.strip()[:200]
 
         return ""
 
     def add_to_template(
-        self, cve_id: str, name: str,
+        self,
+        cve_id: str,
+        name: str,
         description: str,
-        repos: List[Dict[str, Any]],
+        repos: list[dict[str, Any]],
         in_cisa_kev: bool = False,
         compile_cmd: str = "cc main.c",
-        test_cmd: str = "./a.out"
+        test_cmd: str = "./a.out",
     ):
         """add a new xpl template entry,
         which know execution conditions"""
@@ -281,10 +285,10 @@ class GitHubExploitSearcher:
         existing = self.get_template(cve_id)
         if existing:
             print(f"[!] Template for {cve_id} already exists")
-            existing['github_repos'] = repos
-            existing['name'] = name
-            existing['description'] = description
-            existing['in_cisa_kev'] = in_cisa_kev
+            existing["github_repos"] = repos
+            existing["name"] = name
+            existing["description"] = description
+            existing["in_cisa_kev"] = in_cisa_kev
             self._save_templates()
             return existing
         else:
@@ -295,15 +299,15 @@ class GitHubExploitSearcher:
                 "github_repos": repos,
                 "in_cisa_kev": in_cisa_kev,
                 "compile_cmd": compile_cmd,
-                "test_cmd": test_cmd
+                "test_cmd": test_cmd,
             }
-            self.templates['templates'].append(result)
+            self.templates["templates"].append(result)
             self._save_templates()
             return result
 
     @staticmethod
-    def load_xpls(expls: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """ download PoCs into /tmp/kernauditp/CVE-id/username_repo """
+    def load_xpls(expls: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """download PoCs into /tmp/kernauditp/CVE-id/username_repo"""
         base_dir = Path(POCS_BASE_PATH)
         base_dir.mkdir(parents=True, exist_ok=True)
         downloaded_l: list[dict] = []
@@ -330,7 +334,7 @@ class GitHubExploitSearcher:
                 subprocess.run(
                     ["git", "clone", url, str(target_dir)],
                     check=True,
-                    capture_output=True
+                    capture_output=True,
                 )
                 xpl["local_path"] = str(target_dir)
                 downloaded_l.append(xpl)
@@ -340,13 +344,11 @@ class GitHubExploitSearcher:
 
 
 def main():
-    """ just for test """
+    """just for test"""
     searcher = GitHubExploitSearcher()
-    templ: List[dict] = searcher.templates.get("templates", [])
+    templ: list[dict] = searcher.templates.get("templates", [])
     print("saved templates: ", json.dumps(templ, indent=2))
-    repos: List[dict] = searcher.search_repositories(
-        "CVE-2024-1086", max_results=100
-    )
+    repos: list[dict] = searcher.search_repositories("CVE-2024-1086", max_results=100)
     print("found cve repos: ", json.dumps(repos, indent=2))
     # pocs_downloaded = searcher.load_xpls(repos)
 

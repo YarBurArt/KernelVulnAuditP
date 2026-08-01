@@ -1,10 +1,9 @@
 import argparse
 from dataclasses import asdict
-from typing import Any
 
 from app_services import AppServices
 from config import DB_BACKEND
-from db import ThreatDB
+from db.db import ThreatDB
 from schemas import ReconResult
 
 

@@ -13,35 +13,42 @@ def db(tmp_path):
 
 
 def test_upsert_vulnerability(db):
-    vuln = db.upsert_vulnerability({
-        "cve_id": "CVE-2024-5678",
-        "description": "Critical SQL injection vulnerability",
-        "published_date": datetime(2024, 1, 15),
-        "cvss_v3_score": 9.8,
-        "cvss_v3_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
-        "severity": "CRITICAL",
-        "cwe_ids": ["CWE-89"],
-        "sources": ["NIST_NVD", "OSV"],
-    })
+    vuln = db.upsert_vulnerability(
+        {
+            "cve_id": "CVE-2024-5678",
+            "description": "Critical SQL injection vulnerability",
+            "published_date": datetime(2024, 1, 15),
+            "cvss_v3_score": 9.8,
+            "cvss_v3_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+            "severity": "CRITICAL",
+            "cwe_ids": ["CWE-89"],
+            "sources": ["NIST_NVD", "OSV"],
+        }
+    )
 
     assert vuln.cve_id == "CVE-2024-5678"
     assert vuln.id is not None
 
 
 def test_add_affected_product(db):
-    db.upsert_vulnerability({
-        "cve_id": "CVE-2024-5678",
-        "cvss_v3_score": 9.8,
-        "severity": "CRITICAL",
-    })
+    db.upsert_vulnerability(
+        {
+            "cve_id": "CVE-2024-5678",
+            "cvss_v3_score": 9.8,
+            "severity": "CRITICAL",
+        }
+    )
 
-    db.add_affected_product("CVE-2024-5678", {
-        "vendor": "Example Corp",
-        "product": "Framework",
-        "version": "1.2.3",
-        "package_ecosystem": "rpm",
-        "package_name": "example-framework",
-    })
+    db.add_affected_product(
+        "CVE-2024-5678",
+        {
+            "vendor": "Example Corp",
+            "product": "Framework",
+            "version": "1.2.3",
+            "package_ecosystem": "rpm",
+            "package_name": "example-framework",
+        },
+    )
 
     full = db.get_vulnerability_with_details("CVE-2024-5678")
 
@@ -49,18 +56,23 @@ def test_add_affected_product(db):
 
 
 def test_add_exploit(db):
-    db.upsert_vulnerability({
-        "cve_id": "CVE-2024-5678",
-        "cvss_v3_score": 9.8,
-        "severity": "CRITICAL",
-    })
+    db.upsert_vulnerability(
+        {
+            "cve_id": "CVE-2024-5678",
+            "cvss_v3_score": 9.8,
+            "severity": "CRITICAL",
+        }
+    )
 
-    db.add_exploit("CVE-2024-5678", {
-        "exploit_type": "POC",
-        "source": "GitHub",
-        "url": "https://github.com/user/cve-2024-5678-poc",
-        "verified": True,
-    })
+    db.add_exploit(
+        "CVE-2024-5678",
+        {
+            "exploit_type": "POC",
+            "source": "GitHub",
+            "url": "https://github.com/user/cve-2024-5678-poc",
+            "verified": True,
+        },
+    )
 
     full = db.get_vulnerability_with_details("CVE-2024-5678")
 
@@ -69,11 +81,13 @@ def test_add_exploit(db):
 
 
 def test_add_reference(db):
-    db.upsert_vulnerability({
-        "cve_id": "CVE-2024-5678",
-        "cvss_v3_score": 9.8,
-        "severity": "CRITICAL",
-    })
+    db.upsert_vulnerability(
+        {
+            "cve_id": "CVE-2024-5678",
+            "cvss_v3_score": 9.8,
+            "severity": "CRITICAL",
+        }
+    )
 
     db.add_reference(
         "CVE-2024-5678",
@@ -89,19 +103,24 @@ def test_add_reference(db):
 
 
 def test_add_cisa_kev(db):
-    db.upsert_vulnerability({
-        "cve_id": "CVE-2024-5678",
-        "cvss_v3_score": 9.8,
-        "severity": "CRITICAL",
-    })
+    db.upsert_vulnerability(
+        {
+            "cve_id": "CVE-2024-5678",
+            "cvss_v3_score": 9.8,
+            "severity": "CRITICAL",
+        }
+    )
 
-    db.add_cisa_kev("CVE-2024-5678", {
-        "date_added": datetime(2024, 1, 20),
-        "required_action": "Apply updates immediately",
-        "known_ransomware": True,
-        "vendor_project": "Example Corp",
-        "product": "Web Framework",
-    })
+    db.add_cisa_kev(
+        "CVE-2024-5678",
+        {
+            "date_added": datetime(2024, 1, 20),
+            "required_action": "Apply updates immediately",
+            "known_ransomware": True,
+            "vendor_project": "Example Corp",
+            "product": "Web Framework",
+        },
+    )
 
     full = db.get_vulnerability_with_details("CVE-2024-5678")
 
@@ -110,27 +129,32 @@ def test_add_cisa_kev(db):
 
 
 def test_add_sandbox_run(db):
-    db.upsert_vulnerability({
-        "cve_id": "CVE-2024-5678",
-        "cvss_v3_score": 9.8,
-        "severity": "CRITICAL",
-    })
+    db.upsert_vulnerability(
+        {
+            "cve_id": "CVE-2024-5678",
+            "cvss_v3_score": 9.8,
+            "severity": "CRITICAL",
+        }
+    )
 
     s_hash = "a1b2c3d4e5f67890abcdef1234567890abcdef1234567890abcdef1234567890"
 
-    db.add_sandbox_run("CVE-2024-5678", {
-        "run_timestamp": datetime(2024, 1, 21, 10, 30),
-        "sandbox_platform": "virtme-ng",
-        "exploit_file_hash": s_hash,
-        "execution_success": True,
-        "exit_code": 0,
-        "stdout": "Exploit started...",
-        "stderr": "Warning",
-        "stdin": "./xpl\n",
-        "open_processes": ["/bin/bash", "/bin/nc"],
-        "open_files": ["/tmp/xpl", "/etc/passwd"],
-        "notes": "Confirmed LPE",
-    })
+    db.add_sandbox_run(
+        "CVE-2024-5678",
+        {
+            "run_timestamp": datetime(2024, 1, 21, 10, 30),
+            "sandbox_platform": "virtme-ng",
+            "exploit_file_hash": s_hash,
+            "execution_success": True,
+            "exit_code": 0,
+            "stdout": "Exploit started...",
+            "stderr": "Warning",
+            "stdin": "./xpl\n",
+            "open_processes": ["/bin/bash", "/bin/nc"],
+            "open_files": ["/tmp/xpl", "/etc/passwd"],
+            "notes": "Confirmed LPE",
+        },
+    )
 
     runs = db.get_sandbox_runs("CVE-2024-5678")
 
@@ -139,19 +163,27 @@ def test_add_sandbox_run(db):
 
 
 def test_full_details(db):
-    db.upsert_vulnerability({
-        "cve_id": "CVE-2024-5678",
-        "cvss_v3_score": 9.8,
-        "severity": "CRITICAL",
-    })
+    db.upsert_vulnerability(
+        {
+            "cve_id": "CVE-2024-5678",
+            "cvss_v3_score": 9.8,
+            "severity": "CRITICAL",
+        }
+    )
 
-    db.add_exploit("CVE-2024-5678", {
-        "exploit_type": "POC",
-    })
+    db.add_exploit(
+        "CVE-2024-5678",
+        {
+            "exploit_type": "POC",
+        },
+    )
 
-    db.add_cisa_kev("CVE-2024-5678", {
-        "known_ransomware": True,
-    })
+    db.add_cisa_kev(
+        "CVE-2024-5678",
+        {
+            "known_ransomware": True,
+        },
+    )
 
     db.add_reference(
         "CVE-2024-5678",
@@ -160,9 +192,12 @@ def test_full_details(db):
         source="NVD",
     )
 
-    db.add_sandbox_run("CVE-2024-5678", {
-        "sandbox_platform": "virtme-ng",
-    })
+    db.add_sandbox_run(
+        "CVE-2024-5678",
+        {
+            "sandbox_platform": "virtme-ng",
+        },
+    )
 
     full = db.get_vulnerability_with_details("CVE-2024-5678")
 
@@ -173,17 +208,21 @@ def test_full_details(db):
 
 
 def test_statistics_and_filters(db):
-    db.upsert_vulnerability({
-        "cve_id": "CVE-2024-5678",
-        "cvss_v3_score": 9.8,
-        "severity": "CRITICAL",
-    })
+    db.upsert_vulnerability(
+        {
+            "cve_id": "CVE-2024-5678",
+            "cvss_v3_score": 9.8,
+            "severity": "CRITICAL",
+        }
+    )
 
-    db.upsert_vulnerability({
-        "cve_id": "CVE-2024-0002",
-        "cvss_v3_score": 3.1,
-        "severity": "LOW",
-    })
+    db.upsert_vulnerability(
+        {
+            "cve_id": "CVE-2024-0002",
+            "cvss_v3_score": 3.1,
+            "severity": "LOW",
+        }
+    )
 
     stats = db.get_statistics()
 
@@ -195,7 +234,9 @@ def test_statistics_and_filters(db):
 
 def test_context_manager():
     with ThreatIntelligenceORM("sqlite:///ti_test.db") as db:
-        db.upsert_vulnerability({
-            "cve_id": "CVE-2024-9999",
-            "cvss_v3_score": 5.0,
-        })
+        db.upsert_vulnerability(
+            {
+                "cve_id": "CVE-2024-9999",
+                "cvss_v3_score": 5.0,
+            }
+        )

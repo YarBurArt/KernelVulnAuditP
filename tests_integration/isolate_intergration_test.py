@@ -9,7 +9,7 @@ from isolate import (
 
 @pytest.mark.integration
 def test_real_compile_and_execute_qemu():
-    source = Path('tests/isolate_synthetic_poc.c')
+    source = Path("tests/isolate_synthetic_poc.c")
 
     assert source.exists()
 
@@ -23,7 +23,7 @@ def test_real_compile_and_execute_qemu():
     env = QemuEnvironment(binary, timeout=60)
 
     if not env.is_available():
-        pytest.skip('qemu-system-x86_64 unavailable')
+        pytest.skip("qemu-system-x86_64 unavailable")
 
     result = env.execute()
 
@@ -57,14 +57,14 @@ def test_real_compile_and_execute_qemu():
     assert "Linux" in result.kernel_info["uname"]
     assert any("/proc" in f for f in result.files)
 
-    assert 'POC_OK' in result.stdout
+    assert "POC_OK" in result.stdout
 
-    assert result.logs['exit_code'] == '0'
+    assert result.logs["exit_code"] == "0"
 
 
 @pytest.mark.integration
 def test_real_compile_and_execute_qemu_logs_integrity():
-    source = Path('tests/isolate_synthetic_poc.c')
+    source = Path("tests/isolate_synthetic_poc.c")
     assert source.exists()
 
     compiler = CCompiler(source)
@@ -76,15 +76,20 @@ def test_real_compile_and_execute_qemu_logs_integrity():
     env = QemuEnvironment(binary, timeout=60)
 
     if not env.is_available():
-        pytest.skip('qemu-system-x86_64 unavailable')
+        pytest.skip("qemu-system-x86_64 unavailable")
 
     result = env.execute()
 
     required_logs = {
-        "stage", "binary", "timeout",
-        "kernel_path", "initrd_created",
-        "command", "qemu_returncode",
-        "stdout_size", "stderr_size",
+        "stage",
+        "binary",
+        "timeout",
+        "kernel_path",
+        "initrd_created",
+        "command",
+        "qemu_returncode",
+        "stdout_size",
+        "stderr_size",
         "exit_code",
     }
 
@@ -104,4 +109,4 @@ def test_real_compile_and_execute_qemu_logs_integrity():
     assert len(result.processes) > 0
     assert len(result.files) > 0
 
-    assert 'POC_OK' in result.stdout
+    assert "POC_OK" in result.stdout

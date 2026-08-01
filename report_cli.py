@@ -1,12 +1,12 @@
 """CLI renderer for kernel vulnerability reports."""
 
-from typing import Any, Dict, List
+from typing import Any
 
 
 class CLIReportRenderer:
     """Render report using plain text CLI output."""
 
-    def __init__(self, data: Dict[str, Any], verbose: bool = False):
+    def __init__(self, data: dict[str, Any], verbose: bool = False):
         self.data = data
         self.verbose = verbose
 
@@ -55,7 +55,7 @@ class CLIReportRenderer:
             f"Latest Version:  {self.data.get('latest_version', 'N/A')}\n\n"
         )
 
-    def _build_kev_section(self, kev_data: List[Dict[str, Any]]) -> str:
+    def _build_kev_section(self, kev_data: list[dict[str, Any]]) -> str:
         """Build KEV section string."""
         if not kev_data:
             return "  No CVE data available\n"
@@ -71,7 +71,7 @@ class CLIReportRenderer:
             return section
         return f"  {len(kev_data)} CVEs in CISA KEV list\n"
 
-    def _build_runs_section(self, runs: List[Dict[str, Any]]) -> str:
+    def _build_runs_section(self, runs: list[dict[str, Any]]) -> str:
         """Build execution logs section string."""
         section = ""
         for run in runs:
@@ -96,7 +96,7 @@ class CLIReportRenderer:
         return section
 
     @staticmethod
-    def _build_stats_section(stats: Dict[str, Any]) -> str:
+    def _build_stats_section(stats: dict[str, Any]) -> str:
         """Build database statistics section string."""
         if not stats:
             return ""
@@ -119,7 +119,7 @@ class CLIReportRenderer:
         return section
 
     @staticmethod
-    def _build_exploits_section(exploits: List[Dict[str, Any]]) -> str:
+    def _build_exploits_section(exploits: list[dict[str, Any]]) -> str:
         """Build exploits section string."""
         if not exploits:
             return ""
@@ -136,7 +136,7 @@ class CLIReportRenderer:
         return section
 
     @staticmethod
-    def _build_references_section(references: List[Dict[str, Any]]) -> str:
+    def _build_references_section(references: list[dict[str, Any]]) -> str:
         """Build references section string."""
         if not references:
             return ""
@@ -150,7 +150,7 @@ class CLIReportRenderer:
             )
         return section
 
-    def _build_sandbox_section(self, sandbox_runs: List[Dict[str, Any]]) -> str:
+    def _build_sandbox_section(self, sandbox_runs: list[dict[str, Any]]) -> str:
         """Build sandbox runs section string."""
         if not sandbox_runs:
             return ""
@@ -183,7 +183,7 @@ class CLIReportRenderer:
 
         return section
 
-    def _build_vuln_section(self, vulns: List[Dict[str, Any]]) -> str:
+    def _build_vuln_section(self, vulns: list[dict[str, Any]]) -> str:
         """Build vulnerabilities section string."""
         if not vulns:
             return ""
@@ -207,7 +207,7 @@ class CLIReportRenderer:
 
     @staticmethod
     def _build_recommendations_section(
-            recs: List[Dict[str, Any]], stats: Dict[str, Any]
+        recs: list[dict[str, Any]], stats: dict[str, Any]
     ) -> str:
         """Build security recommendations section string."""
         if not recs:
