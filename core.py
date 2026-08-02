@@ -9,6 +9,9 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+_CVSS_DICT_KEYS = ("cvssMetricV31", "cvssMetricV30", "cvssMetricV2")
+_CVSS_LIST_KEYS = ("cvssV3_1", "cvssV3_0", "cvssV2_0", "cvssV4_0")
+
 
 def try_parse(date_str: str, fmt: str) -> datetime | None:
     try:
@@ -436,3 +439,31 @@ def norm_sysctl_value(value: Any) -> str:
     if re.fullmatch(r"[+-]?\d+", text):
         return str(int(text))
     return low
+
+def extract_cvss(metrics: Any) -> tuple[Any, Any, Any]:
+    """extract (base_score, severity, vector) from CVSS metrics"""
+    if isinstance(metrics, dict):
+        for metric_key in _CVSS_DICT_KEYS:
+            for m in metrics.get(metric_key, []):
+                cvss_data = m.get("cvssData", {})
+                score = cvss_data.get("baseScore")
+                if score is not None:
+                    return (
+                        score,
+                        cvss_data.get("baseSeverity"),
+                        cvss_data.get("vectorString"),
+                    )
+        return None, None, None
+
+    for metric in metrics or []:
+        for cvss_key in _CVSS_LIST_KEYS:
+            cvss_data = metric.get(cvss_key)
+            if cvss_data:
+                score = cvss_data.get("baseScore")
+                if score is not None:
+                    return (
+                        score,
+                        cvss_data.get("baseSeverity"),
+                        cvss_data.get("vectorString"),
+                    )
+    return None, None, None

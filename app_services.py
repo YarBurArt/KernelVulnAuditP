@@ -77,7 +77,7 @@ class AppServices:
 
         logger.debug("Search feeds for kernel %s build_date %s", kernel, build_date)
         if store_kev:
-            self._load_and_store_kev()
+            self._load_and_store_kev(build_date)
 
         findings: list[CVEFinding] = []
         findings.extend(self.rf.nist_search(kernel, build_date))
@@ -161,11 +161,11 @@ class AppServices:
             logger.warning("Error storing %s: %s", cve_id, exc)
             return False
 
-    def _load_and_store_kev(self) -> None:
+    def _load_and_store_kev(self, build_date: int | None = None) -> None:
         """load CISA KEV feed and persist in DB"""
         try:
             self.rf.get_kev()
-            self.rf.load_kev()
+            self.rf.load_kev(build_date)
             logger.info(
                 "Loaded %s kernel-related KEV entries", len(self.rf.kev_kern_vuln)
             )

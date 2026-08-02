@@ -15,9 +15,7 @@ from config import (
     NIST_CVE_DETAILS_API_URL,
     OSV_API_URL,
 )
-from core import (
-    filter_items_by_date,
-)
+from core import extract_cvss, filter_items_by_date
 from schemas import (
     CVEFinding,
     GitHubPoC,
@@ -26,6 +24,18 @@ from schemas import (
 logger = logging.getLogger(f"kernel_audit.{__name__}")
 CVE_RE = re.compile(r"(CVE-\d{4}-\d+)", re.IGNORECASE)
 
+# OSV queries paginate after ~1000 results; cap the follow-up pages
+_OSV_MAX_PAGES = 10
+
+# concrete exceptions raised by httpx calls or malformed feed payloads
+_FEED_API_ERRORS = (
+    httpx.HTTPError,
+    ValueError,
+    KeyError,
+    IndexError,
+    TypeError,
+    AttributeError,
+)
 
 class ReconFeeds:
     """
@@ -48,8 +58,13 @@ class ReconFeeds:
             f.write(res.content)
         logger.info("Downloaded KEV catalog: %d bytes", len(res.content))
 
-    def load_kev(self):
-        """load CISA KEV catalog and filter for Kernel products"""
+    def load_kev(self, build_date: int | None = None):
+        """load CISA KEV catalog and filter for Kernel products.
+
+        When ``build_date`` (epoch seconds) is given, only KEV entries added to
+        the catalog at or after the kernel build date are kept, so CVEs
+        published/broadcast after the kernel was built are dropped.
+        """
         if not os.path.exists(CISA_KEV_PATH):
             logger.info("KEV catalog not found, downloading...")
             self.get_kev()
@@ -66,16 +81,25 @@ class ReconFeeds:
             logger.warning("Unexpected KEV format: %s", type(data))
             return
 
+        if build_date is not None:
+            vulns = filter_items_by_date(
+                vulns, date_field="dateAdded", min_timestamp=build_date
+            )
+
         self.kev_kern_vuln = []
         for vuln in vulns:
             product = vuln.get("product", "")
             vendor = vuln.get("vendorProject", "")
-            if product and "kernel" in product.lower() or vendor and "linux" in vendor.lower():
+            if (
+                product
+                and "kernel" in product.lower()
+                or vendor
+                and "linux" in vendor.lower()
+            ):
                 self.kev_kern_vuln.append(vuln)
 
         logger.debug("KEV vulnerabilities: %d", len(self.kev_kern_vuln))
 
-    # TODO: KEV check with build date
     @staticmethod
     def github_search(kern_version: str) -> list[GitHubPoC]:
         """Search PoC repositories on GitHub"""
@@ -171,15 +195,14 @@ class ReconFeeds:
 
         affected = []
         for a in nist_cve.get("affected", []):
-            for ad in a.get("affectedData", []):
-                item = {
-                    "vendor": ad.get("vendor", ""),
-                    "product": ad.get("product", ""),
-                    "versions": ad.get("versions", []),
-                }
-                if ad.get("modules"):
-                    item["modules"] = ad["modules"]
-                affected.append(item)
+            item = {
+                "vendor": a.get("vendor", ""),
+                "product": a.get("product", ""),
+                "versions": a.get("versions", []),
+            }
+            if a.get("modules"):
+                item["modules"] = a["modules"]
+            affected.append(item)
 
         return {
             "dataType": "CVE_RECORD",
@@ -214,7 +237,7 @@ class ReconFeeds:
                 response.raise_for_status()
                 return response.json()
 
-            except httpx.HTTPError as exc:
+            except (httpx.HTTPError, ValueError) as exc:
                 logger.warning(
                     "MITRE API unavailable, switching to NIST: %s",
                     exc,
@@ -259,16 +282,13 @@ class ReconFeeds:
                         desc = d.get("value", "")
                         break
 
-                metrics = cve.get("metrics", {})
-                cvss = None
-                if "cvssMetricV31" in metrics:
-                    cvss = metrics["cvssMetricV31"][0]["cvssData"]["baseScore"]
+                cvss, severity, _ = extract_cvss(cve.get("metrics", {}))
 
                 findings.append(
                     CVEFinding(
                         cve_id=str(cve_id),
                         description=desc,
-                        severity="",
+                        severity=severity or "",
                         cvss_score=cvss,
                         source="NIST",
                         references=[],
@@ -277,51 +297,102 @@ class ReconFeeds:
                 )
             return findings
 
-        except Exception as e:
+        except _FEED_API_ERRORS as e:
             logger.warning("NIST search error: %s", str(e))
             return []
 
     @staticmethod
-    def osv_search(kern_r_version) -> list[CVEFinding]:
-        """Search for vulnerabilities by api OSV database"""
+    def _osv_cve_ids(vuln: dict) -> list[str]:
+        """resolve one OSV record to concrete CVE IDs.
+
+        OSV entries can be advisory IDs (e.g. ``MGASA-2026-0312``,
+        ``DEBIAN-CVE-...``) whose CVE ids live in ``aliases``, and one
+        advisory can bundle several CVEs.  A record with a CVE id (or an
+        advisory without usable aliases) falls back to its own id.
+        """
+        candidates: list[str] = [vuln.get("id", "")]
+        candidates.extend(vuln.get("aliases", []) or [])
+        cve_ids = [
+            str(c).upper() for c in candidates if str(c).upper().startswith("CVE-")
+        ]
+        if not cve_ids and vuln.get("id"):
+            cve_ids.append(str(vuln["id"]))
+        return list(dict.fromkeys(cve_ids))
+
+    def _osv_enriched_finding(self, cve_id: str, vuln: dict) -> CVEFinding:
+        """build an OSV finding, filling missing data (CVSS) from NIST."""
+        db_specific = vuln.get("database_specific") or {}
+        finding = CVEFinding(
+            cve_id=cve_id,
+            description=vuln.get("summary", "") or "",
+            severity=str(db_specific.get("severity") or ""),
+            cvss_score=None,
+            source="OSV",
+            references=vuln.get("references", []) or [],
+            raw_data=vuln,
+        )
+        details = self.get_cve_details(cve_id)
+        if not details:
+            return finding
+        if not finding.description:
+            finding.description = details.get("description", "")
+        if not finding.severity:
+            finding.severity = details.get("severity", "")
+        if finding.cvss_score is None:
+            finding.cvss_score = details.get("cvss_v3_score")
+        return finding
+
+    def osv_search(self, kern_r_version) -> list[CVEFinding]:
+        """Search for Linux kernel CVEs in OSV, enriching missing data from NIST."""
         payload = {
             "version": kern_r_version,
-            "package": {"name": "linux", "ecosystem": "Linux"},
+            "package": {"name": "Kernel", "ecosystem": "Linux"},
         }
-        try:
-            response = httpx.post(OSV_API_URL, json=payload)
-            response.raise_for_status()
-            data = response.json()
+        findings: list[CVEFinding] = []
+        seen: set[str] = set()
+        page_token: str | None = None
 
-            findings: list[CVEFinding] = []
+        for _ in range(_OSV_MAX_PAGES):
+            body = dict(payload)
+            if page_token:
+                body["page_token"] = page_token
+            try:
+                response = httpx.post(OSV_API_URL, json=body)
+                response.raise_for_status()
+                data = response.json()
+            except _FEED_API_ERRORS as e:
+                logger.warning("OSV search error: %s", str(e))
+                return findings
 
-            for v in data.get("vulns", []):
-                findings.append(
-                    CVEFinding(
-                        cve_id=v.get("id", ""),
-                        description=v.get("summary", ""),
-                        severity="",
-                        cvss_score=None,
-                        source="OSV",
-                        references=v.get("references", []),
-                        raw_data=v,
-                    )
-                )
+            for vuln in data.get("vulns", []) or []:
+                if not isinstance(vuln, dict):
+                    continue
+                for cve_id in self._osv_cve_ids(vuln):
+                    if cve_id in seen:
+                        continue
+                    seen.add(cve_id)
+                    findings.append(self._osv_enriched_finding(cve_id, vuln))
 
-            return findings
+            page_token = data.get("next_page_token")
+            if not page_token:
+                break
 
-        except Exception as e:
-            logger.warning("OSV search error: %s", str(e))
-            return []
+        return findings
 
     def get_cve_details(self, cve_id: str) -> dict:
         """filter CVE metadata using the configured API, need for db"""
         try:
             data = self._cve_org_details(cve_id)
-        except Exception as e:
+        except _FEED_API_ERRORS as e:
             logger.warning("%s get_cve_details error: %s", cve_id, str(e))
             return {}
-        cve_obj = data.get("cve", {})
+        if not data:
+            return {}
+        containers = data.get("containers", {}) or {}
+        cna = containers.get("cna", {}) or {}
+        # cve.org / reformatted NIST use containers.cna, raw NIST 2.0 uses cve
+        cve_obj = data.get("cve", {}) or cna
+
         descriptions = cve_obj.get("descriptions", [])
         description = next(
             (item.get("value") for item in descriptions if item.get("lang") == "en"),
@@ -330,21 +401,7 @@ class ReconFeeds:
         if not description and descriptions:
             description = descriptions[0].get("value")
 
-        # try CVSS v3.1, then v3.0, then v2
-        metrics = cve_obj.get("metrics", {})
-        cvss_score = None
-        cvss_severity = None
-        cvss_vector = None
-        # FIXME
-        for metric_key in ["cvssMetricV31", "cvssMetricV30", "cvssMetricV2"]:
-            metric_list = metrics.get(metric_key, [])
-            if metric_list:
-                metric = metric_list[0]
-                cvss_data = metric.get("cvssData", {})
-                cvss_score = cvss_data.get("baseScore")
-                cvss_severity = cvss_data.get("baseSeverity")
-                cvss_vector = cvss_data.get("vectorString")
-                break
+        cvss_score, cvss_severity, cvss_vector = extract_cvss(cve_obj.get("metrics"))
 
         logger.info("found %s CVSS score: %s", cve_id, cvss_score)
         logger.debug("found %s details raw data: %s", cve_id, data)
