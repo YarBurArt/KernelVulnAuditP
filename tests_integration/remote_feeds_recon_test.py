@@ -17,6 +17,7 @@ from config import (
     NIST_CVE_DETAILS_API_URL,
     OSV_API_URL,
 )
+from recon.parse_recon_reports import ParseReports
 from recon.remote_feeds_recon import ReconFeeds
 
 
@@ -90,18 +91,30 @@ class _FakeHTTP:
         return _FakeResponse(payload=None)
 
 
+class _FakeClient:
+    """fake httpx.Client used by ReconFeeds, routing to a shared _FakeHTTP"""
+
+    def __init__(self, http, *args, **kwargs):
+        self._http = http
+
+    def get(self, url, **kwargs):
+        return self._http("GET", url, **kwargs)
+
+    def post(self, url, **kwargs):
+        return self._http("POST", url, **kwargs)
+
+    def close(self):
+        return None
+
+
 @pytest.fixture
 def fake_http(monkeypatch):
     http = _FakeHTTP()
 
-    def do_get(url, **kwargs):
-        return http("GET", url, **kwargs)
+    def make_client(*args, **kwargs):
+        return _FakeClient(http)
 
-    def do_post(url, **kwargs):
-        return http("POST", url, **kwargs)
-
-    monkeypatch.setattr("recon.remote_feeds_recon.httpx.get", do_get)
-    monkeypatch.setattr("recon.remote_feeds_recon.httpx.post", do_post)
+    monkeypatch.setattr("recon.remote_feeds_recon.httpx.Client", make_client)
     return http
 
 
@@ -828,13 +841,13 @@ def test_osv_search_enrichment_keeps_osv_data_on_nist_error(fake_http, rf):
 
 @pytest.mark.integration
 def test_reformat_cve_details_empty():
-    assert ReconFeeds._reformat_cve_details({}) == {}
-    assert ReconFeeds._reformat_cve_details({"vulnerabilities": []}) == {}
+    assert ParseReports.reformat_cve_details({}) == {}
+    assert ParseReports.reformat_cve_details({"vulnerabilities": []}) == {}
 
 
 @pytest.mark.integration
-def test_reformat_cve_details_full(rf):
-    reformatted = rf._reformat_cve_details(_nist_raw_payload())
+def test_reformat_cve_details_full():
+    reformatted = ParseReports.reformat_cve_details(_nist_raw_payload())
 
     cna = reformatted["containers"]["cna"]
     assert reformatted["dataType"] == "CVE_RECORD"
@@ -848,12 +861,12 @@ def test_reformat_cve_details_full(rf):
 
 
 @pytest.mark.integration
-def test_reformat_cve_details_no_vuln_data(rf):
+def test_reformat_cve_details_no_vuln_data():
     payload = _nist_raw_payload()
     del payload["vulnerabilities"][0]["cve"]["descriptions"]
     del payload["vulnerabilities"][0]["cve"]["metrics"]
 
-    reformatted = rf._reformat_cve_details(payload)
+    reformatted = ParseReports.reformat_cve_details(payload)
 
     cna = reformatted["containers"]["cna"]
     assert cna["descriptions"] == []
@@ -1003,3 +1016,43 @@ def test_get_cve_details_malformed_mitre_falls_back_to_nist(fake_http, rf):
 
     assert details["cvss_v3_score"] == 7.8
     assert rf._mitre_available is False
+
+
+@pytest.mark.integration
+def test_get_cve_details_many_batches_and_dedups(fake_http, rf):
+    fake_http.route(CVEORG_BASE_URL + "CVE-2024-1086", payload=_cve_org_payload())
+    fake_http.route(
+        CVEORG_BASE_URL + "CVE-2024-0001", payload=_cve_org_payload("CVE-2024-0001")
+    )
+
+    details = rf.get_cve_details_many(
+        ["CVE-2024-1086", "CVE-2024-0001", "CVE-2024-1086"]
+    )
+
+    assert list(details.keys()) == ["CVE-2024-1086", "CVE-2024-0001"]
+    assert details["CVE-2024-1086"]["cvss_v3_score"] == 7.8
+
+
+@pytest.mark.integration
+def test_get_cve_details_many_empty(fake_http, rf):
+    assert rf.get_cve_details_many([]) == {}
+
+
+@pytest.mark.integration
+def test_get_cve_details_many_drops_failed(fake_http, rf):
+    fake_http.route(
+        CVEORG_BASE_URL + "CVE-2024-1086", exception=httpx.ConnectError("down")
+    )
+    fake_http.route(
+        NIST_CVE_DETAILS_API_URL + "CVE-2024-1086",
+        exception=httpx.ConnectError("nist down"),
+    )
+    # once MITRE is down, remaining CVEs fall back to NIST globally
+    fake_http.route(
+        NIST_CVE_DETAILS_API_URL + "CVE-2024-0001",
+        payload=_nist_raw_payload("CVE-2024-0001"),
+    )
+
+    details = rf.get_cve_details_many(["CVE-2024-1086", "CVE-2024-0001"])
+
+    assert list(details.keys()) == ["CVE-2024-0001"]
