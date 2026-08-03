@@ -1,17 +1,24 @@
+import logging
 import re
 from pathlib import Path
 from typing import Any
 
 from core import (
+    CVE_RE,
     assign_value_by_key_type,
     ensure_list_in_dict,
+    extract_cve_ids,
+    extract_cvss,
+    extract_english_description,
+    filter_items_by_date,
     parse_key_value_pairs,
     parse_key_with_brackets,
     strip_ansi_sequences,
 )
 from lib_tools.peas2json import parse_peass
-from recon.remote_feeds_recon import CVE_RE, logger
-from schemas import KernelAuditItem, KernelLPE, LesCVEItem
+from schemas import CVEFinding, GitHubPoC, KernelAuditItem, KernelLPE, LesCVEItem
+
+logger = logging.getLogger(f"kernel_audit.{__name__}")
 
 
 class ParseReports:
@@ -330,3 +337,204 @@ class ParseReports:
         except OSError as e:
             logger.warning("os error reading params.prf: %s", e)
         return {}
+
+    @staticmethod
+    def reformat_cve_details(data_raw: dict) -> dict:
+        """reformat NIST CVE 2.0 payload into the CVE JSON 5.x record shape"""
+        vulns = data_raw.get("vulnerabilities", [])
+        if not vulns:
+            return {}
+        nist_cve = vulns[0].get("cve", {})
+        if not nist_cve:
+            return {}
+
+        descriptions = nist_cve.get("descriptions", [])
+        published = nist_cve.get("published", "")
+        modified = nist_cve.get("lastModified", "")
+        source_id = nist_cve.get("sourceIdentifier", "")
+
+        metrics = []
+        nist_metrics = nist_cve.get("metrics", {})
+        for nk, mk in (
+            ("cvssMetricV40", "cvssV4_0"),
+            ("cvssMetricV31", "cvssV3_1"),
+            ("cvssMetricV30", "cvssV3_0"),
+            ("cvssMetricV2", "cvssV2_0"),
+        ):
+            for m in nist_metrics.get(nk, []):
+                metrics.append({mk: m.get("cvssData", {})})
+
+        problem_types = []
+        for w in nist_cve.get("weaknesses", []):
+            for desc in w.get("description", []):
+                cv = desc.get("value", "")
+                problem_types.append(
+                    {
+                        "descriptions": [
+                            {
+                                "lang": desc.get("lang", "en"),
+                                "description": cv,
+                                "cweId": cv if cv.startswith("CWE-") else "",
+                                "type": "CWE",
+                            }
+                        ]
+                    }
+                )
+
+        references = []
+        for r in nist_cve.get("references", []):
+            ref = {"url": r.get("url", "")}
+            src = r.get("source")
+            if src:
+                ref["tags"] = [src]
+            references.append(ref)
+
+        affected = []
+        for a in nist_cve.get("affected", []):
+            item = {
+                "vendor": a.get("vendor", ""),
+                "product": a.get("product", ""),
+                "versions": a.get("versions", []),
+            }
+            if a.get("modules"):
+                item["modules"] = a["modules"]
+            affected.append(item)
+
+        return {
+            "dataType": "CVE_RECORD",
+            "dataVersion": "5.2",
+            "cveMetadata": {
+                "cveId": nist_cve.get("id", ""),
+                "assignerOrgId": source_id,
+                "state": nist_cve.get("vulnStatus", "PUBLISHED"),
+                "datePublished": published,
+                "dateUpdated": modified,
+            },
+            "containers": {
+                "cna": {
+                    "providerMetadata": {
+                        "orgId": source_id,
+                        "dateUpdated": modified,
+                    },
+                    "descriptions": descriptions,
+                    "metrics": metrics,
+                    "problemTypes": problem_types,
+                    "references": references,
+                    "affected": affected,
+                }
+            },
+        }
+
+    @staticmethod
+    def parse_nist_findings(data: dict, min_ts: int | None = None) -> list[CVEFinding]:
+        """parse NIST CVE 2.0 search payload into CVEFinding list, date-filtered"""
+        raw = filter_items_by_date(
+            (data or {}).get("vulnerabilities", []),
+            date_field="published",
+            min_timestamp=min_ts,
+        )
+
+        findings: list[CVEFinding] = []
+        for item in raw:
+            cve = item.get("cve", {})
+            cve_id = cve.get("id") or item.get("cveId")
+            if not cve_id:
+                continue
+
+            description = extract_english_description(cve.get("descriptions", []))
+            cvss, severity, _ = extract_cvss(cve.get("metrics", {}))
+
+            findings.append(
+                CVEFinding(
+                    cve_id=str(cve_id),
+                    description=description,
+                    severity=severity or "",
+                    cvss_score=cvss,
+                    source="NIST",
+                    references=[],
+                    raw_data=item,
+                )
+            )
+        return findings
+
+    @staticmethod
+    def parse_github_pocs(data: dict) -> list[GitHubPoC]:
+        """parse GitHub repo search payload into GitHubPoC list"""
+        results: list[GitHubPoC] = []
+        seen: set[str] = set()
+
+        for repo in (data or {}).get("items", []):
+            text = " ".join(
+                [
+                    repo.get("name", "") or "",
+                    repo.get("full_name", "") or "",
+                    repo.get("description", "") or "",
+                ]
+            )
+            matches = extract_cve_ids(text)
+            if not matches:
+                continue
+
+            cve_id = matches[0].upper()
+            key = f"{cve_id}:{repo.get('full_name', '')}"
+            if key in seen:
+                continue
+            seen.add(key)
+
+            results.append(
+                GitHubPoC(
+                    cve_id=cve_id,
+                    repo_name=repo.get("full_name", ""),
+                    repo_url=repo.get("html_url", ""),
+                    description=repo.get("description", "") or "",
+                    stars=repo.get("stargazers_count", 0),
+                    language=repo.get("language") or "",
+                )
+            )
+        return results
+
+    @staticmethod
+    def osv_cve_ids(vuln: dict) -> list[str]:
+        """resolve one OSV record to concrete CVE ids (aliases-aware)."""
+        candidates: list[str] = [vuln.get("id", "")]
+        candidates.extend(vuln.get("aliases", []) or [])
+        cve_ids = [
+            str(c).upper() for c in candidates if str(c).upper().startswith("CVE-")
+        ]
+        if not cve_ids and vuln.get("id"):
+            cve_ids.append(str(vuln["id"]))
+        return list(dict.fromkeys(cve_ids))
+
+    @staticmethod
+    def build_osv_finding(cve_id: str, vuln: dict) -> CVEFinding:
+        """build a base OSV finding; CVSS/severity enrichment happens later"""
+        db_specific = vuln.get("database_specific") or {}
+        return CVEFinding(
+            cve_id=cve_id,
+            description=vuln.get("summary", "") or "",
+            severity=str(db_specific.get("severity") or ""),
+            cvss_score=None,
+            source="OSV",
+            references=vuln.get("references", []) or [],
+            raw_data=vuln,
+        )
+
+    @staticmethod
+    def extract_cve_details(data: dict, nist_url: str) -> dict:
+        """extract {description, cvss, severity, raw} from a cve.org/NIST record"""
+        containers = data.get("containers", {}) or {}
+        cna = containers.get("cna", {}) or {}
+        # cve.org / reformatted NIST use containers.cna, raw NIST 2.0 uses cve
+        cve_obj = data.get("cve", {}) or cna
+
+        description = extract_english_description(cve_obj.get("descriptions", []))
+        cvss_score, cvss_severity, cvss_vector = extract_cvss(cve_obj.get("metrics"))
+
+        return {
+            "description": description,
+            "cvss_v3_score": cvss_score,
+            "cvss_v3_vector": cvss_vector,
+            "severity": cvss_severity,
+            "raw": data,
+            "nist_url": nist_url,
+        }

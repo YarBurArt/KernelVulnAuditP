@@ -2,10 +2,13 @@ import logging
 import os
 import shlex
 import tempfile
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+
+import httpx
 
 from config import ALLOW_HOST_EXECUTION, ISOLATION_TIMEOUT_SEC
 from core import format_report, format_timestamp, summarize_sandbox
@@ -15,9 +18,7 @@ from isolate import Isolate
 from recon.local_target_recon import LocalRecon
 from recon.remote_feeds_recon import ReconFeeds
 from schemas import (
-    CVEFinding,
     FeedsReconResult,
-    GitHubPoC,
     KernelLPE,
     LesCVEItem,
     LocalReconResult,
@@ -79,11 +80,13 @@ class AppServices:
         if store_kev:
             self._load_and_store_kev(build_date)
 
-        findings: list[CVEFinding] = []
-        findings.extend(self.rf.nist_search(kernel, build_date))
-        findings.extend(self.rf.osv_search(kernel))
-
-        pocs: list[GitHubPoC] = self.rf.github_search(kernel)
+        # the three feed searches are independent; run them concurrently
+        with ThreadPoolExecutor(max_workers=3) as pool:
+            nist_future = pool.submit(self.rf.nist_search, kernel, build_date)
+            osv_future = pool.submit(self.rf.osv_search, kernel)
+            github_future = pool.submit(self.rf.github_search, kernel)
+            findings = list(nist_future.result()) + list(osv_future.result())
+            pocs = list(github_future.result())
 
         return FeedsReconResult(findings=findings, pocs=pocs)
 
@@ -116,7 +119,7 @@ class AppServices:
 
         try:
             return datetime.strptime(value, "%Y-%m-%d")
-        except Exception as exc:
+        except ValueError as exc:
             logger.debug("Failed to parse date '%s': %s", value, exc)
             return None
 
@@ -169,10 +172,17 @@ class AppServices:
             logger.info(
                 "Loaded %s kernel-related KEV entries", len(self.rf.kev_kern_vuln)
             )
-
-        except Exception as e:
-            logger.exception("Failed to load CISA KEV catalog: %s", e)
+        except (httpx.HTTPError, OSError, ValueError) as e:
+            logger.warning("Failed to load CISA KEV catalog: %s", e)
             return
+
+        # fetch metadata for all KEV CVEs concurrently, then write to DB serially
+        cve_ids = [
+            item.get("cveID")
+            for item in self.rf.kev_kern_vuln
+            if item.get("cveID")
+        ]
+        details_map = self.rf.get_cve_details_many(cve_ids)
 
         stored = 0
         skipped = 0
@@ -182,7 +192,7 @@ class AppServices:
             if not cve_id:
                 continue
 
-            details = self.rf.get_cve_details(cve_id)
+            details = details_map.get(cve_id, {})
             if details:
                 vuln_data["cvss_v3_score"] = details.get("cvss_v3_score")
                 vuln_data["cvss_v3_vector"] = details.get("cvss_v3_vector")
