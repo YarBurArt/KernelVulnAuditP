@@ -1,28 +1,37 @@
 """Tests for core.py - only stdlib (unittest)."""
 
+import tempfile
 import unittest
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+
 from core import (
-    parse_date_string,
-    filter_items_by_date,
-    format_timestamp,
-    dict_to_display_rows,
-    flatten_dict_value,
-    merge_dicts_by_key,
-    safe_get_nested,
-    strip_ansi_sequences,
-    extract_section_by_header,
-    extract_code_block_commands,
-    clean_command_string,
-    parse_key_with_brackets,
-    ensure_list_in_dict,
     assign_value_by_key_type,
-    parse_key_value_pairs,
     calculate_criticality_score,
     chain_get,
-    filter_list_by_pred,
-    group_by_key,
+    clean_command_string,
     count_by_key,
+    dict_to_display_rows,
+    ensure_list_in_dict,
+    extract_code_block_commands,
+    extract_cve_ids,
+    extract_cvss,
+    extract_english_description,
+    extract_section_by_header,
+    filter_items_by_date,
+    filter_list_by_pred,
+    flatten_dict_value,
+    format_report,
+    format_timestamp,
+    group_by_key,
+    merge_dicts_by_key,
+    norm_sysctl_value,
+    parse_date_string,
+    parse_key_value_pairs,
+    parse_key_with_brackets,
+    safe_get_nested,
+    strip_ansi_sequences,
+    summarize_sandbox,
+    update_config_file,
 )
 
 
@@ -39,12 +48,12 @@ class TestDateParsing(unittest.TestCase):
     def test_parse_iso_with_z(self):
         dt = parse_date_string("2024-01-15T10:30:00Z")
         self.assertIsNotNone(dt)
-        self.assertEqual(dt.tzinfo, timezone.utc)
+        self.assertEqual(dt.tzinfo, UTC)
 
     def test_parse_iso_with_offset(self):
         dt = parse_date_string("2024-01-15T10:30:00+01:00")
         self.assertIsNotNone(dt)
-        self.assertEqual(dt.tzinfo, timezone.utc)
+        self.assertEqual(dt.tzinfo, UTC)
 
     def test_parse_rfc_format(self):
         dt = parse_date_string("Mon Jan 15 10:30:00 2024 +0000")
@@ -80,7 +89,7 @@ class TestDateParsing(unittest.TestCase):
         self.assertEqual(len(result), 2)
 
     def test_filter_items_by_date(self):
-        min_ts = int(datetime(2024, 1, 1, tzinfo=timezone.utc).timestamp())
+        min_ts = int(datetime(2024, 1, 1, tzinfo=UTC).timestamp())
         items = [
             {"cve": {"published": "2024-01-15T00:00:00Z"}},
             {"cve": {"published": "2023-01-15T00:00:00Z"}},
@@ -90,7 +99,7 @@ class TestDateParsing(unittest.TestCase):
         self.assertEqual(result[0]["cve"]["published"], "2024-01-15T00:00:00Z")
 
     def test_filter_items_by_date_top_level(self):
-        min_ts = int(datetime(2024, 1, 1, tzinfo=timezone.utc).timestamp())
+        min_ts = int(datetime(2024, 1, 1, tzinfo=UTC).timestamp())
         items = [
             {"published": "2024-01-15T00:00:00Z"},
             {"published": "2023-01-15T00:00:00Z"},
@@ -101,7 +110,7 @@ class TestDateParsing(unittest.TestCase):
         self.assertEqual(len(result), 1)
 
     def test_format_timestamp(self):
-        ts = int(datetime(2024, 1, 15, 10, 30, tzinfo=timezone.utc).timestamp())
+        ts = int(datetime(2024, 1, 15, 10, 30, tzinfo=UTC).timestamp())
         result = format_timestamp(ts)
         self.assertIsNotNone(result)
         self.assertIn("2024", result)
@@ -409,6 +418,196 @@ class TestPipelineUtilities(unittest.TestCase):
         items = [{"status": "OK"}, {"status": "FAIL"}, {"status": "OK"}]
         result = count_by_key(items, "status")
         self.assertEqual(result, {"OK": 2, "FAIL": 1})
+
+
+class TestCVEHelpers(unittest.TestCase):
+    """extract_cve_ids and extract_english_description tests"""
+
+    def test_extract_cve_ids_single(self):
+        result = extract_cve_ids("Found CVE-2024-1234 in the advisory")
+        self.assertEqual(result, ["CVE-2024-1234"])
+
+    def test_extract_cve_ids_multiple(self):
+        result = extract_cve_ids("CVE-2024-0001 and CVE-2024-0002")
+        self.assertEqual(result, ["CVE-2024-0001", "CVE-2024-0002"])
+
+    def test_extract_cve_ids_case_insensitive(self):
+        result = extract_cve_ids("cve-2024-0003")
+        self.assertEqual(result, ["cve-2024-0003"])
+
+    def test_extract_cve_ids_none(self):
+        result = extract_cve_ids("no vulns referenced here")
+        self.assertEqual(result, [])
+
+    def test_extract_english_description_found(self):
+        descriptions = [{"lang": "fr", "value": "truc"}, {"lang": "en", "value": "stuff"}]
+        self.assertEqual(extract_english_description(descriptions), "stuff")
+
+    def test_extract_english_description_fallback_first(self):
+        descriptions = [{"lang": "fr", "value": "truc"}]
+        self.assertEqual(extract_english_description(descriptions), "truc")
+
+    def test_extract_english_description_empty(self):
+        self.assertEqual(extract_english_description([]), "")
+        self.assertEqual(extract_english_description(None), "")
+
+    def test_extract_english_description_non_dict_skip(self):
+        descriptions = ["junk", {"lang": "en", "value": "real"}]
+        self.assertEqual(extract_english_description(descriptions), "real")
+
+
+class TestExtractCvss(unittest.TestCase):
+    """extract_cvss tests"""
+
+    def test_extract_cvss_dict_metric(self):
+        metrics = {
+            "cvssMetricV31": [
+                {
+                    "cvssData": {
+                        "baseScore": 9.8,
+                        "baseSeverity": "CRITICAL",
+                        "vectorString": "CVSS:3.1/AV:N",
+                    }
+                }
+            ]
+        }
+        result = extract_cvss(metrics)
+        self.assertEqual(result, (9.8, "CRITICAL", "CVSS:3.1/AV:N"))
+
+    def test_extract_cvss_list_metric(self):
+        metrics = [{"cvssV3_1": {"baseScore": 7.5, "baseSeverity": "HIGH"}}]
+        result = extract_cvss(metrics)
+        self.assertEqual(result, (7.5, "HIGH", None))
+
+    def test_extract_cvss_none(self):
+        self.assertEqual(extract_cvss(None), (None, None, None))
+        self.assertEqual(extract_cvss({}), (None, None, None))
+        self.assertEqual(extract_cvss([]), (None, None, None))
+
+
+class TestNormSysctl(unittest.TestCase):
+    """norm_sysctl_value tests"""
+
+    def test_norm_sysctl_none(self):
+        self.assertEqual(norm_sysctl_value(None), "")
+
+    def test_norm_sysctl_empty(self):
+        self.assertEqual(norm_sysctl_value("  "), "")
+
+    def test_norm_sysctl_enabled_words(self):
+        for word in ("yes", "true", "on", "enabled"):
+            self.assertEqual(norm_sysctl_value(f'"{word}"'), "1")
+            self.assertEqual(norm_sysctl_value(word.upper()), "1")
+
+    def test_norm_sysctl_disabled_words(self):
+        for word in ("no", "false", "off", "disabled"):
+            self.assertEqual(norm_sysctl_value(word), "0")
+
+    def test_norm_sysctl_number(self):
+        self.assertEqual(norm_sysctl_value("3"), "3")
+        self.assertEqual(norm_sysctl_value("-1"), "-1")
+
+    def test_norm_sysctl_free_text(self):
+        self.assertEqual(norm_sysctl_value("CHANGE"), "change")
+
+
+class TestReportHelpers(unittest.TestCase):
+    """format_report and summarize_sandbox tests"""
+
+    def test_format_report_counts(self):
+        data = {
+            "kernel": "5.4.0",
+            "system": "Linux x86_64",
+            "build_date": 123,
+            "feeds": {
+                "findings": [
+                    {"source": "NIST"},
+                    {"source": "OSV"},
+                    {"source": "nist"},
+                ],
+                "pocs": [{}, {}, {}],
+            },
+        }
+        result = format_report(data)
+        self.assertEqual(result["kernel"], "5.4.0")
+        self.assertEqual(result["system"], "Linux x86_64")
+        self.assertEqual(result["build_date"], 123)
+        self.assertEqual(result["nist_count"], 2)
+        self.assertEqual(result["osv_count"], 1)
+        self.assertEqual(result["github_count"], 3)
+
+    def test_format_report_no_feeds(self):
+        result = format_report({})
+        self.assertEqual(result["nist_count"], 0)
+        self.assertEqual(result["osv_count"], 0)
+        self.assertEqual(result["github_count"], 0)
+
+    def test_summarize_sandbox(self):
+        class Result:
+            def __init__(self):
+                self.execution_mode = "run"
+                self.returncode = 0
+                self.crashed = False
+                self.stdout = "out"
+                self.stderr = ""
+                self.logs = {}
+                self.kernel_info = {}
+                self.resources = {}
+                self.modules = []
+                self.files = []
+                self.processes = []
+
+        summary = summarize_sandbox(Result())
+        self.assertEqual(summary["mode"], "run")
+        self.assertEqual(summary["returncode"], 0)
+        self.assertTrue(summary["success"])
+        self.assertFalse(summary["crashed"])
+        self.assertEqual(summary["stdout"], "out")
+
+    def test_summarize_sandbox_no_attrs(self):
+        summary = summarize_sandbox(object())
+        self.assertEqual(summary["mode"], "unknown")
+        self.assertIsNone(summary["returncode"])
+        self.assertFalse(summary["success"])
+        self.assertEqual(summary["stdout"], " ")
+
+
+class TestUpdateConfigFile(unittest.TestCase):
+    """update_config_file tests"""
+
+    def _write_config(self, content):
+        tmpdir = tempfile.TemporaryDirectory()
+        path = tmpdir.name + "/config.py"
+        with open(path, "w") as f:
+            f.write(content)
+        return tmpdir, path
+
+    def test_update_integer(self):
+        tmpdir, path = self._write_config("COUNT = 10\n")
+        try:
+            update_config_file(path, {"COUNT": "20"})
+            with open(path) as f:
+                self.assertIn("COUNT = 20", f.read())
+        finally:
+            tmpdir.cleanup()
+
+    def test_update_boolean(self):
+        tmpdir, path = self._write_config("FLAG = False\n")
+        try:
+            update_config_file(path, {"FLAG": "True"})
+            with open(path) as f:
+                self.assertIn("FLAG = True", f.read())
+        finally:
+            tmpdir.cleanup()
+
+    def test_update_string(self):
+        tmpdir, path = self._write_config('NAME = "old"\n')
+        try:
+            update_config_file(path, {"NAME": '"new"'})
+            with open(path) as f:
+                self.assertIn('NAME = "new"', f.read())
+        finally:
+            tmpdir.cleanup()
 
 
 if __name__ == "__main__":

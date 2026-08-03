@@ -467,3 +467,26 @@ def extract_cvss(metrics: Any) -> tuple[Any, Any, Any]:
                         cvss_data.get("vectorString"),
                     )
     return None, None, None
+
+
+CVE_RE = re.compile(r"(CVE-\d{4}-\d+)", re.IGNORECASE)
+
+
+def extract_cve_ids(text: str) -> list[str]:
+    """extract all CVE ids from text via CVE_RE"""
+    return list(CVE_RE.findall(text))
+
+
+def extract_english_description(descriptions: Any) -> str:
+    """extract the english description from a CVE descriptions list"""
+    descriptions = descriptions or []
+    for item in descriptions:
+        if isinstance(item, dict) and item.get("lang") == "en":
+            value = item.get("value")
+            if value:
+                return str(value)
+    if descriptions:
+        first = descriptions[0]
+        if isinstance(first, dict):
+            return str(first.get("value") or "")
+    return ""
