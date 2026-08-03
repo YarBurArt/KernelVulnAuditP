@@ -29,14 +29,18 @@ class StreamlitReportRenderer:
         self._render_security_recommendations()
 
     def _render_header(self) -> None:
-        """Render header metrics."""
+        """Render header metrics split into two rows."""
         assert st is not None
-        c1, c2, c3, c4, c5 = st.columns(5)
-        c1.metric("Started", self.data.get("started", "N/A"))
-        c2.metric("Completed", self.data.get("completed", "N/A"))
-        c3.metric("Kernel", self.data.get("kernel_version", "N/A"))
-        c4.metric("Distribution", self.data.get("distribution", "N/A"))
-        c5.metric("Latest Version", self.data.get("latest_version", "N/A"))
+
+        r1a, r1b, r1c = st.columns(3)
+        r1a.metric("Kernel", self.data.get("kernel_version", "N/A"))
+        r1b.metric("Distribution", self.data.get("distribution", "N/A"))
+        r1c.metric("Latest Version", self.data.get("latest_version", "N/A"))
+
+        r2a, r2b, r2c = st.columns(3)
+        r2a.metric("Started", self.data.get("started", "N/A"))
+        r2b.metric("Completed", self.data.get("completed", "N/A"))
+        r2c.empty()
 
     def _render_kev_stats(self) -> None:
         """Render KEV stats section."""

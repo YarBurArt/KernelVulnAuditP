@@ -1,7 +1,11 @@
 import json
+import re
 import sys
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
+
+from log_conf import LOG_FILE
 
 try:
     import streamlit
@@ -92,6 +96,37 @@ def build_security_recommendations(db) -> list[dict[str, Any]]:
     return db.get_security_recommendations(limit=200)
 
 
+_LOG_LINE_RE = re.compile(
+    r"(?P<ts>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) \| \[\w+\s*\]"
+)
+# log markers that begin a scan/execution session
+_SESSION_START_MARKERS = (
+    "local recon started in context",
+    "execution tests started in context",
+)
+
+
+def get_scan_times(log_file: Path = LOG_FILE) -> tuple[str | None, str | None]:
+    """Derive the latest scan's start/completed times from the info logs"""
+    started: str | None = None
+    completed: str | None = None
+    try:
+        with open(log_file, encoding="utf-8") as f:
+            for line in f:
+                m = _LOG_LINE_RE.match(line)
+                if not m:
+                    continue
+                ts = m.group("ts")
+                lowered = line.lower()
+                if any(mk in lowered for mk in _SESSION_START_MARKERS):
+                    started = ts
+                if started is not None:
+                    completed = ts
+    except FileNotFoundError:
+        return None, None
+    return started, completed
+
+
 def get_kernel_info() -> dict[str, str | None] | dict[str, str]:
     """get kernel info from LocalRecon"""
     lr = LocalRecon()
@@ -158,9 +193,12 @@ def build_report_data(db=None) -> dict[str, Any]:
     vulns = fetch_all_vulnerabilities(db)
     sorted_vulns = sort_vulnerabilities(vulns)
 
+    started, completed = get_scan_times()
+    now = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S %Z")
+
     return {
-        "started": datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S %Z"),
-        "completed": datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S %Z"),
+        "started": started or now,
+        "completed": completed or now,
         "kernel_version": kernel_info["kernel_version"],
         "distribution": kernel_info["distribution"],
         "latest_version": kernel_info["latest_version"],
