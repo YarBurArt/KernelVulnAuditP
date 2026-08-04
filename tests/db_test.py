@@ -1,7 +1,10 @@
+from datetime import datetime
+
 import pytest
 
 from db import get_db
 from db.db_rd import InMemoryThreatDB
+from schemas import HostInfoData, HostUser
 
 
 @pytest.fixture
@@ -9,6 +12,15 @@ def db():
     database = get_db("memory")
     yield database
     database.close()
+
+
+def _sample_host(hostname: str = "memsample", captured_at: datetime | None = None):
+    return HostInfoData(
+        hostname=hostname,
+        kernel_version="6.8.0",
+        captured_at=captured_at,
+        users=[HostUser(username="bob", uid=1000, gid=1000)],
+    )
 
 
 def test_get_db_returns_correct_backend():
@@ -330,3 +342,49 @@ def test_context_manager():
                 "cvss_v3_score": 5.0,
             }
         )
+
+
+def test_host_info_roundtrip(db):
+    hid = db.add_host_info(_sample_host())
+
+    got = db.get_host_info(hid)
+
+    assert got is not None
+    assert got.id == hid
+    assert got.hostname == "memsample"
+    assert got.kernel_version == "6.8.0"
+    assert got.users[0].username == "bob"
+    assert got.users[0].uid == 1000
+
+
+def test_host_info_missing_returns_none(db):
+    assert db.get_host_info(424242) is None
+
+
+def test_host_info_latest_ordering(db):
+    db.add_host_info(_sample_host("older", datetime(2023, 1, 1, 8, 0, 0)))
+    db.add_host_info(_sample_host("newer", datetime(2025, 1, 1, 8, 0, 0)))
+
+    latest = db.get_latest_host_info()
+
+    assert latest is not None
+    assert latest.hostname == "newer"
+
+
+def test_host_infos_header_only(db):
+    db.add_host_info(_sample_host("h1"))
+
+    headers = db.get_host_infos()
+
+    assert [h.hostname for h in headers] == ["h1"]
+    assert headers[0].users == []
+    assert headers[0].groups == []
+
+
+def test_host_infos_pagination(db):
+    for i in range(3):
+        db.add_host_info(_sample_host(f"host-{i}", datetime(2024, 1, i + 1)))
+
+    page = db.get_host_infos(limit=2, offset=0)
+
+    assert [h.hostname for h in page] == ["host-2", "host-1"]

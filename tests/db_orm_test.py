@@ -1,7 +1,16 @@
-import pytest
 from datetime import datetime
 
+import pytest
+
 from db.db_orm import ThreatIntelligenceORM
+from schemas import (
+    HostEnvironmentVariable,
+    HostGroup,
+    HostInfoData,
+    HostKernelHardening,
+    HostKernelModule,
+    HostUser,
+)
 
 
 @pytest.fixture
@@ -10,6 +19,19 @@ def db(tmp_path):
     database = ThreatIntelligenceORM(db_url=f"sqlite:///{db_path}")
     yield database
     database.close()
+
+
+def _sample_host(hostname: str = "sample", captured_at: datetime | None = None):
+    return HostInfoData(
+        hostname=hostname,
+        kernel_version="6.8.0",
+        captured_at=captured_at or datetime(2024, 1, 1, 12, 0, 0),
+        environment_variables=[HostEnvironmentVariable(name="PATH", value="/usr/bin")],
+        kernel_modules=[HostKernelModule(module_name="ext4", size=4096)],
+        kernel_hardening=[HostKernelHardening(test_id="KRNL-6000", status="ok")],
+        users=[HostUser(username="bob", uid=1000, gid=1000)],
+        groups=[HostGroup(group_name="admin", gid=1002, members=["bob", "alice"])],
+    )
 
 
 def test_upsert_vulnerability(db):
@@ -240,3 +262,57 @@ def test_context_manager():
                 "cvss_v3_score": 5.0,
             }
         )
+
+
+def test_add_host_info_and_children(db):
+    hid = db.add_host_info(_sample_host()).id
+
+    got = db.get_host_info(hid)
+
+    assert got is not None
+    assert got.hostname == "sample"
+    assert got.kernel_version == "6.8.0"
+    assert got.environment_variables[0].name == "PATH"
+    assert got.environment_variables[0].value == "/usr/bin"
+    assert got.kernel_modules[0].module_name == "ext4"
+    assert got.kernel_modules[0].size == 4096
+    assert got.kernel_hardening[0].test_id == "KRNL-6000"
+    assert got.kernel_hardening[0].status == "ok"
+    assert got.users[0].username == "bob"
+    assert got.users[0].uid == 1000
+    assert got.groups[0].group_name == "admin"
+    assert set(got.groups[0].members) == {"bob", "alice"}
+
+
+def test_host_info_missing_returns_none(db):
+    assert db.get_host_info(424242) is None
+
+
+def test_latest_host_info_ordering(db):
+    db.add_host_info(_sample_host("older", datetime(2023, 1, 1, 8, 0, 0)))
+    db.add_host_info(_sample_host("newer", datetime(2025, 1, 1, 8, 0, 0)))
+
+    latest = db.get_latest_host_info()
+
+    assert latest is not None
+    assert latest.hostname == "newer"
+
+
+def test_host_infos_header_only(db):
+    db.add_host_info(_sample_host())
+
+    headers = db.get_host_infos()
+
+    assert len(headers) == 1
+    assert headers[0].hostname == "sample"
+    assert headers[0].groups == []
+    assert headers[0].users == []
+
+
+def test_host_infos_pagination(db):
+    for i in range(3):
+        db.add_host_info(_sample_host(f"host-{i}", datetime(2024, 1, i + 1)))
+
+    page = db.get_host_infos(limit=2, offset=0)
+
+    assert [h.hostname for h in page] == ["host-2", "host-1"]

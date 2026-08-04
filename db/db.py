@@ -2,6 +2,7 @@ from abc import ABC, abstractmethod
 from typing import Any
 
 from db.models import SecurityRecommendation
+from schemas import HostInfoData
 
 
 class ThreatDB(ABC):
@@ -86,6 +87,24 @@ class ThreatDB(ABC):
 
     @abstractmethod
     def get_recommendations_stats(self) -> dict[str, Any]: ...
+
+    @abstractmethod
+    def add_host_info(self, host: HostInfoData) -> int:
+        """Persist a host snapshot; returns the host_info row id."""
+        ...
+
+    @abstractmethod
+    def get_host_info(self, host_info_id: int) -> HostInfoData | None: ...
+
+    @abstractmethod
+    def get_latest_host_info(self) -> HostInfoData | None: ...
+
+    @abstractmethod
+    def get_host_infos(
+        self, limit: int = 100, offset: int = 0
+    ) -> list[HostInfoData]:
+        """List host snapshots (header-only: scalar fields, no children)."""
+        ...
 
     @abstractmethod
     def bulk_insert(self, vulnerabilities: list[dict[str, Any]]) -> int: ...
@@ -191,6 +210,20 @@ class ThreatIntelligenceORMAdapter(ThreatDB):
 
     def get_recommendations_stats(self) -> dict[str, Any]:
         return self._db.get_recommendations_stats()
+
+    def add_host_info(self, host: HostInfoData) -> int:
+        return self._db.add_host_info(host).id
+
+    def get_host_info(self, host_info_id: int) -> HostInfoData | None:
+        return self._db.get_host_info(host_info_id)
+
+    def get_latest_host_info(self) -> HostInfoData | None:
+        return self._db.get_latest_host_info()
+
+    def get_host_infos(
+        self, limit: int = 100, offset: int = 0
+    ) -> list[HostInfoData]:
+        return self._db.get_host_infos(limit=limit, offset=offset)
 
     def bulk_insert(self, vulnerabilities: list[dict[str, Any]]) -> int:
         return self._db.bulk_insert(vulnerabilities)

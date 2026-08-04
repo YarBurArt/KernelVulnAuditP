@@ -1,10 +1,12 @@
+import copy
 import logging
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, TypedDict, cast
+from datetime import UTC, datetime
+from typing import Any, TypedDict, cast
 
 from core import calculate_criticality_score
 from db import ThreatDB
 from db.models import SecurityRecommendation
+from schemas import HOST_INFO_CHILD_FIELDS, HostInfoData
 
 logger = logging.getLogger(f"kernel_audit.{__name__}")
 
@@ -91,7 +93,7 @@ class VulnerabilityDict(VulnerabilityBase, total=False):
 
 
 def _utcnow() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 class InMemoryThreatDB(ThreatDB):
@@ -102,21 +104,23 @@ class InMemoryThreatDB(ThreatDB):
 
     def __init__(self) -> None:
         # cve_id -> vuln dict (source of truth)
-        self._vulns: Dict[str, VulnerabilityDict] = {}
+        self._vulns: dict[str, VulnerabilityDict] = {}
         # cve_id -> list of dicts
-        self._exploits: Dict[str, List[ExploitDict]] = {}
-        self._refs: Dict[str, List[ReferenceDict]] = {}
-        self._kev: Dict[str, CISAKEVDict] = {}
-        self._sandbox: Dict[str, List[SandboxRunDict]] = {}
-        self._recommendations: List[SecurityRecommendation] = []
+        self._exploits: dict[str, list[ExploitDict]] = {}
+        self._refs: dict[str, list[ReferenceDict]] = {}
+        self._kev: dict[str, CISAKEVDict] = {}
+        self._sandbox: dict[str, list[SandboxRunDict]] = {}
+        self._recommendations: list[SecurityRecommendation] = []
+        self._host_infos: list[HostInfoData] = []
+        self._next_host_id: int = 1
         self._next_id: int = 1
 
-    def upsert_vulnerability(self, data: Dict[str, Any]) -> int:
+    def upsert_vulnerability(self, data: dict[str, Any]) -> int:
         cve_id = data["cve_id"]
         now = _utcnow()
 
         if cve_id in self._vulns:
-            vuln: Dict[str, Any] = dict(self._vulns[cve_id])
+            vuln: dict[str, Any] = dict(self._vulns[cve_id])
             vuln.update({k: v for k, v in data.items() if k != "id"})
             vuln["updated_at"] = now
         else:
@@ -150,11 +154,11 @@ class InMemoryThreatDB(ThreatDB):
         self._vulns[cve_id] = cast(VulnerabilityDict, vuln)
         return vuln["id"]
 
-    def get_vulnerability(self, cve_id: str) -> Optional[Dict[str, Any]]:
+    def get_vulnerability(self, cve_id: str) -> dict[str, Any] | None:
         vuln = self._vulns.get(cve_id)
         return dict(vuln) if vuln else None
 
-    def get_vulnerability_with_details(self, cve_id: str) -> Optional[Dict[str, Any]]:
+    def get_vulnerability_with_details(self, cve_id: str) -> dict[str, Any] | None:
         vuln = self.get_vulnerability(cve_id)
         if not vuln:
             return None
@@ -172,7 +176,7 @@ class InMemoryThreatDB(ThreatDB):
             raise ValueError(f"Vulnerability {cve_id} not found")
         return vuln
 
-    def add_exploit(self, cve_id: str, exploit_data: Dict[str, Any]) -> None:
+    def add_exploit(self, cve_id: str, exploit_data: dict[str, Any]) -> None:
         vuln = self._require(cve_id)
         entry = dict(exploit_data)
         entry["id"] = len(self._exploits.get(cve_id, [])) + 1
@@ -184,7 +188,7 @@ class InMemoryThreatDB(ThreatDB):
         vuln["exploit_count"] = len(self._exploits[cve_id])
         vuln["criticality_score"] = calculate_criticality_score(dict(vuln))
 
-    def add_cisa_kev(self, cve_id: str, kev_data: Dict[str, Any]) -> None:
+    def add_cisa_kev(self, cve_id: str, kev_data: dict[str, Any]) -> None:
         vuln = self._require(cve_id)
         entry = dict(kev_data)
         entry["vulnerability_id"] = vuln["id"]
@@ -195,14 +199,14 @@ class InMemoryThreatDB(ThreatDB):
             vuln["known_ransomware"] = True
         vuln["criticality_score"] = calculate_criticality_score(dict(vuln))
 
-    def add_sandbox_run(self, cve_id: str, sandbox_data: Dict[str, Any]) -> None:
+    def add_sandbox_run(self, cve_id: str, sandbox_data: dict[str, Any]) -> None:
         vuln = self._require(cve_id)
         entry = dict(sandbox_data)
         entry.setdefault("id", len(self._sandbox.get(cve_id, [])) + 1)
         entry["vulnerability_id"] = vuln["id"]
         self._sandbox.setdefault(cve_id, []).append(cast(SandboxRunDict, entry))
 
-    def get_sandbox_runs(self, cve_id: str) -> List[Dict[str, Any]]:
+    def get_sandbox_runs(self, cve_id: str) -> list[dict[str, Any]]:
         return [dict(run) for run in self._sandbox.get(cve_id, [])]
 
     def add_reference(
@@ -226,37 +230,32 @@ class InMemoryThreatDB(ThreatDB):
 
     def search(
         self,
-        min_cvss: float | int | None = None,
+        min_cvss: float | None = None,
         severity: str | None = None,
         has_exploit: bool | None = None,
         in_cisa_kev: bool | None = None,
         min_criticality: int | None = None,
         limit: int = 100,
         offset: int = 0,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
 
         results = []
 
         for vuln in self._vulns.values():
-            if min_cvss is not None:
-                if (vuln.get("cvss_v3_score") or 0) < min_cvss:
-                    continue
+            if min_cvss is not None and (vuln.get("cvss_v3_score") or 0) < min_cvss:
+                continue
 
-            if severity is not None:
-                if vuln.get("severity") != severity:
-                    continue
+            if severity is not None and vuln.get("severity") != severity:
+                continue
 
-            if has_exploit is not None:
-                if bool(vuln.get("has_exploit")) != has_exploit:
-                    continue
+            if has_exploit is not None and bool(vuln.get("has_exploit")) != has_exploit:
+                continue
 
-            if in_cisa_kev is not None:
-                if bool(vuln.get("in_cisa_kev")) != in_cisa_kev:
-                    continue
+            if in_cisa_kev is not None and bool(vuln.get("in_cisa_kev")) != in_cisa_kev:
+                continue
 
-            if min_criticality is not None:
-                if (vuln.get("criticality_score") or 0) < min_criticality:
-                    continue
+            if min_criticality is not None and (vuln.get("criticality_score") or 0) < min_criticality:
+                continue
 
             results.append(dict(vuln))
 
@@ -270,18 +269,18 @@ class InMemoryThreatDB(ThreatDB):
 
         return results[offset : offset + limit]
 
-    def get_critical(self, limit: int = 50) -> List[Dict[str, Any]]:
+    def get_critical(self, limit: int = 50) -> list[dict[str, Any]]:
         return self.search(min_criticality=60, limit=limit)
 
-    def get_with_exploits(self, limit: int = 100) -> List[Dict[str, Any]]:
+    def get_with_exploits(self, limit: int = 100) -> list[dict[str, Any]]:
         return self.search(has_exploit=True, limit=limit)
 
-    def get_cisa_kev_list(self, limit: int = 100) -> List[Dict[str, Any]]:
+    def get_cisa_kev_list(self, limit: int = 100) -> list[dict[str, Any]]:
         return self.search(in_cisa_kev=True, limit=limit)
 
-    def get_statistics(self) -> Dict[str, Any]:
+    def get_statistics(self) -> dict[str, Any]:
         vulns = list(self._vulns.values())
-        by_severity: Dict[str, int] = {}
+        by_severity: dict[str, int] = {}
         cvss_sum, cvss_count = 0.0, 0
 
         for v in vulns:
@@ -313,14 +312,14 @@ class InMemoryThreatDB(ThreatDB):
         return rec_data.id
 
     def bulk_insert_recommendations(
-        self, recommendations: List[SecurityRecommendation]
+        self, recommendations: list[SecurityRecommendation]
     ) -> int:
         count = 0
         for rec in recommendations:
             try:
                 self.add_security_recommendation(rec)
                 count += 1
-            except Exception as e:
+            except (TypeError, AttributeError) as e:
                 logger.warning(f"Error inserting rec {rec.test_id}: {e}")
         return count
 
@@ -330,8 +329,8 @@ class InMemoryThreatDB(ThreatDB):
         status: str | None = None,
         limit: int = 100,
         offset: int = 0,
-    ) -> List[Dict[str, Any]]:
-        results: List[Dict[str, Any]] = []
+    ) -> list[dict[str, Any]]:
+        results: list[dict[str, Any]] = []
         for rec in self._recommendations:
             if category and rec.category != category:
                 continue
@@ -344,11 +343,11 @@ class InMemoryThreatDB(ThreatDB):
         )
         return results[offset : offset + limit]
 
-    def get_recommendations_stats(self) -> Dict[str, Any]:
-        stats: Dict[str, Any] = {"total": len(self._recommendations)}
-        by_category: Dict[str, int] = {}
-        by_status: Dict[str, int] = {}
-        by_severity: Dict[str, int] = {}
+    def get_recommendations_stats(self) -> dict[str, Any]:
+        stats: dict[str, Any] = {"total": len(self._recommendations)}
+        by_category: dict[str, int] = {}
+        by_status: dict[str, int] = {}
+        by_severity: dict[str, int] = {}
 
         for rec in self._recommendations:
             cat = rec.category
@@ -366,16 +365,61 @@ class InMemoryThreatDB(ThreatDB):
         stats["by_severity"] = by_severity
         return stats
 
-    def bulk_insert(self, vulnerabilities: List[Dict[str, Any]]) -> int:
+    @staticmethod
+    def _host_sort_key(host: HostInfoData) -> tuple[float, int]:
+        ts = host.captured_at.timestamp() if host.captured_at else 0.0
+        return ts, host.id or 0
+
+    @staticmethod
+    def _host_header_only(host: HostInfoData) -> HostInfoData:
+        for field_name in HOST_INFO_CHILD_FIELDS:
+            setattr(host, field_name, [])
+        return host
+
+    def add_host_info(self, host: HostInfoData) -> int:
+        snapshot = copy.deepcopy(host)
+        snapshot.id = self._next_host_id
+        self._next_host_id += 1
+        now = datetime.now(UTC)
+        if snapshot.captured_at is None:
+            snapshot.captured_at = now
+        if snapshot.created_at is None:
+            snapshot.created_at = now
+        snapshot.updated_at = now
+        self._host_infos.append(snapshot)
+        assert snapshot.id is not None
+        return snapshot.id
+
+    def get_host_info(self, host_info_id: int) -> HostInfoData | None:
+        for snapshot in self._host_infos:
+            if snapshot.id == host_info_id:
+                return copy.deepcopy(snapshot)
+        return None
+
+    def get_latest_host_info(self) -> HostInfoData | None:
+        if not self._host_infos:
+            return None
+        latest = max(self._host_infos, key=self._host_sort_key)
+        return copy.deepcopy(latest)
+
+    def get_host_infos(
+        self, limit: int = 100, offset: int = 0
+    ) -> list[HostInfoData]:
+        ordered = sorted(self._host_infos, key=self._host_sort_key, reverse=True)
+        return [
+            self._host_header_only(copy.deepcopy(snapshot))
+            for snapshot in ordered[offset : offset + limit]
+        ]
+
+    def bulk_insert(self, vulnerabilities: list[dict[str, Any]]) -> int:
         count = 0
         for vuln_data in vulnerabilities:
             try:
                 self.upsert_vulnerability(vuln_data)
                 count += 1
-            except Exception as e:
+            except (ValueError, KeyError, TypeError) as e:
                 print(f"Error inserting {vuln_data.get('cve_id')}: {e}")
         return count
 
     def close(self) -> None:
         """no-op for in-memory store; data is simply discarded"""
-        pass
