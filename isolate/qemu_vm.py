@@ -151,12 +151,31 @@ class QemuEnvironment(IsolationEnvironment):
 
         archive = workdir / "initrd.cpio"
 
-        subprocess.run(
-            f'cd "{root}" && find . -print0 | cpio --null -ov --format=newc > "{archive}"',
-            shell=True,
-            check=True,
-            stdout=subprocess.DEVNULL,
-        )
+        with archive.open("wb") as archive_file, subprocess.Popen(
+            ["find", ".", "-print0"],
+            cwd=root,
+            stdout=subprocess.PIPE,
+        ) as find_proc:
+            assert find_proc.stdout is not None
+
+            try:
+                subprocess.run(
+                    ["cpio", "--null", "-ov", "--format=newc"],
+                    stdin=find_proc.stdout,
+                    stdout=archive_file,
+                    stderr=subprocess.DEVNULL,
+                    check=True,
+                )
+            finally:
+                find_proc.stdout.close()
+
+            find_proc.wait()
+
+            if find_proc.returncode:
+                raise subprocess.CalledProcessError(
+                    returncode=find_proc.returncode,
+                    cmd=find_proc.args,
+                )
 
         self._log_initrd(archive)
         return archive
