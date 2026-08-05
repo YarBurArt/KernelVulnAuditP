@@ -8,6 +8,7 @@ import pytest
 from isolate import CCompiler, ExecutionResult, HostEnvironment, Isolate
 from isolate.parse_vm_internal_results import QEMU_CRASH_PATTERNS, ParseVmResults
 from isolate.qemu_vm import QemuEnvironment
+from isolate.virtme_ng_vm import VirtmeNGEnvironment
 
 
 class FakeTempDir:
@@ -105,6 +106,78 @@ def test_qemu_detect_crash(text):
 
 def test_qemu_detect_crash_negative():
     assert ParseVmResults.detect_crash("hello world", QEMU_CRASH_PATTERNS) is False
+
+
+def test_virtme_execute_success(monkeypatch, tmp_path):
+    binary = tmp_path / "bin"
+    binary.write_text("x")
+    env = VirtmeNGEnvironment(binary, 10, memory_mb=512, cpus=1)
+    monkeypatch.setattr(VirtmeNGEnvironment, "is_available", lambda self: True)
+
+    guest_out = (
+        "========== VM START ==========\n"
+        "Sat Aug  1 12:00:00 UTC 2026\n"
+        "Linux virtme-ng 6.1.0-virtme x86_64\n"
+        "========== MODULES ==========\n"
+        "mod1\n"
+        "========== FILESYSTEM SNAPSHOT ==========\n"
+        "drwxr-xr-x bin\n"
+        "========== PROCESS LIST ==========\n"
+        "PID USER\n"
+        "========== BINARY OUTPUT ==========\n"
+        "POC_OK\n"
+        "EXIT_CODE=0\n"
+    )
+
+    def fake_run(cmd, **kwargs):
+        stdout = kwargs.get("stdout")
+        if stdout is not None:
+            stdout.write(guest_out.encode())
+        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    result = env.execute()
+
+    assert result.returncode == 0
+    assert result.crashed is False
+    assert result.execution_mode == "virtme-ng"
+    assert "POC_OK" in result.stdout
+    assert result.logs["exit_code"] == "0"
+    assert result.logs["virtme_returncode"] == "0"
+    assert result.logs["stage"] == "vm_finished"
+    assert result.kernel_info["uname"] == "Linux virtme-ng 6.1.0-virtme x86_64"
+    assert result.modules == ["mod1"]
+    assert result.processes == ["PID USER"]
+
+
+def test_virtme_execute_timeout(monkeypatch, tmp_path):
+    binary = tmp_path / "bin"
+    binary.write_text("x")
+    env = VirtmeNGEnvironment(binary, 5)
+    monkeypatch.setattr(VirtmeNGEnvironment, "is_available", lambda self: True)
+
+    def fake_run(cmd, **kwargs):
+        raise subprocess.TimeoutExpired(cmd=["virtme-ng"], timeout=5)
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    result = env.execute()
+
+    assert result.returncode == -1
+    assert result.crashed is True
+    assert "Execution timeout" in result.stderr
+    assert result.logs["error"]
+
+
+def test_virtme_execute_raises_when_unavailable(monkeypatch, tmp_path):
+    binary = tmp_path / "bin"
+    binary.write_text("x")
+    env = VirtmeNGEnvironment(binary, 10)
+    monkeypatch.setattr(VirtmeNGEnvironment, "is_available", lambda self: False)
+
+    with pytest.raises(RuntimeError):
+        env.execute()
 
 
 def test_qemu_execute_success(monkeypatch, tmp_path):

@@ -5,12 +5,13 @@ import pytest
 from isolate import (
     CCompiler,
     QemuEnvironment,
+    VirtmeNGEnvironment,
 )
 
 
 @pytest.mark.integration
 def test_real_compile_and_execute_qemu():
-    source = Path("tests/isolate_synthetic_poc.c")
+    source = Path("tests_integration/isolate_synthetic_poc.c")
 
     assert source.exists()
 
@@ -65,7 +66,7 @@ def test_real_compile_and_execute_qemu():
 
 @pytest.mark.integration
 def test_real_compile_and_execute_qemu_logs_integrity():
-    source = Path("tests/isolate_synthetic_poc.c")
+    source = Path("tests_integration/isolate_synthetic_poc.c")
     assert source.exists()
 
     compiler = CCompiler(source)
@@ -103,6 +104,98 @@ def test_real_compile_and_execute_qemu_logs_integrity():
 
     assert result.logs["exit_code"] == "0"
     assert result.logs["qemu_returncode"] == "0"
+
+    assert result.kernel_info
+    assert result.resources
+    assert len(result.modules) > 0
+    assert len(result.processes) > 0
+    assert len(result.files) > 0
+
+    assert "POC_OK" in result.stdout
+
+
+@pytest.mark.integration
+def test_real_compile_and_execute_virtme_ng():
+    source = Path("tests_integration/isolate_synthetic_poc.c")
+
+    assert source.exists()
+
+    compiler = CCompiler(source)
+
+    binary = compiler.compile()
+
+    assert binary
+    assert binary.exists()
+
+    env = VirtmeNGEnvironment(binary, timeout=240, memory_mb=512, cpus=1)
+
+    if not env.is_available():
+        pytest.skip("virtme-ng unavailable")
+
+    result = env.execute()
+
+    assert result.execution_mode == "virtme-ng"
+    assert result.returncode == 0
+    assert result.duration_ms > 0
+    assert result.crashed is False
+
+    assert isinstance(result.kernel_info, dict)
+    assert isinstance(result.resources, dict)
+    assert isinstance(result.modules, list)
+    assert isinstance(result.processes, list)
+    assert isinstance(result.files, list)
+
+    assert result.kernel_info.get("uname")
+    assert result.modules
+    assert result.processes
+    assert result.files
+
+    assert result.logs["virtme_returncode"] == "0"
+    assert result.logs["exit_code"] == "0"
+    assert result.logs["command"]
+    assert result.logs["stdout_size"]
+
+    assert "Linux" in result.kernel_info["uname"]
+    assert "POC_OK" in result.stdout
+
+
+@pytest.mark.integration
+def test_real_compile_and_execute_virtme_ng_logs_integrity():
+    source = Path("tests_integration/isolate_synthetic_poc.c")
+    assert source.exists()
+
+    compiler = CCompiler(source)
+    binary = compiler.compile()
+
+    assert binary
+    assert binary.exists()
+
+    env = VirtmeNGEnvironment(binary, timeout=240, memory_mb=512, cpus=1)
+
+    if not env.is_available():
+        pytest.skip("virtme-ng unavailable")
+
+    result = env.execute()
+
+    required_logs = {
+        "stage",
+        "binary",
+        "timeout",
+        "command",
+        "virtme_returncode",
+        "stdout_size",
+        "stderr_size",
+        "exit_code",
+        "kernel_version",
+    }
+
+    missing = required_logs - set(result.logs)
+
+    assert not missing, f"missing logs: {missing}"
+
+    assert int(result.logs["stdout_size"]) > 0
+    assert result.logs["exit_code"] == "0"
+    assert result.logs["virtme_returncode"] == "0"
 
     assert result.kernel_info
     assert result.resources
