@@ -1,5 +1,10 @@
+import json
 import logging
+import os
+import pwd
 import re
+import shutil
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -19,6 +24,69 @@ from lib_tools.peas2json import parse_peass
 from schemas import CVEFinding, GitHubPoC, KernelAuditItem, KernelLPE, LesCVEItem
 
 logger = logging.getLogger(f"kernel_audit.{__name__}")
+
+#: process capability bits (lower 41) → canonical cap_* names
+CAPABILITY_NAMES: dict[int, str] = {
+    0: "cap_chown",
+    1: "cap_dac_override",
+    2: "cap_dac_read_search",
+    3: "cap_fowner",
+    4: "cap_fsetid",
+    5: "cap_kill",
+    6: "cap_setgid",
+    7: "cap_setuid",
+    8: "cap_setpcap",
+    9: "cap_linux_immutable",
+    10: "cap_net_bind_service",
+    11: "cap_net_broadcast",
+    12: "cap_net_admin",
+    13: "cap_net_raw",
+    14: "cap_ipc_lock",
+    15: "cap_ipc_owner",
+    16: "cap_sys_module",
+    17: "cap_sys_rawio",
+    18: "cap_sys_chroot",
+    19: "cap_sys_ptrace",
+    20: "cap_sys_pacct",
+    21: "cap_sys_admin",
+    22: "cap_sys_boot",
+    23: "cap_sys_nice",
+    24: "cap_sys_resource",
+    25: "cap_sys_time",
+    26: "cap_sys_tty_config",
+    27: "cap_mknod",
+    28: "cap_lease",
+    29: "cap_audit_write",
+    30: "cap_audit_control",
+    31: "cap_setfcap",
+    32: "cap_mac_override",
+    33: "cap_mac_admin",
+    34: "cap_syslog",
+    35: "cap_wake_alarm",
+    36: "cap_block_suspend",
+    37: "cap_audit_read",
+    38: "cap_perfmon",
+    39: "cap_bpf",
+    40: "cap_checkpoint_restore",
+}
+
+#: capabilities that escalate to root / break domain isolation when effective
+HIGH_RISK_CAPS: frozenset[str] = frozenset(
+    {
+        "cap_sys_admin",
+        "cap_sys_module",
+        "cap_sys_rawio",
+        "cap_sys_ptrace",
+        "cap_dac_override",
+        "cap_dac_read_search",
+        "cap_mac_admin",
+        "cap_syslog",
+        "cap_perfmon",
+        "cap_bpf",
+        "cap_sys_boot",
+        "cap_ipc_owner",
+    }
+)
 
 
 class ParseReports:
@@ -337,6 +405,162 @@ class ParseReports:
         except OSError as e:
             logger.warning("os error reading params.prf: %s", e)
         return {}
+
+    # ------------------------------------------------------------------ #
+    # SELinux booleans and process/file capabilities (host recon)        #
+    # ------------------------------------------------------------------ #
+
+    @staticmethod
+    def load_selinux_params(
+        params_path: str | Path = "recon/selinux_params.json",
+    ) -> dict[str, Any]:
+        """load combined SELinux boolean definitions (recon/selinux_params.json)"""
+        try:
+            with Path(params_path).open("r", encoding="utf-8") as f:
+                return json.load(f)
+        except FileNotFoundError as e:
+            logger.warning("selinux_params.json not found: %s", e)
+            return {}
+        except (OSError, ValueError) as e:
+            logger.warning("load selinux params error: %s", e)
+            return {}
+
+    @staticmethod
+    def getsebool_values() -> dict[str, bool]:
+        """parse current SELinux boolean values from `getsebool -a`"""
+        values: dict[str, bool] = {}
+        getsebool = shutil.which("getsebool")
+        if getsebool is None:
+            logger.warning("getsebool not found, SELinux booleans check skipped")
+            return values
+        try:
+            proc = subprocess.run(
+                [getsebool, "-a"], check=True, text=True, capture_output=True
+            )
+        except subprocess.CalledProcessError as e:
+            logger.warning("getsebool -a failed: %s", e)
+            return values
+        except OSError as e:
+            logger.warning("getsebool -a os error: %s", e)
+            return values
+
+        for line in proc.stdout.splitlines():
+            line = line.strip()
+            if not line or "-->" not in line:
+                continue
+            name, _, raw = line.partition("-->")
+            name = name.strip()
+            state = raw.strip().lower()
+            if name and state in ("on", "off", "1", "0"):
+                values[name] = state in ("on", "1")
+        return values
+
+    @staticmethod
+    def parse_proc_status(status_text: str) -> dict[str, str]:
+        """parse /proc/<pid>/status 'Key: Value' lines into a dict"""
+        fields: dict[str, str] = {}
+        for line in status_text.splitlines():
+            key, sep, value = line.partition(":")
+            if not sep:
+                continue
+            fields[key.strip()] = value.strip()
+        return fields
+
+    @staticmethod
+    def decode_cap_mask(mask: str | None) -> int:
+        """convert a hex capability mask string to an int (0 on error)"""
+        if not mask:
+            return 0
+        try:
+            return int(mask, 16)
+        except (TypeError, ValueError):
+            return 0
+
+    @staticmethod
+    def cap_names_from_mask(mask_hex: str | None) -> list[str]:
+        """expand a hex capability mask string to a list of cap_* names"""
+        value = ParseReports.decode_cap_mask(mask_hex)
+        return [CAPABILITY_NAMES[i] for i in range(41) if value & (1 << i)]
+
+    @staticmethod
+    def username_for_uid(uid: int | None) -> str | None:
+        """resolve a numeric uid to a username (falls back to the number)"""
+        if uid is None:
+            return None
+        try:
+            return pwd.getpwuid(uid).pw_name
+        except (KeyError, OverflowError):
+            return str(uid)
+
+    @staticmethod
+    def path_dirs() -> list[Path]:
+        """list existing directories from $PATH"""
+        dirs: list[Path] = []
+        for raw in os.environ.get("PATH", "").split(os.pathsep):
+            if not raw:
+                continue
+            path = Path(raw)
+            if path.is_dir():
+                dirs.append(path)
+        return dirs
+
+    @staticmethod
+    def getcap_binaries(binaries: list[str]) -> list[tuple[str, str]]:
+        """run getcap on the given files, return (path, caps-string) pairs"""
+        getcap = shutil.which("getcap")
+        if getcap is None:
+            logger.warning("getcap not found, file caps check skipped")
+            return []
+        if not binaries:
+            return []
+
+        # chunk to stay well under ARG_MAX for very large $PATH dirs
+        chunk_size = 100
+        caps: list[tuple[str, str]] = []
+        for start in range(0, len(binaries), chunk_size):
+            chunk = binaries[start : start + chunk_size]
+            try:
+                proc = subprocess.run(
+                    [getcap] + chunk, check=True, text=True, capture_output=True
+                )
+            except subprocess.CalledProcessError as e:
+                logger.warning("getcap failed: %s", e)
+                continue
+            except OSError as e:
+                logger.warning("getcap os error: %s", e)
+                continue
+
+            for line in proc.stdout.splitlines():
+                if not line.strip():
+                    continue
+                if "-->" in line:
+                    cap_path, _, raw = line.partition("-->")
+                    caps.append((cap_path.strip(), raw.strip()))
+                else:
+                    cap_path, _, raw = line.partition(" ")
+                    raw = raw.strip()
+                    if raw and "-->" not in raw:
+                        caps.append((cap_path.strip(), raw))
+        return caps
+
+    @staticmethod
+    def split_capabilities(raw: str) -> dict[str, list[str]]:
+        """split a getcap caps-string (e.g. 'cap_net_raw=ep') into sets by flag"""
+        sets: dict[str, list[str]] = {"e": [], "p": [], "i": [], "a": []}
+        if not isinstance(raw, str):
+            return sets
+        for part in raw.replace(" ", "").split(","):
+            if not part:
+                continue
+            name, sep, flags = part.partition("=")
+            if not sep and "+" in part:
+                name, _, flags = part.partition("+")
+            if not flags:
+                continue
+            for flag in flags:
+                if flag in sets:
+                    sets[flag].append(name)
+        return sets
 
     @staticmethod
     def reformat_cve_details(data_raw: dict) -> dict:

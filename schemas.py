@@ -137,6 +137,17 @@ class LocalReconResult:
     security_recommendations: list[SecurityRecommendationType] = field(
         default_factory=list
     )
+    selinux_booleans: list[HostSELinuxBoolean] = field(default_factory=list)
+    file_capabilities: list[HostFileCapabilities] = field(default_factory=list)
+    process_capabilities: list[HostProcessCapabilities] = field(
+        default_factory=list
+    )
+    selinux_hardening: list[SecurityRecommendationType] = field(
+        default_factory=list
+    )
+    capability_hardening: list[SecurityRecommendationType] = field(
+        default_factory=list
+    )
 
 
 @dataclass

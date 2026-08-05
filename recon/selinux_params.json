@@ -1,0 +1,638 @@
+{
+  "cant_connect": {
+    "source": "cant_connect.yml",
+    "description": "Turn off all booleans which allow domain connect to any network port",
+    "booleans": [
+      {
+        "name": "cluster_can_network_connect",
+        "state": "off",
+        "persistent": "yes",
+        "comment": "Allow cluster administrative domains to connect to the network using TCP."
+      },
+      {
+        "name": "cobbler_can_network_connect",
+        "state": "off",
+        "persistent": "yes",
+        "comment": "Determine whether Cobbler can connect to the network using TCP."
+      },
+      {
+        "name": "collectd_tcp_network_connect",
+        "state": "off",
+        "persistent": "yes",
+        "comment": "Determine whether collectd can connect to the network using TCP."
+      },
+      {
+        "name": "conman_can_network",
+        "state": "off",
+        "persistent": "yes",
+        "comment": "Determine whether conman can connect to all TCP ports"
+      },
+      {
+        "name": "condor_tcp_network_connect",
+        "state": "off",
+        "persistent": "yes",
+        "comment": "Determine whether Condor can connect to the network using TCP."
+      },
+      {
+        "name": "exim_can_connect_db",
+        "state": "off",
+        "persistent": "yes",
+        "comment": "Determine whether exim can connect to databases."
+      },
+      {
+        "name": "fenced_can_network_connect",
+        "state": "off",
+        "persistent": "yes",
+        "comment": "Determine whether fenced can connect to the TCP network."
+      },
+      {
+        "name": "ftpd_connect_all_unreserved",
+        "state": "off",
+        "persistent": "yes",
+        "comment": "Determine whether ftpd can connect to all unreserved ports."
+      },
+      {
+        "name": "ftpd_use_passive_mode",
+        "state": "off",
+        "persistent": "yes",
+        "comment": "Determine whether ftpd can bind to all unreserved ports for passive mode."
+      },
+      {
+        "name": "ftpd_connect_db",
+        "state": "off",
+        "persistent": "yes",
+        "comment": "Determine whether ftpd can connect to databases over the TCP network."
+      },
+      {
+        "name": "git_session_bind_all_unreserved_ports",
+        "state": "off",
+        "persistent": "yes",
+        "comment": "Determine whether Git session daemon can bind TCP sockets to all unreserved ports."
+      },
+      {
+        "name": "glance_api_can_network",
+        "state": "off",
+        "persistent": "yes",
+        "comment": "Determine whether glance-api can connect to all TCP ports"
+      },
+      {
+        "name": "haproxy_connect_any",
+        "state": "off",
+        "persistent": "yes",
+        "comment": "Determine whether haproxy can connect to all TCP ports."
+      },
+      {
+        "name": "httpd_can_connect_ftp",
+        "state": "off",
+        "persistent": "yes",
+        "comment": "Allow httpd to act as a FTP client connecting to the ftp port and ephemeral ports"
+      },
+      {
+        "name": "httpd_can_connect_ldap",
+        "state": "off",
+        "persistent": "yes",
+        "comment": "Allow httpd to connect to the ldap port"
+      },
+      {
+        "name": "httpd_can_connect_mythtv",
+        "state": "off",
+        "persistent": "yes",
+        "comment": "Allow http daemon to connect to mythtv"
+      },
+      {
+        "name": "httpd_can_connect_zabbix",
+        "state": "off",
+        "persistent": "yes",
+        "comment": "Allow http daemon to connect to zabbix"
+      },
+      {
+        "name": "httpd_can_network_connect",
+        "state": "off",
+        "persistent": "yes",
+        "comment": "Allow HTTPD scripts and modules to connect to the network using TCP."
+      },
+      {
+        "name": "httpd_can_network_connect_cobbler",
+        "state": "off",
+        "persistent": "yes",
+        "comment": "Allow HTTPD scripts and modules to connect to cobbler over the network."
+      },
+      {
+        "name": "httpd_can_network_connect_db",
+        "state": "off",
+        "persistent": "yes",
+        "comment": "Allow HTTPD scripts and modules to connect to databases over the network."
+      },
+      {
+        "name": "httpd_can_network_memcache",
+        "state": "off",
+        "persistent": "yes",
+        "comment": "Allow httpd to connect to memcache server"
+      },
+      {
+        "name": "httpd_can_network_relay",
+        "state": "off",
+        "persistent": "yes",
+        "comment": "Allow httpd to act as a relay"
+      },
+      {
+        "name": "httpd_enable_ftp_server",
+        "state": "off",
+        "persistent": "yes",
+        "comment": "Allow httpd to act as a FTP server by listening on the ftp port."
+      },
+      {
+        "name": "httpd_graceful_shutdown",
+        "state": "off",
+        "persistent": "yes",
+        "comment": "Allow HTTPD to connect to port 80 for graceful shutdown"
+      },
+      {
+        "name": "httpd_use_openstack",
+        "state": "off",
+        "persistent": "yes",
+        "comment": "Allow httpd to access openstack ports"
+      },
+      {
+        "name": "httpd_use_sasl",
+        "state": "off",
+        "persistent": "yes",
+        "comment": "Allow httpd to connect to sasl"
+      },
+      {
+        "name": "icecast_use_any_tcp_ports",
+        "state": "off",
+        "persistent": "yes",
+        "comment": "Determine whether icecast can listen on and connect to any TCP port."
+      },
+      {
+        "name": "irc_use_any_tcp_ports",
+        "state": "off",
+        "persistent": "yes",
+        "comment": "Determine whether irc clients can listen on and connect to any unreserved TCP ports."
+      },
+      {
+        "name": "irssi_use_full_network",
+        "state": "off",
+        "persistent": "yes",
+        "comment": "Allow the Irssi IRC Client to connect to any port, and to bind to any unreserved port."
+      },
+      {
+        "name": "keepalived_connect_any",
+        "state": "off",
+        "persistent": "yes",
+        "comment": "Determine whether keepalived can connect to all TCP ports."
+      },
+      {
+        "name": "logwatch_can_network_connect_mail",
+        "state": "off",
+        "persistent": "yes",
+        "comment": "Determine whether logwatch can connect to mail over the network."
+      },
+      {
+        "name": "lsmd_plugin_connect_any",
+        "state": "off",
+        "persistent": "yes",
+        "comment": "Determine whether lsmd_plugin can connect to all TCP ports."
+      },
+      {
+        "name": "mozilla_plugin_bind_unreserved_ports",
+        "state": "off",
+        "persistent": "yes",
+        "comment": "Allow mozilla plugin domain to bind unreserved tcp/udp ports."
+      },
+      {
+        "name": "mozilla_plugin_can_network_connect",
+        "state": "off",
+        "persistent": "yes",
+        "comment": "Allow mozilla plugin domain to connect to the network using TCP."
+      },
+      {
+        "name": "mysql_connect_any",
+        "state": "off",
+        "persistent": "yes",
+        "comment": "Allow mysqld to connect to all ports"
+      },
+      {
+        "name": "mysql_connect_http",
+        "state": "off",
+        "persistent": "yes",
+        "comment": "Allow mysqld to connect to http port"
+      },
+      {
+        "name": "named_tcp_bind_http_port",
+        "state": "off",
+        "persistent": "yes",
+        "comment": "Determine whether Bind can bind tcp socket to http ports."
+      },
+      {
+        "name": "neutron_can_network",
+        "state": "off",
+        "persistent": "yes",
+        "comment": "Determine whether neutron can connect to all TCP ports"
+      },
+      {
+        "name": "openfortivpn_can_network_connect",
+        "state": "off",
+        "persistent": "yes",
+        "comment": "Determine whether openfortivpn can connect to the TCP network."
+      },
+      {
+        "name": "openvpn_can_network_connect",
+        "state": "off",
+        "persistent": "yes",
+        "comment": "Determine whether openvpn can connect to the TCP network."
+      },
+      {
+        "name": "pcp_bind_all_unreserved_ports",
+        "state": "off",
+        "persistent": "yes",
+        "comment": "Allow pcp to bind to all unreserved_ports"
+      },
+      {
+        "name": "pdns_can_network_connect_db",
+        "state": "off",
+        "persistent": "yes",
+        "comment": "Allow PowerDNS to connect to databases over the network."
+      },
+      {
+        "name": "piranha_lvs_can_network_connect",
+        "state": "off",
+        "persistent": "yes",
+        "comment": "Allow piranha-lvs domain to connect to the network using TCP."
+      },
+      {
+        "name": "polipo_session_bind_all_unreserved_ports",
+        "state": "off",
+        "persistent": "yes",
+        "comment": "Determine whether Polipo session daemon can bind tcp sockets to all unreserved ports."
+      },
+      {
+        "name": "polipo_connect_all_unreserved",
+        "state": "off",
+        "persistent": "yes",
+        "comment": "Allow polipo to connect to all ports > 1023"
+      },
+      {
+        "name": "privoxy_connect_any",
+        "state": "off",
+        "persistent": "yes",
+        "comment": "Determine whether privoxy can connect to all tcp ports."
+      },
+      {
+        "name": "prosody_bind_http_port",
+        "state": "off",
+        "persistent": "yes",
+        "comment": "Permit to prosody to bind apache port. Need to be activated to use BOSH."
+      },
+      {
+        "name": "samba_portmapper",
+        "state": "off",
+        "persistent": "yes",
+        "comment": "Allow samba to act as a portmapper"
+      },
+      {
+        "name": "selinuxuser_mysql_connect_enabled",
+        "state": "off",
+        "persistent": "yes",
+        "comment": "Allow users to connect to the local mysql server"
+      },
+      {
+        "name": "selinuxuser_postgresql_connect_enabled",
+        "state": "off",
+        "persistent": "yes",
+        "comment": "Allow users to connect to PostgreSQL"
+      },
+      {
+        "name": "selinuxuser_tcp_server",
+        "state": "off",
+        "persistent": "yes",
+        "comment": "Allow users to run TCP servers (bind to ports and accept connection from the same domain and outside users) disabling this forces FTP passive mode and may change other protocols."
+      },
+      {
+        "name": "selinuxuser_udp_server",
+        "state": "off",
+        "persistent": "yes",
+        "comment": "Allow users to run UDP servers (bind to ports and accept connection from the same domain and outside users) disabling this may break avahi discovering services on the network and other udp related services."
+      },
+      {
+        "name": "sge_domain_can_network_connect",
+        "state": "off",
+        "persistent": "yes",
+        "comment": "Allow sge to connect to the network using any TCP port"
+      },
+      {
+        "name": "spamassassin_can_network",
+        "state": "off",
+        "persistent": "yes",
+        "comment": "Allow user spamassassin clients to use the network."
+      },
+      {
+        "name": "spamd_update_can_network",
+        "state": "off",
+        "persistent": "yes",
+        "comment": "Allow spamd_update to connect to all ports."
+      },
+      {
+        "name": "squid_bind_snmp_port",
+        "state": "off",
+        "persistent": "yes",
+        "comment": "Determine whether squid should have access to snmp port."
+      },
+      {
+        "name": "squid_connect_any",
+        "state": "off",
+        "persistent": "yes",
+        "comment": "Determine whether squid can connect to all TCP ports."
+      },
+      {
+        "name": "sssd_connect_all_unreserved_ports",
+        "state": "off",
+        "persistent": "yes",
+        "comment": "Allow sssd connect to all unreserved ports"
+      },
+      {
+        "name": "sslh_can_bind_any_port",
+        "state": "off",
+        "persistent": "yes",
+        "comment": "Determine whether sslh can listen on any tcp port or if it is restricted to the standard http."
+      },
+      {
+        "name": "sslh_can_connect_any_port",
+        "state": "off",
+        "persistent": "yes",
+        "comment": "Determine whether sslh can connect to any tcp port or if it is restricted to the standard http, openvpn and jabber ports."
+      },
+      {
+        "name": "swift_can_network",
+        "state": "off",
+        "persistent": "yes",
+        "comment": "Determine whether swift can connect to all TCP ports"
+      },
+      {
+        "name": "systemd_socket_proxyd_connect_any",
+        "state": "off",
+        "persistent": "yes",
+        "comment": "Allow systemd-socket-proxyd to connect to any port instead of labelled ones."
+      },
+      {
+        "name": "telepathy_connect_all_ports",
+        "state": "off",
+        "persistent": "yes",
+        "comment": "Allow the Telepathy connection managers to connect to any network port."
+      },
+      {
+        "name": "telepathy_tcp_connect_generic_network_ports",
+        "state": "off",
+        "persistent": "yes",
+        "comment": "Allow the Telepathy connection managers to connect to any generic TCP port."
+      },
+      {
+        "name": "tomcat_can_network_connect_db",
+        "state": "off",
+        "persistent": "yes",
+        "comment": "Allow tomcat to connect to databases over the network."
+      },
+      {
+        "name": "tor_bind_all_unreserved_ports",
+        "state": "off",
+        "persistent": "yes",
+        "comment": "Determine whether tor can bind tcp sockets to all unreserved ports."
+      },
+      {
+        "name": "tor_can_network_relay",
+        "state": "off",
+        "persistent": "yes",
+        "comment": "Allow tor to act as a relay"
+      },
+      {
+        "name": "varnishd_connect_any",
+        "state": "off",
+        "persistent": "yes",
+        "comment": "Determine whether varnishd can use the full TCP network."
+      },
+      {
+        "name": "virt_use_comm",
+        "state": "off",
+        "persistent": "yes",
+        "comment": "Allow confined virtual guests to use serial/parallel communication ports"
+      },
+      {
+        "name": "xdm_bind_vnc_tcp_port",
+        "state": "off",
+        "persistent": "yes",
+        "comment": "Allows xdm_t to bind on vnc_port_t"
+      },
+      {
+        "name": "zabbix_can_network",
+        "state": "off",
+        "persistent": "yes",
+        "comment": "Determine whether zabbix can connect to all TCP ports"
+      }
+    ]
+  },
+  "deny_execmem": {
+    "source": "deny_execmem.yml",
+    "description": "Turn off all booleans which allow domain execmem/execstack",
+    "booleans": [
+      {
+        "name": "boinc_execmem",
+        "state": "off",
+        "persistent": "yes",
+        "comment": "Determine whether boinc can execmem/execstack."
+      },
+      {
+        "name": "cluster_use_execmem",
+        "state": "off",
+        "persistent": "yes",
+        "comment": "Allow cluster administrative cluster domains memcheck-amd64- to use executable memory"
+      },
+      {
+        "name": "cups_execmem",
+        "state": "off",
+        "persistent": "yes",
+        "comment": "Allow cups execmem/execstack"
+      },
+      {
+        "name": "deny_execmem",
+        "state": "on",
+        "persistent": "yes",
+        "comment": "Deny user domains applications to map a memory region as both executable and writable"
+      },
+      {
+        "name": "deny_ptrace",
+        "state": "on",
+        "persistent": "yes",
+        "comment": "Deny any process from ptracing or debugging any other processes."
+      },
+      {
+        "name": "glance_use_execmem",
+        "state": "off",
+        "persistent": "yes",
+        "comment": "Allow glance domain to use executable memory and executable stack"
+      },
+      {
+        "name": "gluster_use_execmem",
+        "state": "off",
+        "persistent": "yes",
+        "comment": "Allow glusterd_t domain to use executable memory"
+      },
+      {
+        "name": "httpd_execmem",
+        "state": "off",
+        "persistent": "yes",
+        "comment": "Allow httpd scripts and modules execmem/execstack"
+      },
+      {
+        "name": "mplayer_execstack",
+        "state": "off",
+        "persistent": "yes",
+        "comment": "Determine whether mplayer can make its stack executable"
+      },
+      {
+        "name": "rngd_execmem",
+        "state": "off",
+        "persistent": "yes",
+        "comment": "Allow rngd_t domain to use executable memory"
+      },
+      {
+        "name": "selinuxuser_execheap",
+        "state": "off",
+        "persistent": "yes",
+        "comment": "Allow unconfined executables to make their heap memory executable. Doing this is a really bad idea. Probably indicates a badly coded executable, but could indicate an attack. This executable should be reported in bugzilla"
+      },
+      {
+        "name": "selinuxuser_execmod",
+        "state": "off",
+        "persistent": "yes",
+        "comment": "Allow all unconfined executables to use libraries requiring text relocation that are not labeled textrel_shlib_t"
+      },
+      {
+        "name": "selinuxuser_execstack",
+        "state": "off",
+        "persistent": "yes",
+        "comment": "Allow unconfined executables to make their stack executable. This should never, ever be necessary. Probably indicates a badly coded executable, but could indicate an attack. This executable should be reported in bugzilla"
+      },
+      {
+        "name": "tomcat_use_execmem",
+        "state": "off",
+        "persistent": "yes",
+        "comment": "Allow tomcat to use executable memory and executable stack"
+      },
+      {
+        "name": "virt_use_execmem",
+        "state": "off",
+        "persistent": "yes",
+        "comment": "Allow confined virtual guests to use executable memory and executable stack"
+      },
+      {
+        "name": "xserver_execmem",
+        "state": "off",
+        "persistent": "yes",
+        "comment": "Allows XServer to execute writable memory"
+      }
+    ]
+  },
+  "deny_export": {
+    "source": "deny_export.yml",
+    "description": "",
+    "booleans": [
+      {
+        "name": "gluster_anon_write",
+        "state": "off",
+        "persistent": "yes",
+        "comment": "Gluster ###"
+      },
+      {
+        "name": "gluster_export_all_rw",
+        "state": "off",
+        "persistent": "yes",
+        "comment": "Allow glusterfsd to share any file/directory read/write"
+      },
+      {
+        "name": "gluster_export_all_ro",
+        "state": "off",
+        "persistent": "yes",
+        "comment": "Allow glusterfsd to share any file/directory read only."
+      },
+      {
+        "name": "nfsd_anon_write",
+        "state": "off",
+        "persistent": "yes",
+        "comment": "NFS ###"
+      },
+      {
+        "name": "nfs_export_all_rw",
+        "state": "off",
+        "persistent": "yes",
+        "comment": "Allow nfs to export all read/write"
+      },
+      {
+        "name": "nfs_export_all_ro",
+        "state": "off",
+        "persistent": "yes",
+        "comment": "Allow nfs to export all read only."
+      },
+      {
+        "name": "rsync_export_all_ro",
+        "state": "off",
+        "persistent": "yes",
+        "comment": "Rsync ###"
+      },
+      {
+        "name": "smbd_anon_write",
+        "state": "off",
+        "persistent": "yes",
+        "comment": "Samba ###"
+      },
+      {
+        "name": "samba_enable_home_dirs",
+        "state": "off",
+        "persistent": "yes",
+        "comment": "Allow samba to share users home directories."
+      },
+      {
+        "name": "samba_export_all_rw",
+        "state": "off",
+        "persistent": "yes",
+        "comment": "Allow samba to export all read/write"
+      },
+      {
+        "name": "samba_export_all_ro",
+        "state": "off",
+        "persistent": "yes",
+        "comment": "Allow samba to export all read only."
+      },
+      {
+        "name": "samba_share_fusefs",
+        "state": "off",
+        "persistent": "yes",
+        "comment": "Allow samba to export ntfs/fusefs volumes."
+      },
+      {
+        "name": "samba_share_nfs",
+        "state": "off",
+        "persistent": "yes",
+        "comment": "Allow samba to export NFS volumes."
+      }
+    ]
+  },
+  "manage_modules": {
+    "source": "modules.yml",
+    "description": "Disable unconfined and permissive domains",
+    "booleans": [
+      {
+        "name": "unconfined",
+        "state": "disabled",
+        "persistent": "no",
+        "comment": "Unconfined domains run with no or few restrictions but do not log any requested access"
+      },
+      {
+        "name": "permissivedomains",
+        "state": "disabled",
+        "persistent": "no",
+        "comment": "Permissive domains are individual domains that are specified to run in permissive mode and log access what would be denied"
+      }
+    ]
+  }
+}

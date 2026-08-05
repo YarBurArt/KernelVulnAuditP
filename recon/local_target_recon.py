@@ -20,9 +20,17 @@ from config import (
     PATH_LINPEAS,
 )
 from core import norm_sysctl_value
-from recon.parse_recon_reports import ParseReports
+from recon.parse_recon_reports import HIGH_RISK_CAPS, ParseReports
 from recon.remote_feeds_recon import logger
-from schemas import KernelAuditItem, KernelLPE, LesCVEItem, SecurityRecommendationType
+from schemas import (
+    HostFileCapabilities,
+    HostProcessCapabilities,
+    HostSELinuxBoolean,
+    KernelAuditItem,
+    KernelLPE,
+    LesCVEItem,
+    SecurityRecommendationType,
+)
 
 
 class LocalRecon:
@@ -377,3 +385,289 @@ class LocalRecon:
         except Exception as e:
             logger.exception("get_lynis_kernel_hardening_details failed: %s", e)
             return []
+
+    def get_host_selinux_bools(
+        self,
+        params_path: str | Path = "recon/selinux_params.json",
+    ) -> list[HostSELinuxBoolean]:
+        """check hardened SELinux booleans (selinux_params.json) against the
+        current system values from `getsebool -a`"""
+        params = self.parser.load_selinux_params(params_path)
+        current = self.parser.getsebool_values()
+
+        names: list[str] = []
+        for section in params.values():
+            for item in section.get("booleans", []):
+                name = item.get("name")
+                if name and name not in names:
+                    names.append(name)
+
+        booleans = [
+            HostSELinuxBoolean(
+                boolean_name=name,
+                value=current.get(name, False),
+            )
+            for name in names
+        ]
+        logger.info("collected %d SELinux booleans", len(booleans))
+        return booleans
+
+    def get_selinux_hardening(
+        self,
+        params_path: str | Path = "recon/selinux_params.json",
+    ) -> list[SecurityRecommendationType]:
+        """build per-boolean hardening recommendations by comparing the
+        hardened state from selinux_params.json with the live getsebool value,
+        based on https://access.redhat.com/articles/7047896
+        and https://github.com/fedora-selinux/selinux-playbooks """
+        params = self.parser.load_selinux_params(params_path)
+        current = self.parser.getsebool_values()
+
+        results: list[SecurityRecommendationType] = []
+        idx = 0
+        for section_name, section in params.items():
+            for item in section.get("booleans", []):
+                name = item.get("name")
+                if not name:
+                    continue
+                idx += 1
+                expected_on = item.get("state", "off") == "on"
+                actual = current.get(name, False)
+                expected_str = "on" if expected_on else "off"
+                actual_str = "on" if actual else "off"
+
+                if actual == expected_on:
+                    status, severity = "ok", "info"
+                elif expected_on and not actual:
+                    status, severity = "FAIL", "critical"
+                else:
+                    status, severity = "WARNING", "warning"
+
+                results.append(
+                    SecurityRecommendationType(
+                        test_id=f"SELNX-{idx:04d}",
+                        category="SELinux",
+                        description=item.get(
+                            "comment", section.get("description", "")
+                        ),
+                        field_name=name,
+                        expected_value=expected_str,
+                        actual_value=actual_str,
+                        status=status,
+                        severity=severity,
+                        source="selinux",
+                        raw_data={
+                            "section": section_name,
+                            "persistent": item.get("persistent", ""),
+                            "expected_normalized": expected_on,
+                            "actual_normalized": actual,
+                        },
+                    )
+                )
+
+        logger.info("prepared %d SELinux hardening recommendations", len(results))
+        return results
+
+    def get_pids_caps(self) -> list[HostProcessCapabilities]:
+        """inspect capability masks of every process (/proc/<pid>/status),
+        returning only processes that actually hold capabilities"""
+        result: list[HostProcessCapabilities] = []
+        proc_root = Path("/proc")
+        if not proc_root.exists():
+            logger.warning("/proc not found, process caps check skipped")
+            return result
+
+        try:
+            pids = [
+                int(entry.name)
+                for entry in proc_root.iterdir()
+                if entry.name.isdigit()
+            ]
+        except OSError as e:
+            logger.warning("list /proc error: %s", e)
+            return result
+
+        for pid in pids:
+            try:
+                status_file = proc_root / str(pid) / "status"
+                if not status_file.is_file():
+                    continue
+                status_text = status_file.read_text(
+                    encoding="utf-8", errors="ignore"
+                )
+            except (PermissionError, OSError) as e:
+                logger.debug("skip pid %s status: %s", pid, e)
+                continue
+
+            fields = self.parser.parse_proc_status(status_text)
+            cap_eff = self.parser.decode_cap_mask(fields.get("CapEff"))
+            cap_prm = self.parser.decode_cap_mask(fields.get("CapPrm"))
+            cap_amb = self.parser.decode_cap_mask(fields.get("CapAmb"))
+
+            # keep only processes that actually hold (dangerous) capabilities
+            if not (cap_eff or cap_prm or cap_amb):
+                continue
+
+            uid_fields = fields.get("Uid", "").split()
+            uid = int(uid_fields[1]) if len(uid_fields) > 1 else None
+
+            secbits = fields.get("Secbits")
+            no_new_privs_raw = fields.get("NoNewPrivs")
+            result.append(
+                HostProcessCapabilities(
+                    pid=pid,
+                    process_name=fields.get("Name", ""),
+                    username=self.parser.username_for_uid(uid),
+                    cap_effective=fields.get("CapEff"),
+                    cap_permitted=fields.get("CapPrm"),
+                    cap_inheritable=fields.get("CapInh"),
+                    cap_bounding=fields.get("CapBnd"),
+                    cap_ambient=fields.get("CapAmb"),
+                    secbits=secbits,
+                    no_new_privs=(
+                        no_new_privs_raw == "1" if no_new_privs_raw else None
+                    ),
+                )
+            )
+
+        result.sort(key=lambda c: c.pid)
+        logger.info("collected capability masks for %d processes", len(result))
+        return result
+
+    def get_bpath_caps(self) -> list[HostFileCapabilities]:
+        """getcap every executable file found in $PATH"""
+        binaries: list[str] = []
+        for directory in self.parser.path_dirs():
+            try:
+                for entry in directory.iterdir():
+                    if entry.is_file() and os.access(entry, os.X_OK):
+                        binaries.append(str(entry))
+            except OSError as e:
+                logger.debug("skip PATH dir %s: %s", directory, e)
+                continue
+
+        found = self.parser.getcap_binaries(binaries)
+        result: list[HostFileCapabilities] = []
+        for path, raw in found:
+            sets = self.parser.split_capabilities(raw)
+            owner_name = None
+            try:
+                uid = os.stat(path).st_uid
+                owner_name = self.parser.username_for_uid(uid)
+            except OSError as e:
+                logger.debug("stat %s error: %s", path, e)
+            result.append(
+                HostFileCapabilities(
+                    path=path,
+                    owner_name=owner_name,
+                    cap_effective=",".join(sets["e"]) or None,
+                    cap_permitted=",".join(sets["p"]) or None,
+                    cap_inheritable=",".join(sets["i"]) or None,
+                    cap_ambient=",".join(sets["a"]) or None,
+                )
+            )
+
+        result.sort(key=lambda c: c.path)
+        logger.info("found %d PATH files with capabilities", len(result))
+        return result
+
+    @staticmethod
+    def _proc_cap_severity(
+        cap_names: list[str], username: str | None
+    ) -> tuple[str, str]:
+        """(severity, status) for a process capability set.
+
+        Warning by default (most processes legitimately hold some caps);
+        critical only when a non-root process carries high-risk caps,
+        which is a genuine privilege-escalation signal.
+        """
+        has_high = any(cap in HIGH_RISK_CAPS for cap in cap_names)
+        if has_high and username != "root":
+            return "critical", "FAIL"
+        if cap_names:
+            return "warning", "WARNING"
+        return "info", "ok"
+
+    @staticmethod
+    def _file_cap_severity(cap_names: list[str]) -> tuple[str, str]:
+        """(severity, status) for a PATH file's effective capability set.
+
+        Files with high-risk caps are persistent attack surface, so those
+        are critical; the common low-risk ones (cap_net_raw etc.) warn.
+        """
+        if any(cap in HIGH_RISK_CAPS for cap in cap_names):
+            return "critical", "FAIL"
+        if cap_names:
+            return "warning", "WARNING"
+        return "info", "ok"
+
+    def get_capability_recommendations(self) -> list[SecurityRecommendationType]:
+        """summarise process + PATH-file capabilities as hardening findings"""
+        results: list[SecurityRecommendationType] = []
+        idx = 0
+
+        for pc in self.get_pids_caps():
+            idx += 1
+            eff_names = self.parser.cap_names_from_mask(pc.cap_effective)
+            severity, status = self._proc_cap_severity(eff_names, pc.username)
+            proc_label = f"{pc.process_name or '?'}/{pc.pid}"
+            results.append(
+                SecurityRecommendationType(
+                    test_id=f"PCAP-{idx:04d}",
+                    category="ProcessCapabilities",
+                    description=(
+                        f"Process '{proc_label}' holds capabilities "
+                        f"(effective: {', '.join(eff_names) or 'unknown'})"
+                    ),
+                    field_name=proc_label,
+                    expected_value="none",
+                    actual_value=",".join(eff_names) or (pc.cap_effective or ""),
+                    status=status,
+                    severity=severity,
+                    source="proc",
+                    raw_data={
+                        "pid": pc.pid,
+                        "username": pc.username,
+                        "no_new_privs": pc.no_new_privs,
+                        "cap_effective": pc.cap_effective,
+                        "cap_permitted": pc.cap_permitted,
+                    },
+                )
+            )
+
+        for fc in self.get_bpath_caps():
+            idx += 1
+            eff_names = [c for c in (fc.cap_effective or "").split(",") if c]
+            prm_names = [c for c in (fc.cap_permitted or "").split(",") if c]
+            severity, status = self._file_cap_severity(
+                sorted(set(eff_names) | set(prm_names))
+            )
+            results.append(
+                SecurityRecommendationType(
+                    test_id=f"FCAP-{idx:04d}",
+                    category="FileCapabilities",
+                    description=(
+                        f"PATH executable has capabilities "
+                        f"(owner: {fc.owner_name or '?'})"
+                    ),
+                    field_name=fc.path,
+                    expected_value="none",
+                    actual_value=",".join(
+                        sorted(set(eff_names) | set(prm_names))
+                    )
+                    or (fc.cap_effective or fc.cap_permitted or ""),
+                    status=status,
+                    severity=severity,
+                    source="getcap",
+                    raw_data={
+                        "cap_effective": fc.cap_effective,
+                        "cap_permitted": fc.cap_permitted,
+                        "cap_inheritable": fc.cap_inheritable,
+                    },
+                )
+            )
+
+        logger.info(
+            "prepared %d capability hardening recommendations", len(results)
+        )
+        return results
