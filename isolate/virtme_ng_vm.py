@@ -1,94 +1,152 @@
+import shutil
 import subprocess
-from datetime import datetime
+import tempfile
+import time
+from pathlib import Path
 
-from isolate.isolate import ExecutionResult, IsolationEnvironment, logger
+from isolate.isolate import ExecutionResult, IsolationEnvironment
 from isolate.parse_vm_internal_results import VIRTME_CRASH_PATTERNS, ParseVmResults
+
+# guest script run via `vng --run --exec`, emits the same section markers that
+# qemu's guest script produces so ParseVmResults can extract the same data;
+# virtme-ng shares the host filesystem copy-on-write, so no initrd is needed
+VIRTME_GUEST_INIT = """#!/bin/bash
+echo "========== VM START =========="
+date
+uname -a
+cat /proc/version
+echo "========== CMDLINE =========="
+cat /proc/cmdline
+echo "========== DMESG =========="
+dmesg 2>/dev/null | tail -n 40
+echo "========== MODULES =========="
+cat /proc/modules 2>/dev/null
+echo "========== RESOURCES =========="
+cat /proc/loadavg
+head -n 3 /proc/stat
+echo "========== FILESYSTEM SNAPSHOT =========="
+ls -la /
+echo "========== PROCESS LIST =========="
+ps -eo pid,user,comm 2>/dev/null | head -n 50
+echo "========== BINARY OUTPUT =========="
+__POC__
+EXITCODE=$?
+echo "EXIT_CODE=$EXITCODE"
+exit $EXITCODE
+"""
 
 
 class VirtmeNGEnvironment(IsolationEnvironment):
     """
-    this was the most stable solution,
-    a lightweight virtualization of current environment, but
-    better read docs here https://github.com/arighi/virtme-ng
+    runs the target binary inside a virtme-ng guest that boots the running
+    host kernel over a copy-on-write snapshot of the live filesystem,
+    see docs https://github.com/arighi/virtme-ng
+
+    `--run` boots the host kernel and `--exec` runs a command then exits,
+    propagating the guest command exit code back to the host.
     """
 
+    def __init__(
+        self, binary_path: Path, timeout: int = 30, memory_mb: int = 512, cpus: int = 1
+    ):
+        super().__init__(binary_path, timeout)
+        self.memory_mb = memory_mb
+        self.cpus = cpus
+
     def is_available(self) -> bool:
-        # return shutil.which("virtme-ng") is not None
-        return False  # FIXME
+        return shutil.which("virtme-ng") is not None
 
     def execute(self) -> ExecutionResult:
-        start = datetime.now()
-        cmd = [
-            "virtme-ng",
-            "--exec",
-            f"{self.binary_path.absolute()}",
-            "--quiet",
-            "--memory",
-            "512M",
-        ]
-        self._log("command", " ".join(cmd))
+        start = time.perf_counter()
+        self._log("stage", "virtme_execute_start")
+        self._log("binary", str(self.binary_path))
+        self._log("timeout", str(self.timeout))
 
-        try:
-            result = subprocess.run(
-                cmd,
-                cwd="./cache_kernel",
-                capture_output=True,
-                text=True,
-                timeout=self.timeout,
+        if not self.is_available():
+            raise RuntimeError("virtme-ng dependencies missing")
+
+        with tempfile.TemporaryDirectory() as td:
+            workdir = Path(td)
+            script = workdir / "audit.sh"
+            script.write_text(
+                VIRTME_GUEST_INIT.replace("__POC__", str(self.binary_path.absolute()))
             )
+            script.chmod(0o755)
 
-            duration = (datetime.now() - start).total_seconds() * 1000
-            crashed = ParseVmResults.detect_crash(result.stderr, VIRTME_CRASH_PATTERNS)
+            stdout_log = workdir / "guest.log"
+            stderr_log = workdir / "virtme.stderr"
 
-            self._log("virtme_version", self._get_virtme_version())
-            self._log("kernel_version", self._get_kernel_version())
+            # redirect subprocess output to files instead of pipes: virtme-ng
+            # warns about degraded redirection over pipes and may lose stderr
+            cmd = [
+                "virtme-ng",
+                "--run",    # use the same current kernel
+                "--quiet",
+                "--memory",
+                f"{self.memory_mb}M",
+                "--cpus",
+                str(self.cpus),
+                "--exec",
+                str(script),
+            ]
+            self._log("command", " ".join(cmd))
+            self._log("stage", "vm_created")
 
-            # take stdout/err from subproc run from vng
-            return ExecutionResult(
-                stdout=result.stdout,
-                stderr=result.stderr,
-                returncode=result.returncode,
-                execution_mode="virtme-ng",
-                logs=self.logs,
-                duration_ms=duration,
-                crashed=crashed,
-            )
+            try:
+                with stdout_log.open("wb") as out, stderr_log.open("wb") as err:
+                    proc = subprocess.run(
+                        cmd,
+                        cwd=workdir,
+                        stdin=subprocess.DEVNULL,
+                        stdout=out,
+                        stderr=err,
+                        timeout=self.timeout,
+                        check=False,
+                    )
+                self._log("stage", "vm_finished")
+                self._log("virtme_returncode", str(proc.returncode))
 
-        except subprocess.TimeoutExpired as e:
-            duration = (datetime.now() - start).total_seconds() * 1000
-            stdout = str(e.stdout) or ""
-            stderr = str(e.stderr) or ""
+                stdout = stdout_log.read_text(errors="replace")
+                stderr = stderr_log.read_text(errors="replace")
+                self._log("stdout_size", str(len(stdout)))
+                self._log("stderr_size", str(len(stderr)))
 
-            self._log("timeout_stdout_size", str(len(stdout)))
-            self._log("timeout_stderr_size", str(len(stderr)))
-            self._log("error", f"Timeout after {self.timeout}s")
-            return ExecutionResult(
-                stdout=stdout,
-                stderr=f"Execution timeout ({self.timeout}s)\n{stderr}",
-                returncode=-1,
-                execution_mode="virtme-ng",
-                logs=self.logs,
-                duration_ms=duration,
-                crashed=True,
-            )
+                kernel_info, resources, modules, files, processes = (
+                    ParseVmResults().parse_guest_output(stdout, log=self._log)
+                )
+                exit_code = ParseVmResults.parse_exit_code(stdout)
+                self._log("exit_code", str(exit_code))
+                self._log("kernel_version", kernel_info.get("uname", "unknown"))
 
-    @staticmethod
-    def _get_virtme_version() -> str:
-        try:
-            result = subprocess.run(
-                ["virtme-ng", "--version"], capture_output=True, text=True, timeout=5
-            )
-            return result.stdout.strip()
-        except Exception as e:
-            logger.debug("virtme-ng version not found cuz %s", e)
-            return "unknown"
-
-    @staticmethod
-    def _get_kernel_version() -> str:
-        # TODO: take from db , slower but more sources
-        try:
-            with open("/proc/version", "r") as f:
-                return f.read().strip()
-        except Exception as e:
-            logger.debug("kernel version not found cuz %s", e)
-            return "unknown"
+                duration = (time.perf_counter() - start) * 1000
+                crashed = ParseVmResults.detect_crash(
+                    stdout + stderr, VIRTME_CRASH_PATTERNS
+                )
+                return ExecutionResult(
+                    stdout=stdout,
+                    stderr=stderr,
+                    returncode=proc.returncode,
+                    execution_mode="virtme-ng",
+                    duration_ms=duration,
+                    crashed=crashed,
+                    logs=self.logs,
+                    kernel_info=kernel_info,
+                    resources=resources,
+                    modules=modules,
+                    files=files,
+                    processes=processes,
+                )
+            except subprocess.TimeoutExpired:
+                duration = (time.perf_counter() - start) * 1000
+                stdout = stdout_log.read_text(errors="replace") if stdout_log.exists() else ""
+                self._log("stdout_size", str(len(stdout)))
+                self._log("error", f"Timeout after {self.timeout}s")
+                return ExecutionResult(
+                    stdout=stdout,
+                    stderr=f"Execution timeout ({self.timeout}s)",
+                    returncode=-1,
+                    execution_mode="virtme-ng",
+                    duration_ms=duration,
+                    crashed=True,
+                    logs=self.logs,
+                )
