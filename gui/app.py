@@ -859,27 +859,9 @@ class GUIApp:
             details.append(f_lbl)
 
         if stdout:
-            out_lbl = Gtk.Label(
-                label=f"STDOUT:\n{stdout[:2000]}{'...' if len(stdout) > 2000 else ''}"
-            )
-            out_lbl.set_xalign(0.0)
-            out_lbl.set_selectable(True)
-            out_lbl.set_wrap(True)
-            out_lbl.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
-            out_lbl.add_css_class("mono")
-            details.append(out_lbl)
-
+            details.append(self._build_io_view(f"STDOUT:\n{stdout}"))
         if stderr:
-            err_lbl = Gtk.Label(
-                label=f"STDERR:\n{stderr[:2000]}{'...' if len(stderr) > 2000 else ''}"
-            )
-            err_lbl.set_xalign(0.0)
-            err_lbl.set_selectable(True)
-            err_lbl.set_wrap(True)
-            err_lbl.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
-            err_lbl.add_css_class("mono")
-            err_lbl.add_css_class("terminal-fail")
-            details.append(err_lbl)
+            details.append(self._build_io_view(f"STDERR:\n{stderr}", fail=True))
 
         expander = Gtk.Expander()
         expander.set_label_widget(header)
@@ -892,6 +874,24 @@ class GUIApp:
         self.sandbox_count += 1
         if self._sandbox_label is not None:
             self._sandbox_label.set_label(f"RUNS: {self.sandbox_count}")
+
+    @staticmethod
+    def _build_io_view(text: str, fail: bool = False) -> Gtk.Widget:
+        """Scrollable, non-editable monospace view (no slicing), like reports."""
+        view = Gtk.TextView()
+        view.set_editable(False)
+        view.set_monospace(True)
+        view.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
+        view.add_css_class("terminal-view")
+        if fail:
+            view.add_css_class("terminal-fail")
+        buf = view.get_buffer()
+        buf.set_text(text)
+        sw = Gtk.ScrolledWindow()
+        sw.set_hexpand(True)
+        sw.set_max_content_height(180)
+        sw.set_child(view)
+        return sw
 
     def _log_terminal(self, message: str, level: str = "INFO"):
         tag = {
