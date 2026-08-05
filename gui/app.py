@@ -6,7 +6,7 @@ import sys
 import threading
 from datetime import datetime
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, ClassVar, cast
 
 from gi.repository import GLib, Gtk, Pango
 
@@ -53,6 +53,9 @@ class GUIApp:
     headerbar windowcontrols button.titlebutton > image { color: #ffffff; }
     """
 
+    #: display order for hardening recommendations (status -> rank)
+    _SEV_RANK: ClassVar[dict[str, int]] = {"FAIL": 0, "WARNING": 1, "ok": 2}
+
     def __init__(self, db: ThreatDB):
         self.services = AppServices(db=db)
 
@@ -62,6 +65,8 @@ class GUIApp:
 
         # Scan page refs
         self._audit_list: Gtk.ListBox | None = None
+        self._selinux_list: Gtk.ListBox | None = None
+        self._caps_list: Gtk.ListBox | None = None
         self._cve_list: Gtk.ListBox | None = None
         self._sandbox_list: Gtk.ListBox | None = None
         self._console_view: Gtk.TextView | None = None
@@ -163,6 +168,8 @@ class GUIApp:
         builder.add_from_file(str(ui_path))
 
         self._audit_list = cast(Gtk.ListBox, builder.get_object("audit_list"))
+        self._selinux_list = cast(Gtk.ListBox, builder.get_object("selinux_list"))
+        self._caps_list = cast(Gtk.ListBox, builder.get_object("caps_list"))
         self._cve_list = cast(Gtk.ListBox, builder.get_object("cve_list"))
         self._sandbox_list = cast(Gtk.ListBox, builder.get_object("sandbox_list"))
         self._console_view = cast(Gtk.TextView, builder.get_object("console_view"))
@@ -436,13 +443,28 @@ class GUIApp:
         self._run_async(self.services.run_local_recon, self._on_local_done)
 
     def _on_local_done(self, result_dt):
+        # clear repeat-scan output before repainting
+        for box in (self._audit_list, self._selinux_list, self._caps_list):
+            self._clear_listbox(box)
         if hasattr(result_dt, "security_recommendations"):
             sorted_recs = sorted(
                 result_dt.security_recommendations, key=self._audit_priority
             )
             for rec in sorted_recs:
                 self._append_audit_item(rec)
+        sev = self._SEV_RANK.get
+        if hasattr(result_dt, "selinux_hardening"):
+            for rec in sorted(
+                result_dt.selinux_hardening, key=lambda r: sev(r.status, 2)
+            ):
+                self._append_audit_item(rec, self._selinux_list)
+        if hasattr(result_dt, "capability_hardening"):
+            for rec in sorted(
+                result_dt.capability_hardening, key=lambda r: sev(r.status, 2)
+            ):
+                self._append_audit_item(rec, self._caps_list)
         if hasattr(result_dt, "possible_cves"):
+            self._clear_listbox(self._cve_list)
             for cve in result_dt.possible_cves:
                 self._append_cve_item(
                     "LES", cve.cve_id, cve.title, cve.details, cve.download_urls
@@ -527,8 +549,9 @@ class GUIApp:
             pass
         return 2, "INFO"
 
-    def _append_audit_item(self, rec):
-        if self._audit_list is None:
+    def _append_audit_item(self, rec, target_list: Gtk.ListBox | None = None):
+        listbox = target_list or self._audit_list
+        if listbox is None:
             return
         severity = "INFO"
         indicator_css = "indicator-ok"
@@ -604,12 +627,14 @@ class GUIApp:
             rec.raw_data.get("details", rec.raw_data.get("solution", "N/A")),
         )
 
+        sugg_lbl: Gtk.Widget
         if self._is_url(suggestion):
             sugg_lbl = self._make_link(suggestion)
         else:
-            sugg_lbl = Gtk.Label(label=f"Details: {suggestion}")
-            sugg_lbl.set_xalign(0.0)
-            sugg_lbl.add_css_class("mono")
+            lbl = Gtk.Label(label=f"Details: {suggestion}")
+            lbl.set_xalign(0.0)
+            lbl.add_css_class("mono")
+            sugg_lbl = lbl
         details.append(sugg_lbl)
 
         expander = Gtk.Expander()
@@ -618,7 +643,7 @@ class GUIApp:
 
         row = Gtk.ListBoxRow()
         row.set_child(expander)
-        self._audit_list.append(row)
+        listbox.append(row)
 
         if severity == "CRIT":
             self.fail_count += 1
@@ -628,6 +653,13 @@ class GUIApp:
             self.warn_count += 1
             if self._warn_label is not None:
                 self._warn_label.set_label(f"WARN: {self.warn_count}")
+
+    @staticmethod
+    def _clear_listbox(listbox: Gtk.ListBox | None) -> None:
+        if listbox is None:
+            return
+        while (child := listbox.get_first_child()) is not None:
+            listbox.remove(child)
 
     def _append_cve_item(
         self, source: str, cve_id: str, title: str, details: str, urls: list

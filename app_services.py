@@ -19,6 +19,10 @@ from recon.local_target_recon import LocalRecon
 from recon.remote_feeds_recon import ReconFeeds
 from schemas import (
     FeedsReconResult,
+    HostFileCapabilities,
+    HostInfoData,
+    HostProcessCapabilities,
+    HostSELinuxBoolean,
     KernelLPE,
     LesCVEItem,
     LocalReconResult,
@@ -62,14 +66,74 @@ class AppServices:
         les_result: list[LesCVEItem] = self.lr.get_les_scan_details()
         logger.info("LES scan completed: %s", len(les_result))
 
-        return LocalReconResult(
+        selinux_booleans: list[HostSELinuxBoolean] = self.lr.get_host_selinux_bools()
+        process_caps: list[HostProcessCapabilities] = self.lr.get_pids_caps()
+        file_caps: list[HostFileCapabilities] = self.lr.get_bpath_caps()
+        selinux_hardening: list[SecurityRecommendationType] = (
+            self.lr.get_selinux_hardening()
+        )
+        capability_hardening: list[SecurityRecommendationType] = (
+            self.lr.get_capability_recommendations()
+        )
+
+        result = LocalReconResult(
             system=self.lr.environment_info.get("system", ""),
             build_date=build_date,
             security_recommendations=lynis_result,
             kernel_lpe=linpeas_result or KernelLPE(),
             kernel=kernel,
             possible_cves=les_result,
+            selinux_booleans=selinux_booleans,
+            process_capabilities=process_caps,
+            file_capabilities=file_caps,
+            selinux_hardening=selinux_hardening,
+            capability_hardening=capability_hardening,
         )
+        self.save_host_recon(selinux_booleans, process_caps, file_caps)
+        return result
+
+    def save_host_recon(
+        self,
+        selinux_booleans: list[HostSELinuxBoolean],
+        process_capabilities: list[HostProcessCapabilities],
+        file_capabilities: list[HostFileCapabilities],
+    ) -> int:
+        """Persist the collected host snapshot (SELinux booleans + capability
+        masks) into the DB for the report."""
+        arch = self.lr.environment_info.get("architecture")
+        architecture = ", ".join(arch) if isinstance(arch, (tuple, list)) else str(arch)
+
+        host = HostInfoData(
+            hostname=self.lr.environment_info.get("node", ""),
+            kernel_version=self.lr.get_kernel_version_simple(),
+            kernel_release=self.lr.kernel_version.get("kernel_release", ""),
+            kernel_name=self.lr.kernel_version.get("kernel_name", ""),
+            machine=self.lr.kernel_version.get("machine", ""),
+            platform_release=self.lr.kernel_version.get("platform_release", ""),
+            platform_system=self.lr.kernel_version.get("platform_system", ""),
+            platform_version=self.lr.kernel_version.get("platform_version", ""),
+            platform=self.lr.environment_info.get("platform", ""),
+            proc_version=self.lr.kernel_version.get("proc_version", ""),
+            node=self.lr.environment_info.get("node", ""),
+            processor=self.lr.environment_info.get("processor", ""),
+            architecture=architecture,
+            distribution=self.lr.environment_info.get("distribution", ""),
+            current_directory=self.lr.environment_info.get("current_directory", ""),
+            username=self.lr.environment_info.get("username", ""),
+            home_dir=self.lr.environment_info.get("home_dir", ""),
+            selinux_booleans=selinux_booleans,
+            process_capabilities=process_capabilities,
+            file_capabilities=file_capabilities,
+        )
+        host_id = self.db.add_host_info(host)
+        logger.info(
+            "host snapshot %d saved: %d booleans, %d process caps, %d file caps",
+            host_id,
+            len(selinux_booleans),
+            len(process_capabilities),
+            len(file_capabilities),
+        )
+        return host_id
 
     def run_feeds_recon(self, store_kev: bool = True) -> FeedsReconResult:
         """Fetch threat-intel feeds and optionally store CISA KEV data."""

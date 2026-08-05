@@ -186,6 +186,32 @@ class CLIApp:
                 for url in cve["download_urls"][:3]:
                     print(f"      {url}")
 
+        selinux_bools = local.get("selinux_booleans", []) or []
+        print(f"\nSELinux booleans checked ({len(selinux_bools)}):")
+        hardened = [
+            b for b in selinux_bools if isinstance(b, dict) and not b.get("value")
+        ]
+        if hardened:
+            print(
+                f"  {len(hardened)} hardened (off): {', '.join(b['boolean_name'] for b in hardened[:5])}"
+                + (" ..." if len(hardened) > 5 else "")
+            )
+
+        proc_caps = local.get("process_capabilities", []) or []
+        print(f"\nProcesses holding capabilities ({len(proc_caps)}):")
+        for cap in proc_caps[:5]:
+            print(
+                f"  pid {cap.get('pid')} {cap.get('process_name', '')} "
+                f"CapEff={cap.get('cap_effective') or '0x0'}"
+            )
+        if len(proc_caps) > 5:
+            print(f"  ... and {len(proc_caps) - 5} more")
+
+        file_caps = local.get("file_capabilities", []) or []
+        print(f"\nPATH executables with capabilities ({len(file_caps)}):")
+        for cap in file_caps:
+            print(f"  {cap.get('path')} -> {cap.get('cap_effective') or ''}")
+
     def _print_feeds(self, feeds: dict[str, Any]):
         print("\nRunning ReconFeeds searches...")
         self._print_stats()

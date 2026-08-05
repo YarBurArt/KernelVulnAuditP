@@ -151,6 +151,36 @@
         </child>
 
         <child>
+          <object class="GtkScrolledWindow" id="sw_selinux">
+            <child>
+              <object class="GtkListBox" id="selinux_list">
+                <property name="selection-mode">none</property>
+              </object>
+            </child>
+          </object>
+        </child>
+        <child type="tab">
+          <object class="GtkLabel">
+            <property name="label">SELinux Hardening</property>
+          </object>
+        </child>
+
+        <child>
+          <object class="GtkScrolledWindow" id="sw_caps">
+            <child>
+              <object class="GtkListBox" id="caps_list">
+                <property name="selection-mode">none</property>
+              </object>
+            </child>
+          </object>
+        </child>
+        <child type="tab">
+          <object class="GtkLabel">
+            <property name="label">Capabilities mistakes</property>
+          </object>
+        </child>
+
+        <child>
           <object class="GtkScrolledWindow" id="sw2">
             <child>
               <object class="GtkListBox" id="cve_list">
