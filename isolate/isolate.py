@@ -151,8 +151,8 @@ class HostEnvironment(IsolationEnvironment):
         except subprocess.TimeoutExpired as e:
             # its not mean system is not vulnerable, just xpl not run
             duration = (datetime.now() - start).total_seconds() * 1000
-            stdout = str(e.stdout) or ""
-            stderr = str(e.stderr) or ""
+            stdout = e.stdout or ""
+            stderr = e.stderr or ""
 
             self._log("timeout_stdout_size", str(len(stdout)))
             self._log("timeout_stderr_size", str(len(stderr)))

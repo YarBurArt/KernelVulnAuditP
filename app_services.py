@@ -429,11 +429,21 @@ class AppServices:
         cve_id: str,
         poc: dict[str, Any],
     ) -> dict[str, Any]:
-        command = poc.get("test_cmd") or poc.get("compile_cmd")
         repo: str = poc.get("local_path", "")
 
-        if not command or not repo:
+        if not repo:
             return {}
+
+        # build first, then run: skipping the compile step was making the
+        # test_cmd fail with "binary: No such file or directory" (exit 127)
+        steps = [
+            c
+            for c in (poc.get("compile_cmd"), poc.get("test_cmd"))
+            if c and str(c).strip()
+        ]
+        if not steps:
+            return {}
+        command = " && ".join(str(s) for s in steps)
 
         script = self._build_runner_script(Path(repo), str(command))
         logger.debug("build runner script: %s", script)

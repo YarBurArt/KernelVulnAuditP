@@ -211,24 +211,30 @@ class GitHubExploitSearcher:
 
         if language == "C":
             patterns = [
-                r"\./[a-zA-Z0-9_-]+(?:\s+[^\n]+)?",
-                r"sudo\s+\./[a-zA-Z0-9_-]+(?:\s+[^\n]+)?",
+                r"\./[a-zA-Z0-9_.][a-zA-Z0-9_.-]*(?:\s+[^\n]+)?",
+                r"sudo\s+\./[a-zA-Z0-9_.][a-zA-Z0-9_.-]*(?:\s+[^\n]+)?",
             ]
         elif language == "Python":
             patterns = [
                 r"python3?\s+[a-zA-Z0-9_.-]+\.py(?:\s+[^\n]+)?",
-                r"\./[a-zA-Z0-9_-]+\.py(?:\s+[^\n]+)?",
+                r"\./[a-zA-Z0-9_.-]+\.py(?:\s+[^\n]+)?",
             ]
         elif language == "Ruby":
             patterns = [
                 r"ruby\s+[a-zA-Z0-9_.-]+\.rb(?:\s+[^\n]+)?",
-                r"\./[a-zA-Z0-9_-]+\.rb(?:\s+[^\n]+)?",
+                r"\./[a-zA-Z0-9_.-]+\.rb(?:\s+[^\n]+)?",
             ]
 
         for pattern in patterns:
-            matches = re.findall(pattern, readme, re.MULTILINE)
-            if matches:
-                return clean_command_string(matches[0])
+            for match in re.finditer(pattern, readme, re.MULTILINE):
+                candidate = clean_command_string(match.group(0))
+                if not candidate:
+                    continue
+                # skip markdown image refs like ![](./imgs/poc.png)
+                prefix = readme[max(0, match.start() - 3): match.start()]
+                if prefix.endswith("](") or candidate.startswith("./imgs"):
+                    continue
+                return candidate
 
         return None
 
@@ -337,10 +343,31 @@ class GitHubExploitSearcher:
                     capture_output=True,
                 )
                 xpl["local_path"] = str(target_dir)
+                _fix_stale_compile_cmd(xpl, target_dir)
                 downloaded_l.append(xpl)
             except subprocess.CalledProcessError:
                 continue  # FIXME:
         return downloaded_l
+
+
+def _fix_stale_compile_cmd(xpl: dict[str, Any], target_dir: Path) -> None:
+    """Rewrite a compile_cmd whose source file is missing from the cloned
+    repo (stale README instructions) to reference the actual single C
+    source file present at the repo root."""
+    compile_cmd = xpl.get("compile_cmd")
+    if not compile_cmd or "make" in str(compile_cmd).split():
+        return
+    refs = re.findall(r"[\w.-]+\.c\b", str(compile_cmd))
+    if not refs:
+        return
+    root_c = sorted(p.name for p in target_dir.glob("*.c") if p.is_file())
+    if len(root_c) != 1 or root_c[0] in refs:
+        return
+    xpl["compile_cmd"] = re.sub(
+        r"[\w.-]+\.c\b",
+        lambda m: root_c[0] if m.group(0) in refs else m.group(0),
+        str(compile_cmd),
+    )
 
 
 def main():

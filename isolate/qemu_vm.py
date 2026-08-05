@@ -121,7 +121,7 @@ class QemuEnvironment(IsolationEnvironment):
                     else ""
                 )
                 self._log("stdout_size", str(len(stdout)))
-                self._log("stderr_size", str(len(e.stderr) if e.stderr else 0))
+                self._log("stderr_size", str(len(e.stderr or "")))
                 return ExecutionResult(
                     stdout=stdout,
                     stderr="execution timeout",

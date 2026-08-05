@@ -228,6 +228,29 @@ def test_qemu_execute_timeout(monkeypatch, tmp_path):
     assert result.logs["stderr_size"] == "7"
 
 
+def test_qemu_execute_timeout_no_partial_stderr(monkeypatch, tmp_path):
+    binary = tmp_path / "bin"
+    binary.write_text("x")
+    env = QemuEnvironment(binary, 5)
+    monkeypatch.setattr(QemuEnvironment, "is_available", lambda self: True)
+    monkeypatch.setattr(env, "_build_initrd", lambda workdir: tmp_path / "initrd.cpio")
+    monkeypatch.setattr(env, "_find_kernel", lambda: Path("/boot/vmlinuz"))
+    monkeypatch.setattr(tempfile, "TemporaryDirectory", lambda: FakeTempDir(tmp_path))
+
+    (tmp_path / "serial.log").write_text("boot noise")
+
+    def fake_run(*args, **kwargs):
+        raise subprocess.TimeoutExpired(cmd=["qemu"], timeout=5)
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    result = env.execute()
+
+    assert result.returncode == -1
+    assert result.crashed is True
+    assert result.logs["stderr_size"] == "0"
+
+
 def test_host_execute_success(monkeypatch, tmp_path):
     binary = tmp_path / "bin"
     binary.write_text("x")
