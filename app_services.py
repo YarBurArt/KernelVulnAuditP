@@ -2,6 +2,7 @@ import logging
 import os
 import shlex
 import tempfile
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
 from datetime import UTC, datetime
@@ -34,16 +35,37 @@ from sqxpl import GitHubExploitSearcher
 logger = logging.getLogger(f"kernel_audit.{__name__}")
 
 
+class _NoopProgress:
+    """Stand-in bar for callers step/update/finish safely."""
+
+    def __getattr__(self, _name: str):
+        def _noop(*_a, **_k):
+            return None
+
+        return _noop
+
+
 class AppServices:
     """Service layer shared by CLI and GUI flows."""
 
-    def __init__(self, db: ThreatDB):
+    def __init__(
+        self,
+        db: ThreatDB,
+        progress: Callable[..., Any] | None = None,
+    ):
         self.lr = LocalRecon()
         self.rf = ReconFeeds()
         self.db = db
+        # an optional bar factory called with kwargs
+        self.progress = progress
         self.poc_searcher = GitHubExploitSearcher()
         self.isolate = Isolate(timeout=ISOLATION_TIMEOUT_SEC)
         self.isolate.allow_host_execution = ALLOW_HOST_EXECUTION
+
+    def _make_bar(self, total: int, label: str):
+        if self.progress is None:
+            return _NoopProgress()
+        return self.progress(total=total, label=label)
 
     def store_security_recommendations(
         self, recommendations: list[SecurityRecommendationType]
@@ -55,26 +77,32 @@ class AppServices:
 
     def run_local_recon(self, store_recs: bool = False) -> LocalReconResult:
         """Run local recon and optionally store recommendations."""
+        bar = self._make_bar(5, "Local recon")
         kernel: str = self.lr.get_kernel_version_simple()
         build_date: int = self.lr.get_kernel_build_date(kernel)
         logger.info("Local recon started in context %s %s", kernel, build_date)
         # TODO: lynis_result: List[KernelAuditItem] = self.lr.get_lynis_scan_details()
         lynis_result = self.lr.get_lynis_kernel_hardening_details()
+        bar.step(label="lynis")
         logger.info("Lynis scan completed: %s", len(lynis_result))
         linpeas_result: KernelLPE | None = self.lr.get_linpeas_scan_details()
+        bar.step(label="linpeas")
         logger.info("LinPEAS scan completed")
         les_result: list[LesCVEItem] = self.lr.get_les_scan_details()
+        bar.step(label="les")
         logger.info("LES scan completed: %s", len(les_result))
 
         selinux_booleans: list[HostSELinuxBoolean] = self.lr.get_host_selinux_bools()
         process_caps: list[HostProcessCapabilities] = self.lr.get_pids_caps()
         file_caps: list[HostFileCapabilities] = self.lr.get_bpath_caps()
+        bar.step(label="selinux/caps")
         selinux_hardening: list[SecurityRecommendationType] = (
             self.lr.get_selinux_hardening()
         )
         capability_hardening: list[SecurityRecommendationType] = (
             self.lr.get_capability_recommendations()
         )
+        bar.step(label="hardening")
 
         result = LocalReconResult(
             system=self.lr.environment_info.get("system", ""),
@@ -90,6 +118,7 @@ class AppServices:
             capability_hardening=capability_hardening,
         )
         self.save_host_recon(selinux_booleans, process_caps, file_caps)
+        bar.finish(note="complete")
         return result
 
     def save_host_recon(
@@ -141,17 +170,24 @@ class AppServices:
         build_date: int = self.lr.get_kernel_build_date(kernel)
 
         logger.debug("Search feeds for kernel %s build_date %s", kernel, build_date)
+        bar = self._make_bar(4 if store_kev else 3, "Threat-intel feeds")
         if store_kev:
             self._load_and_store_kev(build_date)
+            bar.step(label="KEV")
 
         # the three feed searches are independent; run them concurrently
         with ThreadPoolExecutor(max_workers=3) as pool:
             nist_future = pool.submit(self.rf.nist_search, kernel, build_date)
             osv_future = pool.submit(self.rf.osv_search, kernel)
             github_future = pool.submit(self.rf.github_search, kernel)
-            findings = list(nist_future.result()) + list(osv_future.result())
+            findings = list(nist_future.result())
+            bar.step(label="NIST")
+            findings += list(osv_future.result())
+            bar.step(label="OSV")
             pocs = list(github_future.result())
+            bar.step(label="GitHub")
 
+        bar.finish(note=f"{len(findings)} findings")
         return FeedsReconResult(findings=findings, pocs=pocs)
 
     def run_full_recon(self) -> ReconResult:
@@ -166,14 +202,17 @@ class AppServices:
         context = self._build_execution_context()
         logger.info("execution tests started in context: %s", context)
         cve_hints = self._collect_kernel_cves()
+        bar = self._make_bar(len(cve_hints), "Executing PoCs")
         report_entries = []
 
         for cve_id, hint in cve_hints.items():
+            bar.step(label=cve_id)
             entry = self._process_single_cve(cve_id, hint, context)
 
             if entry is not None:
                 report_entries.append(entry)
 
+        bar.finish(note=f"{len(report_entries)} processed")
         return self._build_execution_report(context, report_entries)
 
     @staticmethod
@@ -250,7 +289,10 @@ class AppServices:
 
         stored = 0
         skipped = 0
-        for kev_item in self.rf.kev_kern_vuln:
+        kev_items = self.rf.kev_kern_vuln
+        bar = self._make_bar(len(kev_items), "CISA KEV")
+        for idx, kev_item in enumerate(kev_items, 1):
+            bar.step(label=f"KEV {idx}")
             cve_id, kev_data, vuln_data = self._build_kev_records(kev_item)
 
             if not cve_id:
@@ -269,6 +311,7 @@ class AppServices:
             else:
                 skipped += 1
 
+        bar.finish(note=f"{stored} stored, {skipped} skipped")
         logger.info("Stored %s CISA KEV entries, %s already existed", stored, skipped)
 
     def _collect_kernel_cves(self) -> dict[str, dict[str, Any]]:
