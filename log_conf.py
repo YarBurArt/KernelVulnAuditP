@@ -1,8 +1,8 @@
 import logging
-from config import LOG_LEVEL
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
+from config import LOG_LEVEL
 
 LOG_DIR = Path("logs")
 LOG_DIR.mkdir(exist_ok=True)
@@ -10,7 +10,7 @@ LOG_DIR.mkdir(exist_ok=True)
 LOG_FILE = LOG_DIR / "kernel_audit.log"
 
 
-def setup_logging() -> None:
+def setup_logging(console: bool = True) -> None:
     root_logger = logging.getLogger("kernel_audit")
     if root_logger.handlers:
         return
@@ -41,5 +41,6 @@ def setup_logging() -> None:
     )
     file_handler.setFormatter(formatter)
 
-    root_logger.addHandler(console_handler)
+    if console:
+        root_logger.addHandler(console_handler)
     root_logger.addHandler(file_handler)

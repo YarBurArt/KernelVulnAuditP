@@ -152,6 +152,25 @@ def safe_get_nested(data: dict[str, Any], *keys, default: Any = None) -> Any:
     return current
 
 
+def safe_get_attr(value: Any, key: str, default: Any = "") -> Any:
+    """read an attribute from a dict or a dataclass-style object"""
+    if isinstance(value, dict):
+        result = value.get(key, default)
+    else:
+        result = getattr(value, key, default)
+    return result if result is not None else default
+
+
+def proc_module_name(entry: Any) -> str | None:
+    """extract the module name from a /proc/modules-style line"""
+    if not isinstance(entry, str):
+        return None
+    line = entry.strip()
+    if not line:
+        return None
+    return line.split(None, 1)[0]
+
+
 def strip_ansi_sequences(text: str) -> str:
     """remove ANSI escape codes"""
     ansi_pattern = re.compile(r"\x1b\[[0-9;]*m")

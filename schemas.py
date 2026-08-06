@@ -1,4 +1,4 @@
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from typing import Any
 
@@ -379,8 +379,20 @@ class HostInfoData:
     file_capabilities: list[HostFileCapabilities] = field(default_factory=list)
     process_capabilities: list[HostProcessCapabilities] = field(default_factory=list)
 
+    def to_dict(self) -> dict[str, Any]:
+        """serialize to a JSON-safe dict (mirrors the ORM HostInfo.to_dict)."""
+        result = asdict(self)
+        for key in ("captured_at", "created_at", "updated_at"):
+            value = result.get(key)
+            if isinstance(value, datetime):
+                result[key] = value.isoformat()
+        for user in result.get("users", []):
+            if isinstance(user.get("last_login"), datetime):
+                user["last_login"] = user["last_login"].isoformat()
+        return result
 
-#: names of the collection attributes dropped for header-only host_info listings
+
+# names of the collection attributes dropped for header-only host_info listings
 HOST_INFO_CHILD_FIELDS: tuple[str, ...] = (
     "environment_variables",
     "kernel_parameters",
