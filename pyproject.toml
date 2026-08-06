@@ -6,10 +6,16 @@ readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
     "httpx[http2]>=0.28.1",
+    "sqlalchemy==2.0.51",
+]
+
+[project.optional-dependencies]
+gui = [
     "pycairo>=1.29.0",
     "pygobject>=3.56.3",
-    "sqlalchemy==2.0.51",
-    "streamlit==1.60.0",
+]
+streamlit = [
+    "streamlit==1.61.1",
 ]
 
 [tool.pytest.ini_options]
@@ -25,4 +31,9 @@ dev = [
     "pygobject-stubs>=2.17.0",
     "ruff>=0.16.1",
 ]
+
+[tool.mypy]
+# `report.py` is a thin entry shim that deliberately shares the package name;
+# exclude it so it doesn't collide with the `report` package during type checks.
+exclude = "^report\\.py$"
 

@@ -27,25 +27,33 @@ chmod u+x ./install_tools.sh
 ./install_tools.sh
 ```
 
-run GUI (auto back to CLI if gtk4 libs missing)
+run GUI (GTK4 libs optional; auto back to CLI if missing)
 
 ```bash
+uv sync --extra gui   # install GTK4 dependencies (pycairo, pygobject)
 uv run python main.py
 ```
 
 force CLI
 
 ```bash
-uv run python main.py --cli 
+uv run python main.py --cli
+```
+
+interactive menu (same as the TTY default, but more explicit)
+
+```bash
+uv run python main.py --cli --tui
 ```
 
 generate report (Streamlit if available, else CLI + JSON)
 
 ```bash
+uv sync --extra streamlit   # optional: web report (streamlit)
 uv run streamlit run report.py
 ```
 
-force CLI report
+force CLI report (paged through `less` and colorized on a TTY)
 
 ```bash
 uv run python report.py --cli 
@@ -53,11 +61,14 @@ uv run python report.py --cli
 
 ## CLI flags
 
+Long-running operations (local recon, threat-intel feeds, CISA KEV import, PoC execution) show a live progress bar on a terminal; output stays clean when piped.
+
 ### `main.py`
 
 | flag | description | notes |
 | --- | --- | --- |
-| `--cli` / `--gui` | force CLI or Flet-based GUI launcher | GUI starts only if `flet` is installed; otherwise CLI is used automatically |
+| `--cli` / `--gui` | force CLI or GTK4 GUI | GUI starts only if the `gui` extra + GTK4 libs are installed; `--cli` suppresses console logs and opens an interactive menu on a TTY |
+| `--tui` | force the interactive pure-Python menu | same as the default when run on a TTY without a command |
 | `--scan`, `-s` | run local recon + threat‑intel feeds in one shot | uses uname, /proc, Lynis, LinPEAS, LES, OSV, NVD, GitHub search  with KEV filters |
 | `--report`, `-r` | print a condensed vulnerability summary | pulls cached DB stats and KEV counts |
 | `--exec-tests` | fetch PoCs, compile/run them in the sandbox | uses virtme-ng/QEMU microvm to isolate; respects `ALLOW_HOST_EXECUTION` |
@@ -69,7 +80,9 @@ uv run python report.py --cli
 
 ------
 
-### `report.py`
+### `report` package
+
+Report logic lives in the `report/` package (`base_report.py` for data building, `cli.py`, `streamlit_rep.py`, `diff.py`); `report.py` is kept as a thin entry shim so the commands below still work.
 
 | flag | description | notes |
 | --- | --- | --- |
@@ -77,6 +90,7 @@ uv run python report.py --cli
 | `--save`, `-s` | export report JSON (`--output` path) before rendering | works in Streamlit or CLI |
 | `--output`, `-o` | set JSON output filename (default `report_data.json`) | |
 | `--load`, `-l` | render a previously saved JSON instead of live DB | skips fresh scans |
+| `--cli` | force CLI output | default already when streamlit isn't installed |
 
 ### Sandbox & isolation
 - `config.py` exposes `ALLOW_HOST_EXECUTION` (disable to force virtme-ng / microvm isolation), `ISOLATION_TIMEOUT_SEC`, and paths to Lynis, LinPEAS, LES outputs.

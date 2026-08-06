@@ -3,12 +3,19 @@ import sys
 from config import DB_BACKEND
 from log_conf import setup_logging
 
-setup_logging()
+# In --cli mode we keep writing logs to file but keep the terminal clean.
+_CLI_FLAG = "--cli" in sys.argv
 
-from db import get_db
+setup_logging(console=not _CLI_FLAG)
 
 from cli_app import main_cli
-from gui_app import GUIApp, GUI_E
+from db import get_db
+
+try:
+    from gui_app import GUI_E, GUIApp
+except ImportError:
+    GUI_E = False
+    GUIApp = None  # type: ignore[misc, assignment]
 
 
 def main():
