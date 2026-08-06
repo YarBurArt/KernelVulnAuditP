@@ -1,6 +1,6 @@
-import gi
+from __future__ import annotations
 
-gi.require_version("Gtk", "4.0")
+import re
 import subprocess
 import sys
 import threading
@@ -8,7 +8,19 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, ClassVar, cast
 
-from gi.repository import GLib, Gtk, Pango
+GUI_E = False
+try:
+    import gi
+
+    gi.require_version("Gtk", "4.0")
+
+    from gi.repository import GLib, Gtk, Pango
+
+    GUI_E = True
+except ImportError, ValueError:
+    GLib = None  # type: ignore[assignment]
+    Gtk = None  # type: ignore[assignment]
+    Pango = None  # type: ignore[assignment]
 
 from app_services import AppServices
 from config import (
@@ -28,7 +40,119 @@ from config import (
 from core import flatten_dict_value, update_config_file
 from db.db import ThreatDB
 
-GUI_E = True
+_BINARY_OUTPUT_MARKER = "========== BINARY OUTPUT =========="
+
+_COLOR = {
+    "name": "#7ee787",     # green
+    "badge": "#79c0ff",    # blue (PIDs, sizes)
+    "addr": "#ffa657",     # orange (module live address)
+    "flag": "#ff7b72",     # red (rwx keys)
+    "dim": "#8b949e",      # gray (dirs/headers)
+    "path": "#d2a8ff",     # purple (file paths)
+    "link": "#ffd7b3",     # amber (symlink targets)
+}
+
+_MODULES_RE = re.compile(
+    r"^(?P<name>\S+)\s+(?P<size>\d+)\s+(?P<count>\d+)\s+"
+    r"(?P<used>[-\w,.]+)\s+(?P<state>\S+)\s+(?P<addr>0x[0-9a-f]+)"
+)
+
+_PROCESS_RE = re.compile(
+    r"^\s*(?P<pid>\d+)\s+(?P<user>\S+)\s+(?P<comm>.*)$"
+)
+
+_FILE_RE = re.compile(
+    r"^(?P<mode>[bcd-lps])\S{9}\s+\d+\s+(?P<owner>\S+)\s+(?P<group>\S+)\s+"
+    r"(?P<size>\d+)\s+(?P<month>\S+)\s+(?P<day>\d+)\s+(?P<time>[\d:]+)\s+"
+    r"(?P<path>.*)$"
+)
+
+# syntax-highlight config per list kind: (line regex, group->color mapping)
+_LIST_RULES = {
+    "modules": (
+        _MODULES_RE,
+        {
+            "name": "name",
+            "size": "badge",
+            "count": "dim",
+            "used": "dim",
+            "state": "flag",
+            "addr": "addr",
+        },
+    ),
+    "process": (
+        _PROCESS_RE,
+        {"pid": "badge", "user": "dim", "comm": "name"},
+    ),
+    "file": (
+        _FILE_RE,
+        {
+            "mode": "flag",
+            "owner": "name",
+            "group": "dim",
+            "size": "badge",
+            "month": "dim",
+            "day": "dim",
+            "time": "dim",
+            "path": "path",
+        },
+    ),
+}
+
+
+class _GtkProgressBar:
+    """Adapter for progress-bar service API, updates via GLib.idle_add."""
+
+    def __init__(self, gui: GUIApp, total: int = 0, label: str = ""):
+        self._gui = gui
+        self._total = max(int(total or 0), 0)
+        self._label = label
+        self._n = 0
+        self._emit()
+
+    def _emit(self, final: bool = False, note: str = "") -> None:
+        total = self._total if self._total > 0 else max(self._n, 1)
+        frac = min(max(self._n / total, 0.0), 1.0)
+        label = self._label
+        if note:
+            label = f"{label} {note}" if label else note
+
+        def _cb():
+            if self._gui._progress_box is not None:
+                self._gui._progress_box.set_visible(True)
+            if self._gui._progress_label is not None:
+                self._gui._progress_label.set_text(label)
+            if self._gui._progress_bar is not None:
+                self._gui._progress_bar.set_fraction(1.0 if final else frac)
+            return False
+
+        GLib.idle_add(_cb)
+
+    def set_total(self, total: int, label: str | None = None) -> None:
+        self._total = max(int(total or 0), 0)
+        if label is not None:
+            self._label = label
+        self._emit()
+
+    def set_label(self, label: str) -> None:
+        self._label = label
+        self._emit()
+
+    def update(self, n: int, label: str | None = None) -> None:
+        self._n = max(int(n or 0), 0)
+        if label is not None:
+            self._label = label
+        self._emit()
+
+    def step(self, amount: int = 1, label: str | None = None) -> None:
+        self.update(self._n + amount, label)
+
+    def finish(self, label: str | None = None, note: str = "") -> None:
+        if label is not None:
+            self._label = label
+        if self._total > 0:
+            self._n = self._total
+        self._emit(final=True, note=note)
 
 
 class GUIApp:
@@ -57,7 +181,12 @@ class GUIApp:
     _SEV_RANK: ClassVar[dict[str, int]] = {"FAIL": 0, "WARNING": 1, "ok": 2}
 
     def __init__(self, db: ThreatDB):
-        self.services = AppServices(db=db)
+        self.services = AppServices(
+            db=db,
+            progress=lambda total=0, label="": _GtkProgressBar(
+                self, total=total, label=label
+            ),
+        )
 
         # UI refs populated in _on_activate
         self._window: Gtk.ApplicationWindow | None = None
@@ -510,8 +639,43 @@ class GUIApp:
 
     def _on_exec_done(self, report):
         self._log_terminal(f"Verification payload complete:\n{report}", "OK")
-        self._load_sandbox_runs()
+        self._clear_listbox(self._sandbox_list)
+        self.sandbox_count = 0
+        for run in self._sandbox_runs_from_report(report):
+            self._append_sandbox_item(run)
         self._hide_progress()
+
+    @staticmethod
+    def _sandbox_runs_from_report(report: dict) -> list[dict]:
+        """Extract sandbox run data from the current execution report"""
+        runs: list[dict] = []
+        for entry in report.get("entries", []):
+            cve_id = entry.get("cve_id", "N/A")
+            for poc in entry.get("pocs", []):
+                sbx = poc.get("sandbox")
+                if not isinstance(sbx, dict):
+                    continue
+                logs = sbx.get("logs", {}) or {}
+                runs.append(
+                    {
+                        "execution_success": sbx.get("success", False),
+                        "crashed": sbx.get("crashed", False),
+                        "exit_code": sbx.get("returncode"),
+                        "sandbox_platform": sbx.get("mode", "unknown"),
+                        "run_timestamp": datetime.now().isoformat(),
+                        "exploit_file_hash": logs.get(
+                            "exploit_hash", logs.get("binary", "")
+                        ),
+                        "stdout": sbx.get("stdout", ""),
+                        "stderr": sbx.get("stderr", ""),
+                        "modules": sbx.get("modules", []),
+                        "kernel_info": sbx.get("kernel_info", {}),
+                        "resources": sbx.get("resources", {}),
+                        "open_processes": sbx.get("processes", []),
+                        "open_files": sbx.get("files", []),
+                    }
+                )
+        return runs
 
     def _show_progress(self, label: str, value: float | None = None):
         if self._progress_box is None:
@@ -812,54 +976,36 @@ class GUIApp:
         details.set_margin_bottom(8)
 
         if kernel_info:
-            k_lbl = Gtk.Label(
-                label=f"Kernel: {kernel_info.get('uname', kernel_info.get('date', 'N/A'))}"
+            details.append(
+                self._detail_label(
+                    "Kernel", kernel_info.get("uname", kernel_info.get("date", "N/A"))
+                )
             )
-            k_lbl.set_xalign(0.0)
-            k_lbl.add_css_class("mono")
-            details.append(k_lbl)
 
         if resources:
             meminfo = resources.get("meminfo", "")
             cpuinfo = resources.get("cpuinfo", "")
             if meminfo:
-                first = meminfo.split("\n")[0] if "\n" in meminfo else meminfo[:80]
-                m_lbl = Gtk.Label(label=f"Memory: {first}")
-                m_lbl.set_xalign(0.0)
-                m_lbl.add_css_class("mono")
-                details.append(m_lbl)
+                first = meminfo.split("\n")[0] if "\n" in meminfo else meminfo[:200]
+                details.append(self._detail_label("Memory", first))
             if cpuinfo:
-                first = cpuinfo.split("\n")[0] if "\n" in cpuinfo else cpuinfo[:80]
-                c_lbl = Gtk.Label(label=f"CPU: {first}")
-                c_lbl.set_xalign(0.0)
-                c_lbl.add_css_class("mono")
-                details.append(c_lbl)
+                first = cpuinfo.split("\n")[0] if "\n" in cpuinfo else cpuinfo[:200]
+                details.append(self._detail_label("CPU", first))
 
         if modules:
-            txt = ", ".join(modules[:10]) + ("..." if len(modules) > 10 else "")
-            m_lbl = Gtk.Label(label=f"Modules: {txt}")
-            m_lbl.set_xalign(0.0)
-            m_lbl.add_css_class("mono")
-            details.append(m_lbl)
+            details.append(self._caption_label("Modules"))
+            details.append(self._colorized_list(modules, "modules"))
 
         if open_processes:
-            txt = ", ".join(open_processes[:5]) + (
-                "..." if len(open_processes) > 5 else ""
-            )
-            p_lbl = Gtk.Label(label=f"Processes: {txt}")
-            p_lbl.set_xalign(0.0)
-            p_lbl.add_css_class("mono")
-            details.append(p_lbl)
+            details.append(self._caption_label("Processes"))
+            details.append(self._colorized_list(open_processes, "process"))
 
         if open_files:
-            txt = ", ".join(open_files[:5]) + ("..." if len(open_files) > 5 else "")
-            f_lbl = Gtk.Label(label=f"Files: {txt}")
-            f_lbl.set_xalign(0.0)
-            f_lbl.add_css_class("mono")
-            details.append(f_lbl)
+            details.append(self._caption_label("Files"))
+            details.append(self._colorized_list(open_files, "file"))
 
         if stdout:
-            details.append(self._build_io_view(f"STDOUT:\n{stdout}"))
+            details.append(self._build_io_view(self._binary_output(stdout)))
         if stderr:
             details.append(self._build_io_view(f"STDERR:\n{stderr}", fail=True))
 
@@ -876,22 +1022,98 @@ class GUIApp:
             self._sandbox_label.set_label(f"RUNS: {self.sandbox_count}")
 
     @staticmethod
-    def _build_io_view(text: str, fail: bool = False) -> Gtk.Widget:
-        """Scrollable, non-editable monospace view (no slicing), like reports."""
+    def _build_io_view(text: str, fail: bool = False) -> Gtk.Label:
+        """Wrapped, selectable monospace text shown inline in the row"""
+        label = Gtk.Label(label=text)
+        label.set_xalign(0.0)
+        label.set_wrap(True)
+        label.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
+        label.set_hexpand(True)
+        label.set_selectable(True)
+        label.add_css_class("mono")
+        label.add_css_class("terminal-fail" if fail else "terminal-view")
+        return label
+
+    @staticmethod
+    def _caption_label(name: str) -> Gtk.Label:
+        """Bold section header for the colorized lists."""
+        label = Gtk.Label(label=name)
+        label.set_xalign(0.0)
+        label.add_css_class("mono-bold")
+        return label
+
+    @staticmethod
+    def _binary_output(stdout: str) -> str:
+        """filter VM logs"""
+        marker = _BINARY_OUTPUT_MARKER
+        idx = stdout.find(marker)
+        if idx == -1:
+            return stdout.strip()
+        body = stdout[idx + len(marker):]
+        lines = [ln for ln in body.splitlines() if not ln.startswith("EXIT_CODE=")]
+        return "\n".join(lines).strip()
+
+    @classmethod
+    def _colorized_list(cls, lines, kind: str) -> Gtk.TextView:
+        """bat-style highlighted, wrapped, selectable list body."""
         view = Gtk.TextView()
         view.set_editable(False)
         view.set_monospace(True)
         view.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
+        view.set_hexpand(True)
         view.add_css_class("terminal-view")
-        if fail:
-            view.add_css_class("terminal-fail")
         buf = view.get_buffer()
-        buf.set_text(text)
-        sw = Gtk.ScrolledWindow()
-        sw.set_hexpand(True)
-        sw.set_max_content_height(180)
-        sw.set_child(view)
-        return sw
+        tags = {
+            name: buf.create_tag(name, foreground=color)
+            for name, color in _COLOR.items()
+        }
+
+        rules, mapping = _LIST_RULES[kind]
+        for line in lines:
+            line_start = buf.get_char_count()
+            end = buf.get_end_iter()
+            buf.insert(end, f"{line}\n")
+
+            tag_ranges = cls._matched_ranges(rules, mapping, line)
+            is_header = (
+                (kind == "process" and "PID USER" in line)
+                or (kind == "file" and line.startswith("total "))
+            )
+            if not tag_ranges and is_header:
+                tag_ranges = [(0, len(line), "dim")]
+
+            for start, stop, color_name in tag_ranges:
+                a = buf.get_iter_at_offset(line_start + start)
+                b = buf.get_iter_at_offset(line_start + stop)
+                buf.apply_tag(tags[color_name], a, b)
+
+        return view
+
+    @staticmethod
+    def _matched_ranges(rules, mapping, line: str) -> list[tuple[int, int, str]]:
+        """Map regex group spans to (start, stop, color) on one line."""
+        match = rules.match(line)
+        if not match:
+            return []
+        ranges = []
+        for group_name, color_name in mapping.items():
+            start = match.start(group_name)
+            stop = match.end(group_name)
+            if start < 0 or stop <= start:
+                continue
+            ranges.append((start, stop, color_name))
+        return ranges
+
+    @staticmethod
+    def _detail_label(name: str, text: str) -> Gtk.Label:
+        label = Gtk.Label(label=f"{name}: {text}")
+        label.set_xalign(0.0)
+        label.set_wrap(True)
+        label.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
+        label.set_hexpand(True)
+        label.set_selectable(True)
+        label.add_css_class("mono")
+        return label
 
     def _log_terminal(self, message: str, level: str = "INFO"):
         tag = {
@@ -914,22 +1136,6 @@ class GUIApp:
         """Compatibility shim: old code called this with strings/dicts."""
         text = str(item) if not isinstance(item, str) else item
         self._log_terminal(text, "INFO")
-
-    def _load_sandbox_runs(self):
-        try:
-            vulns = self.services.db.search(has_exploit=True, limit=200)
-            total = 0
-            for vuln in vulns:
-                cve_id: str | None = vuln.get("cve_id")
-                if not cve_id:
-                    continue
-                assert cve_id is not None
-                for run in self.services.db.get_sandbox_runs(cve_id):
-                    self._append_sandbox_item(run)
-                    total += 1
-            self._log_terminal(f"Loaded {total} sandbox run(s) from DB", "INFO")
-        except Exception as e:
-            self._log_terminal(f"Failed to load sandbox runs: {e}", "FAIL")
 
     def _save_to_db(self, _):
         pass  # FIXME
