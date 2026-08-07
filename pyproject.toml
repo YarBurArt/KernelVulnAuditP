@@ -33,7 +33,6 @@ dev = [
 ]
 
 [tool.mypy]
-# `report.py` is a thin entry shim that deliberately shares the package name;
-# exclude it so it doesn't collide with the `report` package during type checks.
+# report.py is a thin entry shim that deliberately shares the package name
 exclude = "^report\\.py$"
 

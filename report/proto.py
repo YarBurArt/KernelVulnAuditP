@@ -1,9 +1,15 @@
 import json
 
-import streamlit as st
+from core import dict_to_display_rows
+
+try:
+    import streamlit as st  # type: ignore[import-not-found]
+except ImportError:
+    st = None  # type: ignore
 
 
 def generate_report(raw_d):
+    assert st is not None
     st.set_page_config(page_title="Kernel Report", layout="wide")
 
     st.title("System scan report")
@@ -28,11 +34,7 @@ def generate_report(raw_d):
                 unsafe_allow_html=True,
             )
             # print(data["kev_data"])
-            transposed = [
-                [k] + [d[k] for d in raw_d["kev_data"]]
-                for k in raw_d["kev_data"][0].keys()
-            ]
-            st.table(transposed)  # List[Dict[Dict|List]]
+            st.table(dict_to_display_rows(raw_d["kev_data"]))
         else:
             st.info("No CVE data available")
 

@@ -22,6 +22,7 @@ from schemas import (
     FeedsReconResult,
     HostFileCapabilities,
     HostInfoData,
+    HostKernelModule,
     HostProcessCapabilities,
     HostSELinuxBoolean,
     KernelLPE,
@@ -117,7 +118,12 @@ class AppServices:
             selinux_hardening=selinux_hardening,
             capability_hardening=capability_hardening,
         )
-        self.save_host_recon(selinux_booleans, process_caps, file_caps)
+        self.save_host_recon(
+            selinux_booleans,
+            process_caps,
+            file_caps,
+            kernel_modules=self.lr.get_loaded_kernel_modules(),
+        )
         bar.finish(note="complete")
         return result
 
@@ -126,9 +132,10 @@ class AppServices:
         selinux_booleans: list[HostSELinuxBoolean],
         process_capabilities: list[HostProcessCapabilities],
         file_capabilities: list[HostFileCapabilities],
+        kernel_modules: list[str] | None = None,
     ) -> int:
         """Persist the collected host snapshot (SELinux booleans + capability
-        masks) into the DB for the report."""
+        masks + loaded kernel modules) into the DB for the report."""
         arch = self.lr.environment_info.get("architecture")
         architecture = ", ".join(arch) if isinstance(arch, (tuple, list)) else str(arch)
 
@@ -153,6 +160,11 @@ class AppServices:
             selinux_booleans=selinux_booleans,
             process_capabilities=process_capabilities,
             file_capabilities=file_capabilities,
+            kernel_modules=[
+                HostKernelModule(module_name=name)
+                for name in (kernel_modules or [])
+                if name
+            ],
         )
         host_id = self.db.add_host_info(host)
         logger.info(
