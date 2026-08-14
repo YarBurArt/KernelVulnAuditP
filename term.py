@@ -1,8 +1,6 @@
 """Stdlib-only terminal helpers for the CLI and TUI"""
 
 import os
-import shutil
-import subprocess
 import sys
 import time
 
@@ -52,37 +50,33 @@ def is_interactive() -> bool:
         return False
 
 
-def clear_screen() -> None:
-    sys.stdout.write("\033[2J\033[H") # move cursor
-    sys.stdout.flush()
+def pager(text: str, *, page_size: int = 40) -> None:
+    """simple page through long output with a built-in prompt"""
+    if not is_interactive():
+        print(text)
+        return
 
-
-def pager(text: str) -> None:
-    """paging through less -R when attached to a TTY,
-    less's -F flag makes it exit immediately when the text fits on
-    one screen, so short output behaves exactly like a plain print().
-    Falls back to a plain print when piped or when less is unavailable.
-    """
-    if is_interactive():
-        less = shutil.which("less")
-        if less:
-            try:
-                proc = subprocess.Popen(
-                    [less, "-R", "-F", "-X"],
-                    stdin=subprocess.PIPE,
-                    text=True,
-                )
-                assert proc.stdin is not None
-                proc.communicate(text)
-                return
-            except OSError:
-                pass
-    print(text)
-
-
-def wait_key(prompt: str = "Press Enter to continue...") -> None:
-    """Block until the user presses Enter (for pausing interactive menus)."""
-    input(prompt)
+    lines = text.splitlines()
+    total = len(lines)
+    start = 0
+    while start < total:
+        end = min(start + page_size, total)
+        print("\n".join(lines[start:end]))
+        if end >= total:
+            return
+        try:
+            answer = (
+                input(paint("\n-- more -- (Enter/space: next, q: quit) ", DIM))
+                .strip()
+                .lower()
+            )
+        except (KeyboardInterrupt, EOFError):
+            print()
+            return
+        if answer in ("q", "quit"):
+            print()
+            return
+        start = end
 
 
 def _stream_tty(stream) -> bool:

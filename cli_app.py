@@ -2,7 +2,7 @@ import argparse
 from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import Any
 
 import term
 from app_services import AppServices
@@ -344,176 +344,42 @@ class CLIApp:
         return "INFO"
 
 
-class KernelAuditTUI:
-    """Interactive loop, menu wrapping the CLI commands"""
+_QUICK_START = r"""
+ _  _ ____ ____ _  _ ____ _       _  _ _  _ _    _  _    ____ _  _ ___  _ ___     ___
+ |_/  |___ |__/ |\ | |___ |       |  | |  | |    |\ |    |__| |  | |  \ |  |      |__]
+ | \_ |___ |  \ | \| |___ |___     \/  |__| |___ | \|    |  | |__| |__/ |  |  ___ |
 
-    _BANNER = r"""
-_  _ ____ ____ _  _ ____ _       _  _ _  _ _    _  _    ____ _  _ ___  _ ___     ___  
-|_/  |___ |__/ |\ | |___ |       |  | |  | |    |\ |    |__| |  | |  \ |  |      |__] 
-| \_ |___ |  \ | \| |___ |___     \/  |__| |___ | \|    |  | |__| |__/ |  |  ___ |    
-
-    Kernel Vulnerability Auditor / interactive CLI
+     Kernel Vulnerability Auditor
 """
 
-    # key -> (label, handler)
-    _MENU: ClassVar[dict[str, tuple[str, str]]] = {
-        "1": ("Local recon (Lynis + LES)", "local"),
-        "2": ("Threat-intel feeds (NIST / OSV / GitHub)", "feeds"),
-        "3": ("Full scan (local + feeds)", "scan"),
-        "4": ("Execution tests (sandbox PoCs)", "exec"),
-        "5": ("Generate report", "report"),
-        "6": ("List CISA KEV entries", "kev"),
-        "7": ("List sandbox runs", "sandbox"),
-        "8": ("Settings", "settings"),
-    }
 
-    def __init__(self, db: ThreatDB, verbose: bool = False):
-        try:
-            import readline  # noqa: F401  (enables line editing on Linux)
-        except ImportError:
-            pass
-        self.app = CLIApp(db=db, verbose=verbose)
-        self.verbose = verbose
-
-    def run(self) -> None:
-        if not term.is_interactive():
-            print(
-                "Interactive TUI needs a real terminal.\n"
-                "Use a command flag instead: --scan, --report, --feeds, ..."
-            )
-            return
-        self._loop()
-
-    def _loop(self) -> None:
-        while True:
-            term.clear_screen()
-            print(term.paint(self._BANNER, term.CYAN))
-            print(self._build_menu())
-            try:
-                choice = input("  Option: ").strip().lower()
-            except KeyboardInterrupt, EOFError:
-                print()
-                self._exit()
-                return
-            if choice in ("q", "quit", "exit", "Q"):
-                self._exit()
-                return
-            action = self._MENU.get(choice)
-            if action is None:
-                print(term.paint("  Unknown option.", term.WARN))
-                self._pause()
-                continue
-            print()
-            self._dispatch(action[1])
-
-    def _dispatch(self, name: str) -> None:
-        handlers = {
-            "local": self._do_local,
-            "feeds": self._do_feeds,
-            "scan": self._do_scan,
-            "exec": self._do_exec,
-            "report": self._do_report,
-            "kev": self._do_kev,
-            "sandbox": self._do_sandbox,
-            "settings": self._do_settings,
-        }
-        try:
-            handlers[name]()
-        except KeyboardInterrupt:
-            self._pause("Interrupted.")
-        except Exception as exc:
-            print(term.paint(f"  ERROR: {exc}", term.CRIT))
-            self._pause()
-
-    def _build_menu(self) -> str:
-        lines = [term.paint("== Main Menu ==", term.BOLD)]
-        for key, (label, _action) in self._MENU.items():
-            lines.append(f"  {key}  {label}")
-        lines.append("  q   Quit")
-        lines.append("")
-        return "\n".join(lines)
-
-    def _do_local(self) -> None:
-        save = self._confirm_save()
-        self.app.run_local(save=save)
-        self._pause()
-
-    def _do_feeds(self) -> None:
-        self.app.run_feeds()
-        self._pause()
-
-    def _do_scan(self) -> None:
-        save = self._confirm_save()
-        self.app.run_scan(save=save)
-        self._pause()
-
-    def _do_exec(self) -> None:
-        self.app.run_execution_tests()
-        self._pause()
-
-    def _do_report(self) -> None:
-        self.app.run_report()
-        self._pause()
-
-    def _do_kev(self) -> None:
-        self.app.list_kev()
-        self._pause()
-
-    def _do_sandbox(self) -> None:
-        self.app.list_sandbox_runs()
-        self._pause()
-
-    def _do_settings(self) -> None:
-        self._settings_menu()
-
-    def _settings_menu(self) -> None:
-        while True:
-            term.clear_screen()
-            print(term.paint("== Settings ==", term.BOLD))
-            print("  1  Show current settings")
-            print("  2  Set KEY=VALUE ... (space separated)")
-            print("  3  Back")
-            try:
-                choice = input("  Option: ").strip()
-            except KeyboardInterrupt, EOFError:
-                return
-            if choice == "1":
-                self.app.show_settings()
-                self._pause()
-            elif choice == "2":
-                self._edit_settings()
-            else:
-                return
-
-    def _edit_settings(self) -> None:
-        print("  Enter KEY=VALUE pairs (e.g. LOG_LEVEL=INFO ISOLATION_TIMEOUT_SEC=30)")
-        try:
-            line = input("  > ").strip()
-        except KeyboardInterrupt, EOFError:
-            return
-        if not line:
-            self._pause("  No changes.")
-            return
-        self.app.save_settings(line.split())
-        self._pause()
-
-    @staticmethod
-    def _confirm_save() -> bool:
-        try:
-            return input("  Save results to DB? [y/N]: ").strip().lower() in ("y", "yes")
-        except KeyboardInterrupt, EOFError:
-            return False
-
-    @staticmethod
-    def _pause(prompt: str = "Press Enter to continue...") -> None:
-        try:
-            term.wait_key(prompt)
-        except KeyboardInterrupt, EOFError:
-            pass
-
-    @staticmethod
-    def _exit() -> None:
-        print(term.paint("Goodbye.", term.DIM))
+def _print_quick_help() -> None:
+    """Compact, colorized command reference for the no-Textual CLI fallback."""
+    print(term.paint(_QUICK_START, term.CYAN))
+    print(term.paint("  CLI commands (Textual TUI is not installed):", term.DIM))
+    print()
+    rows = [
+        ("--scan", "full scan (local recon + feeds)"),
+        ("--local", "local recon only (Lynis + LES + hardening)"),
+        ("--feeds", "threat-intel feeds (NIST / OSV / GitHub)"),
+        ("--exec-tests", "fetch + sandbox-run PoCs"),
+        ("--report", "generate the vulnerability report"),
+        ("--list-kev", "list CISA KEV entries"),
+        ("--sandbox-runs", "list stored sandbox runs"),
+        ("--settings", "show current configuration"),
+        ("--set KEY=VALUE", "change a config value"),
+        ("--save", "persist scan results to the DB"),
+        ("--db orm|memory", "choose the DB backend"),
+    ]
+    width = max(len(flag) for flag, _ in rows)
+    for flag, desc in rows:
+        print(f"    {term.paint(flag.ljust(width), term.BOLD)}  {desc}")
+    print()
+    print("  Examples:")
+    print("    python main.py --scan --save --db orm")
+    print("    python main.py --exec-tests")
+    print("    python main.py --report")
+    print()
 
 
 def main_cli(db: ThreatDB):
@@ -569,9 +435,11 @@ def main_cli(db: ThreatDB):
         help="DB backend type (sqlite or in-memory)",
     )
     parser.add_argument(
-        "--tui",
-        action="store_true",
-        help="Launch the interactive menu (default when run on a TTY without a command)",
+        "--db",
+        type=str,
+        default=DB_BACKEND,
+        choices=["orm", "memory"],
+        help="DB backend type (sqlite or in-memory)",
     )
 
     args = parser.parse_args()
@@ -590,8 +458,8 @@ def main_cli(db: ThreatDB):
         args.report,
     ))
 
-    if not command_requested and (args.tui or term.is_interactive()):
-        KernelAuditTUI(db=db, verbose=args.verbose).run()
+    if not command_requested and term.is_interactive():
+        _print_quick_help()
         return
 
     if args.set:
@@ -620,4 +488,4 @@ def main_cli(db: ThreatDB):
         )
 
 
-__all__ = ["CLIApp", "KernelAuditTUI", "main_cli"]
+__all__ = ["CLIApp", "main_cli"]
