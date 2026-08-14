@@ -69,7 +69,7 @@ class LocalRecon:
             try:
                 with open("/proc/version", "r") as f:
                     kernel_info["proc_version"] = f.read().strip()
-            except Exception as e:
+            except OSError as e:
                 logger.debug("kernel /proc/version error: %s", e)
 
         logger.info("collected kernel version: %s", kernel_info["kernel_version"])
@@ -124,24 +124,15 @@ class LocalRecon:
             for line in response.text.split("\n")[:10]:
                 if line.startswith("Date:"):
                     date_str = line.replace("Date:", "").strip()
-                    try:
-                        return int(
-                            datetime.strptime(date_str, "%a, %d %b %Y").timestamp()
-                        )
-                    except Exception as e:
-                        logger.debug("kernel format build date error 1st: %s", e)
+                    for fmt in ("%a, %d %b %Y", "%a %b %d %H:%M:%S %Y %z"):
                         try:
-                            return int(
-                                datetime.strptime(
-                                    date_str, "%a %b %d %H:%M:%S %Y %z"
-                                ).timestamp()
-                            )
-                        except Exception as e:
-                            logger.debug("kernel format build date error 2nd: %s", e)
-                            return 0
+                            return int(datetime.strptime(date_str, fmt).timestamp())
+                        except ValueError:
+                            continue
+                    return 0
             logger.warning("get kernel build date error")
             return 0
-        except Exception as e:
+        except (httpx.HTTPError, ValueError) as e:
             logger.warning("get_kernel_build_date error: %s", e)
             return 0
 
@@ -166,7 +157,7 @@ class LocalRecon:
                 cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
             )
             return True
-        except Exception as e:
+        except (subprocess.CalledProcessError, OSError) as e:
             logger.warning("lynis_audit error: %s", e)
             return False
 
@@ -213,8 +204,10 @@ class LocalRecon:
             self.run_lynis_audit()
             parsed: dict = self.parser.parse_lynis_dat_report(report_path)
             return self.parser.extract_lynis_kernel_details(parsed)
-        except Exception as e:
-            logger.warning("get_lynis_scan_details error: %s", e)
+        except FileNotFoundError as e:
+            # lynis didn't produce a report; unexpected parse bugs propagate
+            # to the caller, which logs them at the worker boundary.
+            logger.warning("get_lynis_scan_details report missing: %s", e)
             return []
 
     def get_linpeas_scan_details(
@@ -225,27 +218,25 @@ class LocalRecon:
         try:
             linpeas = self._find_linpeas()
             if not linpeas:
-                logger.exception("No linpeas found")
+                logger.warning("No linpeas found")
                 return None
 
             Path(output_path).unlink(missing_ok=True)
             self.run_linpeas(output_path)
             data: dict = self.parser.convert_linpeas_to_dict(output_path=output_path)
             return self.parser.extract_useful_info_peas(data)
-        except Exception as e:
-            logger.warning("get_linpeas_scan_details error: %s", e)
+        except ValueError as e:
+            # PEAS output was present but unparseable
+            logger.warning("get_linpeas_scan_details parse error: %s", e)
             return None
 
     def get_les_scan_details(
         self, report_path: str = LES_REPORT_PATH
     ) -> list[LesCVEItem]:
-        try:
-            self.run_les(report_path)
-            parsed: list[LesCVEItem] = self.parser.parse_les_report(report_path)
-            return parsed
-        except Exception as e:
-            logger.warning("get_les_scan_details parse error: %s", e)
-            return []
+        # run_les() logs its own subprocess failures; parse_les_report()
+        # returns [] for a missing report
+        self.run_les(report_path)
+        return self.parser.parse_les_report(report_path)
 
     @staticmethod
     def run_les(report_path: str | None = None) -> bool:
@@ -261,7 +252,7 @@ class LocalRecon:
             dest.write_text(proc.stdout, encoding="utf-8")
             logger.info("LES scan completed and saved to: %s", dest)
             return True
-        except Exception as e:
+        except (subprocess.CalledProcessError, OSError) as e:
             logger.warning("something wrong with LES: %s", e)
             return False
 
@@ -287,9 +278,6 @@ class LocalRecon:
             return []
         except OSError as e:
             logger.warning("os error reading /proc/modules: %s", e)
-            return []
-        except Exception as e:
-            logger.exception("unexpected error reading kernel modules: %s", e)
             return []
 
     @staticmethod
@@ -319,14 +307,14 @@ class LocalRecon:
                         continue
                     if value:
                         values[key] = value
-                except Exception as e:
+                except OSError as e:
                     logger.debug("skip sysctl entry %s: %s", path, e)
                     continue
 
             logger.debug("loaded %d sysctl values", len(values))
             return values
-        except Exception as e:
-            logger.exception("unexpected error loading sysctl values: %s", e)
+        except OSError as e:
+            logger.warning("error loading sysctl values: %s", e)
             return {}
 
     def get_lynis_kernel_hardening_details(
@@ -381,9 +369,6 @@ class LocalRecon:
 
         except FileNotFoundError as e:
             logger.warning("params.prf not found: %s", e)
-            return []
-        except Exception as e:
-            logger.exception("get_lynis_kernel_hardening_details failed: %s", e)
             return []
 
     def get_host_selinux_bools(

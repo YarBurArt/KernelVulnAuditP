@@ -67,86 +67,54 @@ class ParseVmResults:
             if current is not None:
                 sections[current].append(line)
 
-        def _log(key: str, value: str) -> None:
-            if log is not None:
-                log(key, value)
-            else:
-                logger.debug("parse %s: %s", key, value)
-
         kernel_info = {}
         resources = {}
         modules = []
         files = []
         processes = []
 
-        try:
-            uname = sections.get("vm_start", [])
-            if len(uname) >= 2:
-                kernel_info["date"] = uname[0]
-                kernel_info["uname"] = uname[1]
-        except Exception as e:
-            _log("parse_vm_start_error", str(e))
+        # Pure dict/list reads: no guard needed, a failure here is a bug we
+        # want to surface rather than a recoverable runtime condition.
+        uname = sections.get("vm_start", [])
+        if len(uname) >= 2:
+            kernel_info["date"] = uname[0]
+            kernel_info["uname"] = uname[1]
 
-        try:
-            cmdline = sections.get("cmdline", [])
-            if cmdline:
-                kernel_info["cmdline"] = "\n".join(cmdline)
-        except Exception as e:
-            _log("parse_cmdline_error", str(e))
+        cmdline = sections.get("cmdline", [])
+        if cmdline:
+            kernel_info["cmdline"] = "\n".join(cmdline)
 
-        try:
+        dmesg = sections.get("dmesg", [])
+        if dmesg:
+            kernel_info["dmesg"] = "\n".join(dmesg)
+
+        cpu = sections.get("cpu", [])
+        if cpu:
+            resources["cpuinfo"] = "\n".join(cpu)
+
+        mem = sections.get("memory", [])
+        if mem:
+            resources["meminfo"] = "\n".join(mem)
+
+        res = sections.get("resources", [])
+        if len(res) >= 1:
+            resources["loadavg"] = res[0]
+        if len(res) >= 2:
+            resources["stat"] = "\n".join(res[1:])
+
+        modules = [line for line in sections.get("modules", []) if line.strip()]
+        if not modules:
             dmesg = sections.get("dmesg", [])
-            if dmesg:
-                kernel_info["dmesg"] = "\n".join(dmesg)
-        except Exception as e:
-            _log("parse_dmesg_error", str(e))
+            for line in dmesg:
+                match = re.search(r"] ([a-zA-Z0-9_]+) loaded", line)
+                if match:
+                    modules.append(match.group(1))
 
-        try:
-            cpu = sections.get("cpu", [])
-            if cpu:
-                resources["cpuinfo"] = "\n".join(cpu)
-        except Exception as e:
-            _log("parse_cpu_error", str(e))
-
-        try:
-            mem = sections.get("memory", [])
-            if mem:
-                resources["meminfo"] = "\n".join(mem)
-        except Exception as e:
-            _log("parse_mem_error", str(e))
-
-        try:
-            res = sections.get("resources", [])
-            if len(res) >= 1:
-                resources["loadavg"] = res[0]
-            if len(res) >= 2:
-                resources["stat"] = "\n".join(res[1:])
-        except Exception as e:
-            _log("parse_resources_error", str(e))
-
-        try:
-            modules = [line for line in sections.get("modules", []) if line.strip()]
-            if not modules:
-                dmesg = sections.get("dmesg", [])
-                for line in dmesg:
-                    match = re.search(r"] ([a-zA-Z0-9_]+) loaded", line)
-                    if match:
-                        modules.append(match.group(1))
-        except Exception as e:
-            _log("parse_modules_error", str(e))
-
-        try:
-            files = [
-                line for line in sections.get("filesystem_snapshot", []) if line.strip()
-            ]
-        except Exception as e:
-            _log("parse_files_error", str(e))
-
-        try:
-            processes = [
-                line for line in sections.get("process_list", []) if line.strip()
-            ]
-        except Exception as e:
-            _log("parse_processes_error", str(e))
+        files = [
+            line for line in sections.get("filesystem_snapshot", []) if line.strip()
+        ]
+        processes = [
+            line for line in sections.get("process_list", []) if line.strip()
+        ]
 
         return kernel_info, resources, modules, files, processes
