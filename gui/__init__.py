@@ -1,3 +1,4 @@
-from .app import GUIApp, GUI_E
+from gui.tui import GUI_E
+from gui.tui import KernelVulnTUI as GUIApp
 
-__all__ = ["GUIApp", "GUI_E"]
+__all__ = ["GUI_E", "GUIApp"]
