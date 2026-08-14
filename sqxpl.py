@@ -19,6 +19,7 @@ Example output: [
 
 import base64
 import json
+import logging
 import re
 import shutil
 import subprocess
@@ -33,6 +34,8 @@ from core import (
     extract_code_block_commands,
     extract_section_by_header,
 )
+
+logger = logging.getLogger(f"kernel_audit.{__name__}")
 
 
 class GitHubExploitSearcher:
@@ -109,8 +112,8 @@ class GitHubExploitSearcher:
                     repo_info = self._extract_repo_info(repo, cve_id)
                     if repo_info:
                         results.append(repo_info)
-        except Exception as e:  # FIXME
-            print(e)
+        except (httpx.HTTPError, ValueError) as e:
+            logger.warning("GitHub search for %s failed: %s", cve_id, e)
         return results
 
     def _extract_repo_info(
@@ -158,8 +161,8 @@ class GitHubExploitSearcher:
                     "utf-8", errors="ignore"
                 )
                 return content
-        except Exception as e:
-            print(f"[!] README fetch error: {e}")
+        except (httpx.HTTPError, ValueError) as e:
+            logger.warning("[!] README fetch error for %s/%s: %s", owner, name, e)
         return ""
 
     def _parse_instructions(

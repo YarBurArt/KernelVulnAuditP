@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 import httpx
+from sqlalchemy.exc import IntegrityError
 
 from config import ALLOW_HOST_EXECUTION, ISOLATION_TIMEOUT_SEC
 from core import format_report, format_timestamp, summarize_sandbox
@@ -273,10 +274,11 @@ class AppServices:
             self.db.add_cisa_kev(cve_id, kev_data)
             return True
 
-        except Exception as exc:
-            if "UNIQUE constraint failed" in str(exc):
-                return False
-            logger.warning("Error storing %s: %s", cve_id, exc)
+        except IntegrityError:
+            # a previous KEV run already persisted this row
+            return False
+        except Exception:
+            logger.exception("Error storing KEV entry %s", cve_id)
             return False
 
     def _load_and_store_kev(self, build_date: int | None = None) -> None:
@@ -517,7 +519,11 @@ class AppServices:
             }
 
         except Exception as exc:
+            # A failed sandbox run is a legitimate test outcome; keep the
+            # user-facing summary at WARNING and the full traceback at DEBUG
+            # so genuine bugs in our runner aren't hidden by the short line.
             logger.warning("%s: %s - is failed: %s", cve_id, command, exc)
+            logger.debug("sandbox failure traceback for %s", cve_id, exc_info=True)
 
             return {
                 "sandbox_error": str(exc),

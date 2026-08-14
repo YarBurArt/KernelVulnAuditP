@@ -615,6 +615,12 @@ def _build_capability_section(
     return {"rows": rows, "references": references}
 
 
+def build_capability_section(
+    capability_rows: list[dict[str, Any]],
+) -> dict[str, Any]:
+    return _build_capability_section(capability_rows)
+
+
 def _is_finding(status: Any) -> bool:
     """Whether a diff row status represents a real finding (not ok)."""
     return str(status or "").strip().lower() not in ("", "ok", "success", "pass")

@@ -83,7 +83,7 @@ def compile_and_run(src="./data/xpl.c", out="./xpl/tmp.out") -> tuple[str, str] 
         )
         if proc.returncode != 0:
             return None
-    except Exception:
+    except subprocess.TimeoutExpired:
         return None
     return proc.stdout, proc.stderr
 

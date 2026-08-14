@@ -6,6 +6,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from sqlalchemy.exc import SQLAlchemyError
+
 from core import format_timestamp
 from log_conf import LOG_FILE
 from report.diff import (
@@ -224,8 +226,8 @@ def build_report_data(db=None) -> dict[str, Any]:
     host_info = None
     try:
         host_info = db.get_latest_host_info()
-    except Exception as e:
-        logger.warning("report host info fetch failed: %s", e)
+    except SQLAlchemyError:
+        logger.exception("report host info fetch failed")
     if host_info is not None:
         host_info_dict = host_info.to_dict()
 
