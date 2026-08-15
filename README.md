@@ -12,6 +12,21 @@ The output includes a comprehensive, machine-readable JSON report and a user-fri
 
 # Installation
 
+## Nix
+
+The `flake.nix` bundles the app plus all recon tools and the QEMU sandbox. But the app uses the QEMU `microvm` scenario only.
+
+```bash
+nix run .#gui            # Textual TUI
+nix run .#cli            # CLI minimal quick-start menu
+nix run .#report         # report (web/Streamlit if available, else CLI)
+nix build .#default      # installable package (kishirika-cli/-gui/-report)
+```
+
+The flake is pinned via `flake.lock` for reproducibility.
+
+## Git + uv (any Linux distro)
+
 ```bash
 git clone https://github.com/YarBurArt/KernelVulnAuditP.git
 ```
@@ -19,7 +34,8 @@ git clone https://github.com/YarBurArt/KernelVulnAuditP.git
 cd ./KernelVulnAuditP
 ```
 
-install temporary dependecies
+install temporary dependencies (only for the non-Nix path; the Nix package
+already bundles lynis/LES/linpeas and the QEMU sandbox tools)
 ```bash
 chmod u+x ./install_tools.sh
 ```
@@ -27,23 +43,16 @@ chmod u+x ./install_tools.sh
 ./install_tools.sh
 ```
 
-run GUI (GTK4 libs optional; auto back to CLI if missing)
+run the terminal UI (Textual TUI; auto back to CLI if missing)
 
 ```bash
-uv sync --extra gui   # install GTK4 dependencies (pycairo, pygobject)
 uv run python main.py
 ```
 
-force CLI
+force CLI with quick-start menu
 
 ```bash
 uv run python main.py --cli
-```
-
-interactive menu (same as the TTY default, but more explicit)
-
-```bash
-uv run python main.py --cli --tui
 ```
 
 generate report (Streamlit if available, else CLI + JSON)
@@ -53,7 +62,7 @@ uv sync --extra streamlit   # optional: web report (streamlit)
 uv run streamlit run report.py
 ```
 
-force CLI report (paged through `less` and colorized on a TTY)
+force CLI report
 
 ```bash
 uv run python report.py --cli 
@@ -67,16 +76,18 @@ Long-running operations (local recon, threat-intel feeds, CISA KEV import, PoC e
 
 | flag | description | notes |
 | --- | --- | --- |
-| `--cli` / `--gui` | force CLI or GTK4 GUI | GUI starts only if the `gui` extra + GTK4 libs are installed; `--cli` suppresses console logs and opens an interactive menu on a TTY |
-| `--tui` | force the interactive pure-Python menu | same as the default when run on a TTY without a command |
+| `--cli` / `--gui` | force CLI or the Textual TUI | TUI needs no extra deps; `--cli` with no command prints a quick-start menu on a TTY |
 | `--scan`, `-s` | run local recon + threat‑intel feeds in one shot | uses uname, /proc, Lynis, LinPEAS, LES, OSV, NVD, GitHub search  with KEV filters |
+| `--local`, `-l` | local recon only | uname/proc, Lynis, LinPEAS, LES, SELinux/capabilities hardening |
+| `--feeds`, `-f` | threat-intel feeds only | NIST / OSV / GitHub PoC search |
 | `--report`, `-r` | print a condensed vulnerability summary | pulls cached DB stats and KEV counts |
 | `--exec-tests` | fetch PoCs, compile/run them in the sandbox | uses virtme-ng/QEMU microvm to isolate; respects `ALLOW_HOST_EXECUTION` |
-| `--verbose`, `-v` | show top items from NVD/OSV/GitHub queries | helpful while tuning kernels |
-| `--cve 6.1.0` | seed kernel version (or CVE ID) for PoC search | default is `6.1.0`; accept any kernel string |
-| `--save` | persist scan results to the selected DB backend | honor `--db` |
+| `--sandbox-runs`, `-b` | list sandbox runs stored in the DB | grouped per CVE |
 | `--list-kev` | print CISA KEV entries already in the DB | limit 50, shows ransomware flag |
-| `--db simple / orm / memory` | pick SQLite via simple/ORM helper or in‑memory cache | default defined in `config.py` |
+| `--settings` / `--set KEY=VALUE` | show / change config values | e.g. `--set ISOLATION_TIMEOUT_SEC=30` |
+| `--verbose`, `-v` | show top items from NVD/OSV/GitHub queries | helpful while tuning kernels |
+| `--save` | persist scan results to the selected DB backend | honor `--db` |
+| `--db orm / memory` | pick the SQLite ORM helper or in‑memory cache | defined in `config.py` |
 
 ------
 
@@ -103,12 +114,34 @@ Report logic lives in the `report/` package (`base_report.py` for data building,
 - `uv run python report.py --save --output report_data.json` writes the JSON before rendering; add `--verbose` for more lines in CLI mode.
 
 ## check this in the config
-- Feeds & APIs: `CISA_KEV_URL`, `CVEORG_BASE_URL`, `NIST_API_URL`, `OSV_API_URL`, `CH_API_URL` (kernel changelog mirror).
-- Local tool paths: `LYNIS_BINARY`, `LYNIS_REPORT_FILE`, `LYNIS_LOG_FILE`, `PATH_LINPEAS`, `LINPEAS_OUT_JSON`, `LES_PATH`, `LES_REPORT_PATH`.
-- Sandbox/db: `POCS_BASE_PATH`, `DB_BACKEND` (`orm` recommended), `ISOLATION_TIMEOUT_SEC`, `ALLOW_HOST_EXECUTION` (keep `False` when using virtme-ng/QEMU).
-- Change the `/tmp/...` defaults if your distro cleans tmp on reboot or if you store tools elsewhere.
 
-All of this can be done conveniently in the Flet GUI.
+Edit the file and re-run. Full reference:
+
+| setting | default | notes |
+| --- | --- | --- |
+| `DB_BACKEND` | `orm` | `orm` / `memory` (SQLite / in-memory); `orm` is recommended |
+| `LOG_LEVEL` | `DEBUG` | verbosity of `logs/kernel_audit.log` |
+| `CISA_KEV_URL` | CISA KEV feed URL | known-exploited-vulnerabilities JSON |
+| `CISA_KEV_PATH` | `known_exploited_vulnerabilities.json` | where the KEV feed is cached |
+| `CVEORG_BASE_URL` | `https://cveawg.mitre.org/api/cve/` | CVE lookup API base |
+| `GITHUB_URL` / `GITHUB_API_URL` | GitHub search URLs | PoC/repo search patterns |
+| `NIST_API_URL` | NVD REST API (CPE query) | CPE pinned to the running kernel |
+| `NIST_CVE_DETAILS_API_URL` | NVD REST API (CVE query) | per-CVE detail lookups |
+| `OSV_API_URL` | `https://api.osv.dev/v1/query` | OSV query endpoint |
+| `CH_API_URL` | `https://cdn.kernel.org/.../ChangeLog-{version}` | kernel changelog mirror |
+| `REQUIREMENTS_RE` / `VERSIONS_RE` | regexes | PoC README parsing heuristics |
+| `LYNIS_BINARY` | `lynis` | lynis executable (or absolute path) |
+| `LYNIS_REPORT_FILE` | `/tmp/lynis-report.dat` | lynis output file |
+| `LYNIS_LOG_FILE` | `/tmp/lynis.log` | lynis log file |
+| `LINPEAS_OUT_JSON` | `/tmp/linpeas_report.json` | LinPEAS JSON output |
+| `PATH_LINPEAS` | `/tmp/linpeas_kernel.sh` | kernel-focused LinPEAS script path |
+| `POCS_BASE_PATH` | `/tmp/kernauditp` | where PoCs are cloned/staged |
+| `LES_PATH` | `/tmp/linux-exploit-suggester/linux-exploit-suggester.sh` | Linux Exploit Suggester script |
+| `LES_REPORT_PATH` | `/tmp/les_report.txt` | LES output file |
+| `ISOLATION_TIMEOUT_SEC` | `20` | per-command timeout inside the micro-VM |
+| `ALLOW_HOST_EXECUTION` | `False` | `True` runs PoCs directly on the host (risky); keep `False` for virtme-ng/QEMU isolation |
+
+Change the `/tmp/...` defaults if you store the tools elsewhere, but clean per scan.
 
 ## Docs for used libs and tools 
 
@@ -130,7 +163,7 @@ All of this can be done conveniently in the Flet GUI.
 Of course in the future there will be more integrations with various tools and APIs :)
 
 ## base architecture 
-`main.py` hosts the CLI/optional GTK4 UI and delegates to `AppServices` for local probes (uname, /proc, Lynis, LinPEAS, LES), threat‑intel pulls (NVD/OSV/GitHub), and sandboxed PoC execution. `recon.py` supplies the LocalRecon/ReconFeeds helpers that actually talk to the OS and external APIs. `sqxpl.py` searches for PoCs and stages them for execution tests. `isolate.py` runs commands inside virtme-ng/QEMU microvm; `config.py` carries its timeouts and host‑escape. `db.py` defines the storage interface with adapters for SQLite (simple/ORM) or in‑memory use. `report.py` renders everything through Streamlit or a CLI view, and can save/load JSON snapshots.
+`main.py` hosts the CLI/Textual TUI and delegates to `AppServices` for local probes (uname, /proc, Lynis, LinPEAS, LES), threat‑intel pulls (NVD/OSV/GitHub), and sandboxed PoC execution. `recon/` supplies the LocalRecon/ReconFeeds helpers that actually talk to the OS and external APIs. `sqxpl.py` searches for PoCs and stages them for execution tests. `isolate/` runs commands inside virtme-ng/QEMU microvm; `config.py` carries its timeouts and host‑escape. `db/` defines the storage interface with adapters for SQLite (ORM) or in‑memory use. `gui/` is the Textual terminal UI (scan page with hardening/caps/CVE/sandbox tabs, live progress and the engine stdout console); `report/` renders everything through Streamlit or a CLI view, and can save/load JSON snapshots.
 
 This base architecture is not the best and requires many fixes and improvements, but it is enough for a project with a limited time.
 
