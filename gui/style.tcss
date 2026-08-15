@@ -1,0 +1,224 @@
+/* Calm dark theme matching the GTK4 port (GitHub-dark palette). */
+
+Screen {
+    background: #0d1117;
+    color: #c9d1d9;
+}
+
+.page {
+    height: 100%;
+    width: 100%;
+}
+
+/* -- buttons (compact, GTK4-like) -------------------------------------- */
+Button {
+    height: auto;
+    min-width: 0;
+    padding: 0 1;
+    margin: 0 1 0 0;
+    border: round #30363d;
+    background: #21262d;
+    color: #c9d1d9;
+    text-style: bold;
+    text-align: center;
+    content-align: center middle;
+}
+
+/* Local Recon + TI Feeds form one unit (GTK recon_box port); Full Cycle
+   stands alone as the obvious "do everything" action. */
+.btn-group {
+    width: auto;
+    height: 3;
+    padding: 0 1;
+    margin-right: 1;
+    border: round #30363d;
+    background: #161b22;
+}
+
+.toolbar .btn-group Button,
+.toolbar .btn-group Button:focus {
+    border: none;
+    margin: 0;
+}
+
+Button:hover {
+    background: #30363d;
+    border: round #8b949e;
+}
+
+Button:focus {
+    background: #30363d;
+    border: round #58a6ff;
+}
+
+/* -- scan page --------------------------------------------------------- */
+.toolbar {
+    height: 3;
+    padding: 0 1;
+    margin-bottom: 0;
+    align-vertical: middle;
+}
+
+.toolbar .spacer {
+    width: 1fr;
+}
+
+MetricsBar {
+    width: 50;
+    height: 3;
+    padding: 0 2;
+    content-align: right middle;
+}
+
+/* progress bar: one compact row (label + bar), no blank lines below it */
+#toolbar_area {
+    /* containers default to 1fr; this wrapper must hug its content so the
+       3-row toolbar is never clipped to a single visible line */
+    height: auto;
+}
+
+#progress_box {
+    height: 1;
+    width: 1fr;
+    padding: 0 1;
+    margin-bottom: 1;
+}
+
+#progress_box #progress_label {
+    height: 1;
+    width: auto;
+    max-width: 50%;
+    margin-right: 1;
+    content-align: left middle;
+}
+
+#progress_box #progress_bar {
+    height: 1;
+    width: 1fr;
+}
+
+/* parked after Exec Tests: label + bar, vertically centered in the toolbar */
+#progress_box.inline {
+    width: 64;
+    height: 3;
+    align-vertical: middle;
+    margin: 0 1 0 0;
+    padding: 0;
+}
+
+#progress_box.inline #progress_label {
+    height: 1;
+    width: auto;
+    max-width: 32;
+    margin-right: 1;
+    content-align: left middle;
+}
+
+#progress_box.inline #progress_bar {
+    width: 1fr;
+}
+
+.hidden {
+    display: none;
+}
+
+ProgressBar {
+    background: #21262d;
+    color: #58a6ff;
+}
+
+ProgressBar > .bar {
+    background: #58a6ff;
+    color: #0d1117;
+}
+
+#audit_list,
+#selinux_list,
+#caps_list,
+#cve_list,
+#sandbox_list {
+    border: round #30363d;
+    background: #010409;
+    padding: 1;
+}
+
+TabbedContent {
+    background: #0d1117;
+}
+
+TabbedContent > .tab-list > .tab {
+    background: #161b22;
+}
+
+TabbedContent > .tab-list > .tab.--active {
+    background: #21262d;
+    text-style: bold;
+}
+
+Collapsible {
+    background: #161b22;
+    margin: 0 0 1 0;
+}
+
+Collapsible > .container {
+    padding-left: 2;
+}
+
+.label.link {
+    color: #58a6ff;
+    text-style: underline;
+}
+
+.mono-bold {
+    text-style: bold;
+}
+
+.section-label {
+    text-style: bold;
+    color: #3fb950;
+    margin-top: 1;
+}
+
+/* -- engine stdout (auto-scaling stages | console) ---------------------- */
+#engine_out {
+    height: 1fr;
+    width: 100%;
+}
+
+#engine_out #stages_panel {
+    height: 1fr;
+    margin-right: 1;
+}
+
+#engine_out #console_log {
+    width: 1fr;
+    height: 1fr;
+}
+
+/* GTK terminal colors (from the last GUI commit) */
+.terminal-view {
+    color: #c9d1d9;
+    background: #0d1117;
+}
+
+.terminal-ok {
+    color: #2ec27e;
+}
+
+.terminal-info {
+    color: #8b949e;
+}
+
+.terminal-fail {
+    color: #ff5f5f;
+}
+
+.dim {
+    color: #8b949e;
+}
+
+/* -- console ----------------------------------------------------------- */
+#console_log {
+    border: round #30363d;
+    background: #010409;
+}

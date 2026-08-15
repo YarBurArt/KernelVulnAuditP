@@ -3,19 +3,14 @@ import sys
 from config import DB_BACKEND
 from log_conf import setup_logging
 
-# In --cli mode we keep writing logs to file but keep the terminal clean.
-_CLI_FLAG = "--cli" in sys.argv
-
-setup_logging(console=not _CLI_FLAG)
-
-from cli_app import main_cli
-from db import get_db
-
 try:
     from gui_app import GUI_E, GUIApp
 except ImportError:
     GUI_E = False
     GUIApp = None  # type: ignore[misc, assignment]
+
+from cli_app import main_cli
+from db import get_db
 
 
 def main():
@@ -25,6 +20,10 @@ def main():
     for flag in ("--cli", "--gui"):
         if flag in sys.argv:
             sys.argv.remove(flag)
+
+    # logs is routed to the "Engine stdout" tab in TUI
+    tui_mode = GUI_E and not cli_flag
+    setup_logging(console=not tui_mode and not cli_flag)
 
     db = get_db(DB_BACKEND)
     if cli_flag:
