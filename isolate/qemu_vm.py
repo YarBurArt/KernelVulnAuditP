@@ -5,7 +5,7 @@ import tempfile
 import time
 from pathlib import Path
 
-from isolate.isolate import ExecutionResult, IsolationEnvironment
+from isolate.isolate import ASSETS, ExecutionResult, IsolationEnvironment
 from isolate.parse_vm_internal_results import QEMU_CRASH_PATTERNS, ParseVmResults
 
 
@@ -16,7 +16,7 @@ class QemuEnvironment(IsolationEnvironment):
         super().__init__(binary_path, timeout)
         self.memory_mb = memory_mb
         self.cpus = cpus
-        self.assets = Path(__file__).parent / "assets"
+        self.assets = ASSETS
 
     def is_available(self) -> bool:
         return all(
@@ -143,7 +143,6 @@ class QemuEnvironment(IsolationEnvironment):
 
         self._install_busybox(root)
 
-        self._write_asset("audit.sh", root / "audit.sh", mode=0o755)
         self._write_guest_init(root)
         self._write_guest_script(root)
         shutil.copy2(self.binary_path, root / self.binary_path.name)
@@ -161,6 +160,7 @@ class QemuEnvironment(IsolationEnvironment):
             try:
                 subprocess.run(
                     ["cpio", "--null", "-ov", "--format=newc"],
+                    cwd=root,
                     stdin=find_proc.stdout,
                     stdout=archive_file,
                     stderr=subprocess.DEVNULL,
@@ -199,12 +199,10 @@ class QemuEnvironment(IsolationEnvironment):
         (root / "audit.sh").write_text(script)
         (root / "audit.sh").chmod(0o755)
 
-    def _write_asset(self, name: str, dst: Path, mode: int = 0o644) -> None:
-        dst.write_text(self._load_asset(name))
-        dst.chmod(mode)
-
     def _load_asset(self, name: str) -> str:
         path = self.assets / name
+        if not path.exists():
+            raise RuntimeError(f"qemu asset missing: {path}")
         return path.read_text()
 
     def _log_initrd(self, archive: Path) -> None:
@@ -227,13 +225,21 @@ class QemuEnvironment(IsolationEnvironment):
             Path("/boot/vmlinuz"),
             Path(f"/boot/vmlinuz-{release}"),
             Path("/boot/vmlinuz-linux"),
+            Path("/run/booted-system/kernel"),
+            Path(f"/lib/modules/{release}/vmlinuz"),
         ]
-
         for c in candidates:
             if c.exists():
                 return c
 
-        raise RuntimeError("kernel not found")
+        matches = sorted(Path("/boot").glob("vmlinuz*")) if Path("/boot").exists() else []
+        if matches:
+            return matches[-1]
+
+        raise RuntimeError(
+            "no kernel image found for qemu (looked in /boot, /run/booted-system, "
+            "/lib/modules); install a kernel or set the vmlinuz path"
+        )
 
     @staticmethod
     def _install_busybox(root: Path) -> None:

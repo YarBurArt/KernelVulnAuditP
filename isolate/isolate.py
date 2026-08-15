@@ -15,10 +15,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import Literal
 
-from config import ALLOW_HOST_EXECUTION
+from config import ALLOW_HOST_EXECUTION, SANDBOX_BACKEND
 
 logger = logging.getLogger(f"kernel_audit.{__name__}")
-ASSETS = Path(__file__).parent / "assets"
+# the assets live at the repo root, not inside the isolate/ package
+ASSETS = Path(__file__).resolve().parent.parent / "assets"
 
 # binary start and end markers to track stdout
 BIN_INIT = """#!/bin/sh
@@ -205,9 +206,19 @@ class Isolate:
     check environment, compile
     """
 
-    def __init__(self, timeout: int = 120):
+    # allowed SANDBOX_BACKEND values, empty string means "auto"
+    _BACKENDS: tuple[str] = {"", "auto", "virtme-ng", "qemu", "host"}
+
+    def __init__(self, timeout: int = 120, backend: str | None = None):
         self.timeout = timeout
         self.allow_host_execution = False
+        raw = (backend or SANDBOX_BACKEND).strip().lower()
+        if raw not in self._BACKENDS:
+            logger.warning(
+                "Unknown sandbox backend %r, falling back to 'auto'", raw
+            )
+            raw = "auto"
+        self.backend = raw or "auto"
 
     def compile_and_run(
         self, source_path: Path, compile_flags: list[str] | None = None
@@ -223,26 +234,45 @@ class Isolate:
         return None
 
     def run_binary(self, binary_path: Path) -> ExecutionResult | None:
+        """Pick a sandbox backend from config.SANDBOX_BACKEND and run the binary"""
         from isolate.qemu_vm import QemuEnvironment
         from isolate.virtme_ng_vm import VirtmeNGEnvironment
 
-        environments = [
-            VirtmeNGEnvironment(binary_path, self.timeout),
-            QemuEnvironment(binary_path, self.timeout),
-        ]
+        candidates: list[IsolationEnvironment] = []
+        if self.backend in ("auto", "virtme-ng"):
+            candidates.append(VirtmeNGEnvironment(binary_path, self.timeout))
+        if self.backend in ("auto", "qemu"):
+            candidates.append(QemuEnvironment(binary_path, self.timeout))
 
-        for env in environments:
-            if env.is_available():
-                logger.info("Using %s", env.__class__.__name__)
+        failures: list[str] = []
+        for env in candidates:
+            try:
+                if not env.is_available():
+                    raise RuntimeError(
+                        f"{type(env).__name__} dependencies are missing"
+                    )
+                logger.info("Using %s sandbox", type(env).__name__)
                 return env.execute()
+            except Exception as exc:
+                logger.warning(
+                    "%s sandbox failed: %s", type(env).__name__, exc
+                )
+                failures.append(f"{type(env).__name__}: {exc}")
 
-        if not self.allow_host_execution and not self._ask_user_permission():
-            logger.error("No virtualization available and host execution denied")
-            return None  # FIXME
+        if (
+            self.backend == "host"
+            or self.allow_host_execution
+            or self._ask_user_permission()
+        ):
+            logger.info("Executing on host system, this will be fun!")
+            host_env = HostEnvironment(binary_path, self.timeout)
+            return host_env.execute()
 
-        logger.info("Executing on host system , this will be fun ! ")
-        host_env = HostEnvironment(binary_path, self.timeout)
-        return host_env.execute()
+        logger.error(
+            "No sandbox available%s and host execution denied",
+            f" ({'; '.join(failures)})" if failures else "",
+        )
+        return None
 
     @staticmethod
     def _ask_user_permission() -> bool:

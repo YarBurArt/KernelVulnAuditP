@@ -1,3 +1,5 @@
+import os
+
 CISA_KEV_URL = (
     "https://www.cisa.gov/sites/default/files/feeds/"
     "known_exploited_vulnerabilities.json"
@@ -31,5 +33,9 @@ DB_BACKEND = "orm"
 
 ISOLATION_TIMEOUT_SEC = 20
 ALLOW_HOST_EXECUTION = False
-
+#   "auto"      - try virtme-ng, then qemu; host only with explicit permission
+#   "virtme-ng" - virtme-ng only (host fallback subject to permission)
+#   "qemu"      - qemu microvm only (host fallback subject to permission)
+#   "host"      - run directly on the host
+SANDBOX_BACKEND = os.environ.get("KERNEL_AUDIT_SANDBOX", "auto")
 LOG_LEVEL = "DEBUG"
