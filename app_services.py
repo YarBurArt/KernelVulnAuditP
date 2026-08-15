@@ -1,9 +1,9 @@
+import asyncio
 import logging
 import os
 import shlex
 import tempfile
 from collections.abc import Callable
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
 from datetime import UTC, datetime
 from pathlib import Path
@@ -13,7 +13,12 @@ import httpx
 from sqlalchemy.exc import IntegrityError
 
 from config import ALLOW_HOST_EXECUTION, ISOLATION_TIMEOUT_SEC
-from core import format_report, format_timestamp, summarize_sandbox
+from core import (
+    format_report,
+    format_sandbox_detail,
+    format_timestamp,
+    summarize_sandbox,
+)
 from db.db import ThreatDB
 from db.models import SecurityRecommendation
 from isolate import Isolate
@@ -79,32 +84,67 @@ class AppServices:
 
     def run_local_recon(self, store_recs: bool = False) -> LocalReconResult:
         """Run local recon and optionally store recommendations."""
+        return asyncio.run(self._run_local_recon_async(store_recs))
+
+    async def _run_local_recon_async(
+        self, store_recs: bool = False
+    ) -> LocalReconResult:
+        """Run local recon; the blocking scan steps run concurrently."""
         bar = self._make_bar(5, "Local recon")
         kernel: str = self.lr.get_kernel_version_simple()
-        build_date: int = self.lr.get_kernel_build_date(kernel)
+        build_date: int = await asyncio.to_thread(
+            self.lr.get_kernel_build_date, kernel
+        )
         logger.info("Local recon started in context %s %s", kernel, build_date)
-        # TODO: lynis_result: List[KernelAuditItem] = self.lr.get_lynis_scan_details()
-        lynis_result = self.lr.get_lynis_kernel_hardening_details()
-        bar.step(label="lynis")
+
+        # lynis, linpeas, les are long-running subprocess audits; the host
+        # snapshot scans are independent file/table walks. Running them
+        # concurrently overlaps the subprocess waits instead of serializing them
+        lynis_task = asyncio.to_thread(self.lr.get_lynis_kernel_hardening_details)
+        linpeas_task = asyncio.to_thread(self.lr.get_linpeas_scan_details)
+        les_task = asyncio.to_thread(self.lr.get_les_scan_details)
+        pids_task = asyncio.to_thread(self.lr.get_pids_caps)
+        bpath_task = asyncio.to_thread(self.lr.get_bpath_caps)
+        selinux_task = asyncio.to_thread(self.lr.get_host_selinux_bools)
+        selinux_hard_task = asyncio.to_thread(self.lr.get_selinux_hardening)
+
+        lynis_result = await lynis_task
+        bar.step(label="lynis", note=f"{len(lynis_result)} checks")
         logger.info("Lynis scan completed: %s", len(lynis_result))
-        linpeas_result: KernelLPE | None = self.lr.get_linpeas_scan_details()
-        bar.step(label="linpeas")
+        linpeas_result: KernelLPE | None = await linpeas_task
+        bar.step(
+            label="linpeas",
+            note=f"{len(linpeas_result.cves)} CVEs"
+            if linpeas_result
+            else "no LPE data",
+        )
         logger.info("LinPEAS scan completed")
-        les_result: list[LesCVEItem] = self.lr.get_les_scan_details()
-        bar.step(label="les")
+        les_result: list[LesCVEItem] = await les_task
+        bar.step(label="les", note=f"{len(les_result)} CVEs")
         logger.info("LES scan completed: %s", len(les_result))
 
-        selinux_booleans: list[HostSELinuxBoolean] = self.lr.get_host_selinux_bools()
-        process_caps: list[HostProcessCapabilities] = self.lr.get_pids_caps()
-        file_caps: list[HostFileCapabilities] = self.lr.get_bpath_caps()
-        bar.step(label="selinux/caps")
+        selinux_booleans: list[HostSELinuxBoolean] = await selinux_task
+        process_caps: list[HostProcessCapabilities] = await pids_task
+        file_caps: list[HostFileCapabilities] = await bpath_task
+        bar.step(
+            label="selinux/caps",
+            note=f"{len(selinux_booleans)} booleans, "
+            f"{len(process_caps) + len(file_caps)} caps",
+        )
         selinux_hardening: list[SecurityRecommendationType] = (
-            self.lr.get_selinux_hardening()
+            await selinux_hard_task
         )
         capability_hardening: list[SecurityRecommendationType] = (
-            self.lr.get_capability_recommendations()
+            await asyncio.to_thread(
+                self.lr.get_capability_recommendations,
+                process_caps,
+                file_caps,
+            )
         )
-        bar.step(label="hardening")
+        bar.step(
+            label="hardening",
+            note=f"{len(selinux_hardening) + len(capability_hardening)} recs",
+        )
 
         result = LocalReconResult(
             system=self.lr.environment_info.get("system", ""),
@@ -119,11 +159,12 @@ class AppServices:
             selinux_hardening=selinux_hardening,
             capability_hardening=capability_hardening,
         )
-        self.save_host_recon(
+        await asyncio.to_thread(
+            self.save_host_recon,
             selinux_booleans,
             process_caps,
             file_caps,
-            kernel_modules=self.lr.get_loaded_kernel_modules(),
+            self.lr.get_loaded_kernel_modules(),
         )
         bar.finish(note="complete")
         return result
@@ -179,51 +220,74 @@ class AppServices:
 
     def run_feeds_recon(self, store_kev: bool = True) -> FeedsReconResult:
         """Fetch threat-intel feeds and optionally store CISA KEV data."""
+        return asyncio.run(self._run_feeds_recon_async(store_kev))
+
+    async def _run_feeds_recon_async(self, store_kev: bool = True) -> FeedsReconResult:
+        """Fetch threat-intel feeds and optionally store CISA KEV data."""
         kernel: str = self.lr.get_kernel_version_simple()
-        build_date: int = self.lr.get_kernel_build_date(kernel)
+        build_date: int = await asyncio.to_thread(
+            self.lr.get_kernel_build_date, kernel
+        )
 
         logger.debug("Search feeds for kernel %s build_date %s", kernel, build_date)
         bar = self._make_bar(4 if store_kev else 3, "Threat-intel feeds")
-        if store_kev:
-            self._load_and_store_kev(build_date)
-            bar.step(label="KEV")
+        try:
+            if store_kev:
+                stored = await self._load_and_store_kev(build_date)
+                bar.step(label="KEV", note=f"{stored} stored")
 
-        # the three feed searches are independent; run them concurrently
-        with ThreadPoolExecutor(max_workers=3) as pool:
-            nist_future = pool.submit(self.rf.nist_search, kernel, build_date)
-            osv_future = pool.submit(self.rf.osv_search, kernel)
-            github_future = pool.submit(self.rf.github_search, kernel)
-            findings = list(nist_future.result())
-            bar.step(label="NIST")
-            findings += list(osv_future.result())
-            bar.step(label="OSV")
-            pocs = list(github_future.result())
-            bar.step(label="GitHub")
+            # the three feed searches are independent network calls
+            nist_task = asyncio.create_task(self.rf.nist_search(kernel, build_date))
+            osv_task = asyncio.create_task(self.rf.osv_search(kernel))
+            github_task = asyncio.create_task(self.rf.github_search(kernel))
+            findings = list(await nist_task)
+            bar.step(label="NIST", note=f"{len(findings)} findings")
+            findings += list(await osv_task)
+            bar.step(label="OSV", note=f"{len(findings)} findings")
+            pocs = list(await github_task)
+            bar.step(label="GitHub", note=f"{len(pocs)} PoCs")
+        finally:
+            # the event loop used by this call is about to be torn down
+            # (asyncio.run), so release the pooled connections now.
+            await self.rf.close()
 
         bar.finish(note=f"{len(findings)} findings")
         return FeedsReconResult(findings=findings, pocs=pocs)
 
     def run_full_recon(self) -> ReconResult:
         """Run local + online recon and return combined result."""
-        local_r = self.run_local_recon()
-        feeds_r = self.run_feeds_recon()
+        return asyncio.run(self._run_full_recon_async())
+
+    async def _run_full_recon_async(self) -> ReconResult:
+        """Run local + online recon concurrently and return combined result."""
+        local_task = asyncio.create_task(self._run_local_recon_async())
+        feeds_task = asyncio.create_task(self._run_feeds_recon_async())
+        local_r = await local_task
+        feeds_r = await feeds_task
         logger.info("full recon is completed, no isolated tests")
         return ReconResult(local=local_r, feeds=feeds_r)
 
     def run_execution_tests(self) -> dict:
         """validate kernel CVEs by sandbox-executing PoC"""
-        context = self._build_execution_context()
+        return asyncio.run(self._run_execution_tests_async())
+
+    async def _run_execution_tests_async(self) -> dict:
+        """validate kernel CVEs by sandbox-executing PoC"""
+        context = await self._build_execution_context()
         logger.info("execution tests started in context: %s", context)
-        cve_hints = self._collect_kernel_cves()
+        cve_hints = await asyncio.to_thread(self._collect_kernel_cves)
         bar = self._make_bar(len(cve_hints), "Executing PoCs")
         report_entries = []
+        try:
+            for cve_id, hint in cve_hints.items():
+                bar.step(label=cve_id)
+                entry = await self._process_single_cve(cve_id, hint, context)
 
-        for cve_id, hint in cve_hints.items():
-            bar.step(label=cve_id)
-            entry = self._process_single_cve(cve_id, hint, context)
-
-            if entry is not None:
-                report_entries.append(entry)
+                if entry is not None:
+                    report_entries.append(entry)
+                bar.detail(label=cve_id, note=self._cve_outcome_note(entry))
+        finally:
+            await self.rf.close()
 
         bar.finish(note=f"{len(report_entries)} processed")
         return self._build_execution_report(context, report_entries)
@@ -281,25 +345,25 @@ class AppServices:
             logger.exception("Error storing KEV entry %s", cve_id)
             return False
 
-    def _load_and_store_kev(self, build_date: int | None = None) -> None:
-        """load CISA KEV feed and persist in DB"""
+    async def _load_and_store_kev(self, build_date: int | None = None) -> int:
+        """load CISA KEV feed and persist in DB, returns number stored"""
         try:
-            self.rf.get_kev()
-            self.rf.load_kev(build_date)
+            await self.rf.get_kev()
+            await self.rf.load_kev(build_date)
             logger.info(
                 "Loaded %s kernel-related KEV entries", len(self.rf.kev_kern_vuln)
             )
         except (httpx.HTTPError, OSError, ValueError) as e:
             logger.warning("Failed to load CISA KEV catalog: %s", e)
-            return
+            return 0
 
         # fetch metadata for all KEV CVEs concurrently, then write to DB serially
         cve_ids = [
-            item.get("cveID")
+            str(item["cveID"])
             for item in self.rf.kev_kern_vuln
             if item.get("cveID")
         ]
-        details_map = self.rf.get_cve_details_many(cve_ids)
+        details_map = await self.rf.get_cve_details_many(cve_ids)
 
         stored = 0
         skipped = 0
@@ -327,6 +391,7 @@ class AppServices:
 
         bar.finish(note=f"{stored} stored, {skipped} skipped")
         logger.info("Stored %s CISA KEV entries, %s already existed", stored, skipped)
+        return stored
 
     def _collect_kernel_cves(self) -> dict[str, dict[str, Any]]:
         logger.info("Collecting kernel cves by local scans")
@@ -381,14 +446,14 @@ class AppServices:
             "raw_data": raw_data,
         }
 
-    def _persist_cve_hint(
+    async def _persist_cve_hint(
         self,
         cve_id: str,
         hint: dict[str, Any],
         context: dict[str, Any] | None = None,
     ) -> dict[str, Any] | None:
 
-        metadata = self.rf.get_cve_details(cve_id) or {}
+        metadata = await self.rf.get_cve_details(cve_id) or {}
         vuln = self._build_vulnerability(cve_id, hint, metadata, context)
         logger.debug("%s hint/refs vuln: %s", cve_id, vuln)
         self.db.upsert_vulnerability(vuln)
@@ -406,21 +471,22 @@ class AppServices:
             "sources": vuln["sources"],
         }
 
-    def _build_execution_context(self) -> dict[str, Any]:
+    async def _build_execution_context(self) -> dict[str, Any]:
         kernel = self.lr.get_kernel_version_simple()
+        build_date = await asyncio.to_thread(self.lr.get_kernel_build_date, kernel)
         return {
             "kernel_version": kernel,
-            "build_date": self.lr.get_kernel_build_date(kernel),
+            "build_date": build_date,
         }
 
-    def _process_single_cve(
+    async def _process_single_cve(
         self,
         cve_id: str,
         hint: dict[str, Any],
         context: dict[str, Any],
     ) -> dict[str, Any] | None:
 
-        entry = self._persist_cve_hint(
+        entry = await self._persist_cve_hint(
             cve_id,
             hint,
             context,
@@ -429,14 +495,52 @@ class AppServices:
             logger.warning("%s additional info hint is not saved", cve_id)
             return None
 
-        repos = self.poc_searcher.search_repositories(
+        repos = await asyncio.to_thread(
+            self.poc_searcher.search_repositories,
             cve_id,
             max_results=3,
         )
-        downloads = GitHubExploitSearcher.load_xpls(repos)
-        entry["pocs"] = [self._record_poc_for_cve(cve_id, poc) for poc in downloads]
+        downloads = await asyncio.to_thread(GitHubExploitSearcher.load_xpls, repos)
+        pocs = [
+            await asyncio.to_thread(self._record_poc_for_cve, cve_id, poc)
+            for poc in downloads
+        ]
+        entry["pocs"] = pocs
 
         return entry
+
+    @staticmethod
+    def _cve_outcome_note(entry: dict[str, Any] | None) -> str:
+        """Short outcome line for a CVE execution step (stages panel)."""
+        if entry is None:
+            return "no data"
+        pocs = entry.get("pocs") or []
+        if not pocs:
+            return "no PoCs"
+        crashed = sum(
+            1
+            for poc in pocs
+            if isinstance(poc.get("sandbox"), dict) and poc["sandbox"].get("crashed")
+        )
+        ok = sum(
+            1
+            for poc in pocs
+            if isinstance(poc.get("sandbox"), dict) and poc["sandbox"].get("success")
+        )
+        modes = {
+            poc["sandbox"].get("mode")
+            for poc in pocs
+            if isinstance(poc.get("sandbox"), dict) and poc["sandbox"].get("mode")
+        }
+        mode = next(iter(modes), "") if len(modes) == 1 else ""
+        bits = [f"{len(pocs)} PoCs"]
+        if ok:
+            bits.append(f"{ok} ok")
+        if crashed:
+            bits.append(f"{crashed} crashed")
+        if mode:
+            bits.append(mode)
+        return " · ".join(bits)
 
     def _build_execution_report(
         self,
@@ -580,7 +684,12 @@ class AppServices:
             "notes": logs.get("command"),
         }
 
-        logger.debug("%s full sandbox POC data: %s", cve_id, sandbox_data)
+        logger.debug(
+            "%s full sandbox POC data:\n%s",
+            cve_id,
+            format_sandbox_detail(sandbox_data),
+            extra={"skip_console": True},
+        )
         self.db.add_sandbox_run(cve_id, sandbox_data)
 
     def save_recon_results(self, results: dict) -> int:

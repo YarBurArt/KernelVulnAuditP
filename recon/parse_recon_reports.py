@@ -5,6 +5,7 @@ import pwd
 import re
 import shutil
 import subprocess
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -406,11 +407,9 @@ class ParseReports:
             logger.warning("os error reading params.prf: %s", e)
         return {}
 
-    # ------------------------------------------------------------------ #
-    # SELinux booleans and process/file capabilities (host recon)        #
-    # ------------------------------------------------------------------ #
 
     @staticmethod
+    @lru_cache
     def load_selinux_params(
         params_path: str | Path = "recon/selinux_params.json",
     ) -> dict[str, Any]:
@@ -667,6 +666,17 @@ class ParseReports:
 
             description = extract_english_description(cve.get("descriptions", []))
             cvss, severity, _ = extract_cvss(cve.get("metrics", {}))
+            references = [
+                ref.get("url", "")
+                for ref in cve.get("references", []) or []
+                if ref.get("url")
+            ]
+            cwes = [
+                desc.get("value", "")
+                for weak in cve.get("weaknesses", []) or []
+                for desc in weak.get("description", []) or []
+                if desc.get("value", "").startswith("CWE-")
+            ]
 
             findings.append(
                 CVEFinding(
@@ -675,8 +685,13 @@ class ParseReports:
                     severity=severity or "",
                     cvss_score=cvss,
                     source="NIST",
-                    references=[],
-                    raw_data=item,
+                    references=references,
+                    raw_data={
+                        "source": "NIST",
+                        "published": cve.get("published", ""),
+                        "cwe": cwes,
+                        "references": references,
+                    },
                 )
             )
         return findings
@@ -733,14 +748,25 @@ class ParseReports:
     def build_osv_finding(cve_id: str, vuln: dict) -> CVEFinding:
         """build a base OSV finding; CVSS/severity enrichment happens later"""
         db_specific = vuln.get("database_specific") or {}
+        references = [
+            str(ref.get("url", ""))
+            for ref in vuln.get("references", []) or []
+            if ref.get("url")
+        ]
         return CVEFinding(
             cve_id=cve_id,
             description=vuln.get("summary", "") or "",
             severity=str(db_specific.get("severity") or ""),
             cvss_score=None,
             source="OSV",
-            references=vuln.get("references", []) or [],
-            raw_data=vuln,
+            references=references,
+            raw_data={
+                "source": "OSV",
+                "summary": vuln.get("summary", "") or "",
+                "published": vuln.get("published", "") or "",
+                "related": list(vuln.get("related", []) or [])[:5],
+                "references": references,
+            },
         )
 
     @staticmethod

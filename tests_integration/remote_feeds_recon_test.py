@@ -3,6 +3,7 @@ integration tests for ReconFeeds with mocked HTTP backends.
 Network calls are stubbed via monkeypatched httpx.get/httpx.post
 """
 
+import asyncio
 import json
 from datetime import UTC, datetime
 
@@ -60,6 +61,7 @@ class _FakeHTTP:
         status_code=200,
         json_error=None,
         json=None,
+        times=None,
     ):
         self.routes.append(
             {
@@ -70,16 +72,21 @@ class _FakeHTTP:
                 "content": content,
                 "status_code": status_code,
                 "json_error": json_error,
+                "times": times,
             }
         )
 
     def __call__(self, method, url, **kwargs):
         self.calls.append((method, url, kwargs))
         for route in self.routes:
-            if route["url"] != url:
+            if not url.startswith(route["url"]):
                 continue
             if route["json"] is not None and route["json"] != kwargs.get("json"):
                 continue
+            if route["times"] is not None:
+                if route["times"] <= 0:
+                    continue
+                route["times"] -= 1
             if route["exception"] is not None:
                 raise route["exception"]
             return _FakeResponse(
@@ -92,18 +99,18 @@ class _FakeHTTP:
 
 
 class _FakeClient:
-    """fake httpx.Client used by ReconFeeds, routing to a shared _FakeHTTP"""
+    """fake httpx.AsyncClient used by ReconFeeds, routing to a shared _FakeHTTP"""
 
     def __init__(self, http, *args, **kwargs):
         self._http = http
 
-    def get(self, url, **kwargs):
+    async def get(self, url, **kwargs):
         return self._http("GET", url, **kwargs)
 
-    def post(self, url, **kwargs):
+    async def post(self, url, **kwargs):
         return self._http("POST", url, **kwargs)
 
-    def close(self):
+    async def aclose(self):
         return None
 
 
@@ -114,8 +121,19 @@ def fake_http(monkeypatch):
     def make_client(*args, **kwargs):
         return _FakeClient(http)
 
-    monkeypatch.setattr("recon.remote_feeds_recon.httpx.Client", make_client)
+    monkeypatch.setattr("recon.remote_feeds_recon.httpx.AsyncClient", make_client)
     return http
+
+
+@pytest.fixture(autouse=True)
+def _no_nvd_gate(monkeypatch):
+    """zero the NVD min-interval so rate-limit tests are not slowed by sleeps"""
+    monkeypatch.setattr("recon.remote_feeds_recon._NVD_MIN_INTERVAL", 0.0)
+
+
+def _run(coro):
+    """run a single ReconFeeds coroutine in a fresh event loop (pytest is sync)"""
+    return asyncio.run(coro)
 
 
 @pytest.fixture
@@ -386,7 +404,7 @@ def _osv_kernel_payload():
 def test_get_kev_downloads_catalog(fake_http, kev_path, rf):
     fake_http.route(CISA_KEV_URL, content=b'{"hello": 1}')
 
-    rf.get_kev()
+    _run(rf.get_kev())
 
     assert kev_path.read_bytes() == b'{"hello": 1}'
     assert fake_http.calls[0][0] == "GET"
@@ -398,14 +416,14 @@ def test_get_kev_http_error_raises(fake_http, kev_path, rf):
     fake_http.route(CISA_KEV_URL, status_code=503, content=b"unavailable")
 
     with pytest.raises(httpx.HTTPStatusError):
-        rf.get_kev()
+        _run(rf.get_kev())
 
 
 @pytest.mark.integration
 def test_load_kev_filters_kernel_products(kev_path, rf):
     kev_path.write_text(json.dumps(_kev_catalog()), encoding="utf-8")
 
-    rf.load_kev()
+    _run(rf.load_kev())
 
     cve_ids = [item["cveID"] for item in rf.kev_kern_vuln]
     assert "CVE-2022-0492" in cve_ids
@@ -434,7 +452,7 @@ def test_load_kev_list_format(kev_path, rf):
         encoding="utf-8",
     )
 
-    rf.load_kev()
+    _run(rf.load_kev())
 
     assert [item["cveID"] for item in rf.kev_kern_vuln] == ["CVE-2022-0492"]
 
@@ -444,7 +462,7 @@ def test_load_kev_missing_file_downloads(fake_http, kev_path, rf):
     import json
 
     fake_http.route(CISA_KEV_URL, content=json.dumps(_kev_catalog()).encode())
-    rf.load_kev()
+    _run(rf.load_kev())
 
     assert kev_path.exists()
     assert any(item["cveID"] == "CVE-2022-0492" for item in rf.kev_kern_vuln)
@@ -453,7 +471,7 @@ def test_load_kev_missing_file_downloads(fake_http, kev_path, rf):
 @pytest.mark.integration
 def test_load_kev_unexpected_format(kev_path, rf):
     kev_path.write_text('"just a string"', encoding="utf-8")
-    rf.load_kev()
+    _run(rf.load_kev())
 
     assert rf.kev_kern_vuln == []
 
@@ -492,7 +510,7 @@ def _kev_catalog_with_dates():
 @pytest.mark.integration
 def test_load_kev_no_build_date_keeps_all(kev_path, rf):
     kev_path.write_text(json.dumps(_kev_catalog_with_dates()), encoding="utf-8")
-    rf.load_kev()
+    _run(rf.load_kev())
 
     assert {item["cveID"] for item in rf.kev_kern_vuln} == {
         "CVE-2026-31431",
@@ -506,7 +524,7 @@ def test_load_kev_no_build_date_keeps_all(kev_path, rf):
 def test_load_kev_build_date_filters_later_added(kev_path, rf):
     kev_path.write_text(json.dumps(_kev_catalog_with_dates()), encoding="utf-8")
     build_date = int(datetime.strptime("2026-04-22", "%Y-%m-%d").timestamp())
-    rf.load_kev(build_date)
+    _run(rf.load_kev(build_date))
 
     cve_ids = [item["cveID"] for item in rf.kev_kern_vuln]
     assert "CVE-2026-31431" in cve_ids
@@ -519,7 +537,7 @@ def test_load_kev_build_date_filters_later_added(kev_path, rf):
 def test_load_kev_build_date_later_than_all(kev_path, rf):
     kev_path.write_text(json.dumps(_kev_catalog_with_dates()), encoding="utf-8")
     build_date = int(datetime.strptime("2027-01-01", "%Y-%m-%d").timestamp())
-    rf.load_kev(build_date)
+    _run(rf.load_kev(build_date))
 
     assert rf.kev_kern_vuln == []
 
@@ -528,7 +546,7 @@ def test_github_search_parses_repos(fake_http, rf):
     url = GITHUB_API_URL.format(q="cve 6.1.0")
     fake_http.route(url, payload=_github_payload())
 
-    results = rf.github_search("6.1.0")
+    results = _run(rf.github_search("6.1.0"))
 
     assert len(results) == 2
     first = results[0]
@@ -552,7 +570,7 @@ def test_github_search_dedup_same_repo(fake_http, rf):
     }
     fake_http.route(url, payload={"items": [item, dict(item)]})
 
-    results = rf.github_search("6.1.0")
+    results = _run(rf.github_search("6.1.0"))
 
     assert len(results) == 1
 
@@ -562,7 +580,7 @@ def test_github_search_empty_items(fake_http, rf):
     url = GITHUB_API_URL.format(q="cve 6.1.0")
     fake_http.route(url, payload={"items": []})
 
-    assert rf.github_search("6.1.0") == []
+    assert _run(rf.github_search("6.1.0")) == []
 
 
 @pytest.mark.integration
@@ -584,14 +602,14 @@ def test_github_search_skips_no_cve(fake_http, rf):
         },
     )
 
-    assert rf.github_search("6.1.0") == []
+    assert _run(rf.github_search("6.1.0")) == []
 
 @pytest.mark.integration
 def test_nist_search_parses_cvss_v31(fake_http, rf):
     url = NIST_API_URL.format(version="6.1.0")
     fake_http.route(url, payload=_nist_raw_payload())
 
-    findings = rf.nist_search("6.1.0", None)
+    findings = _run(rf.nist_search("6.1.0", None))
 
     assert len(findings) == 1
     f = findings[0]
@@ -609,7 +627,7 @@ def test_nist_search_no_metrics(fake_http, rf):
     del payload["vulnerabilities"][0]["cve"]["metrics"]
     fake_http.route(url, payload=payload)
 
-    findings = rf.nist_search("6.1.0", None)
+    findings = _run(rf.nist_search("6.1.0", None))
 
     assert len(findings) == 1
     assert findings[0].cvss_score is None
@@ -633,7 +651,7 @@ def test_nist_search_date_filter(fake_http, rf):
     fake_http.route(url, payload=payload)
     min_ts = int(datetime(2024, 1, 1, tzinfo=UTC).timestamp())
 
-    findings = rf.nist_search("6.1.0", min_ts)
+    findings = _run(rf.nist_search("6.1.0", min_ts))
 
     assert [f.cve_id for f in findings] == ["CVE-2024-1086"]
 
@@ -643,7 +661,7 @@ def test_nist_search_http_error_returns_empty(fake_http, rf):
     url = NIST_API_URL.format(version="6.1.0")
     fake_http.route(url, exception=httpx.ConnectError("timeout"))
 
-    assert rf.nist_search("6.1.0", None) == []
+    assert _run(rf.nist_search("6.1.0", None)) == []
 
 
 @pytest.mark.integration
@@ -655,7 +673,7 @@ def test_nist_search_json_decode_error_returns_empty(fake_http, rf):
         json_error=json.JSONDecodeError("bad", "doc", 0),
     )
 
-    assert rf.nist_search("6.1.0", None) == []
+    assert _run(rf.nist_search("6.1.0", None)) == []
 
 
 @pytest.mark.integration
@@ -663,21 +681,47 @@ def test_nist_search_malformed_structure_returns_empty(fake_http, rf):
     url = NIST_API_URL.format(version="6.1.0")
     fake_http.route(url, payload={"vulnerabilities": "not-a-list"})
 
-    assert rf.nist_search("6.1.0", None) == []
+    assert _run(rf.nist_search("6.1.0", None)) == []
+
+
+@pytest.mark.integration
+def test_nist_search_retries_once_on_429(fake_http, rf):
+    """a 429 with Retry-After backoff must retry and still return findings"""
+    url = NIST_API_URL.format(version="6.1.0")
+    fake_http.route(url, payload={}, status_code=429, times=1)
+    fake_http.route(url, payload=_nist_raw_payload())
+
+    findings = _run(rf.nist_search("6.1.0", None))
+
+    assert len(findings) == 1
+    assert findings[0].cve_id == "CVE-2024-1086"
+    # exactly one rate-limited call, then the successful one
+    assert len([c for c in fake_http.calls if c[0] == "GET"]) == 2
+
+
+@pytest.mark.integration
+def test_nist_search_gives_up_after_repeated_429(fake_http, rf):
+    """persistent rate-limiting must stop retrying and return partial []"""
+    url = NIST_API_URL.format(version="6.1.0")
+    fake_http.route(url, payload={}, status_code=429)
+
+    assert _run(rf.nist_search("6.1.0", None)) == []
+    # _NVD_MAX_RETRIES backoffs + the initial attempt
+    assert len([c for c in fake_http.calls if c[0] == "GET"]) == 4
 
 
 @pytest.mark.integration
 def test_osv_search_parses_vulns(fake_http, rf):
     fake_http.route(OSV_API_URL, payload=_osv_payload())
 
-    findings = rf.osv_search("6.1.0")
+    findings = _run(rf.osv_search("6.1.0"))
 
     assert len(findings) == 2
     first = findings[0]
     assert first.cve_id == "CVE-2024-1086"
     assert first.source == "OSV"
     assert first.description == "nf_tables: use-after-free"
-    assert first.references == [{"type": "ADVISORY", "url": "https://example.com"}]
+    assert first.references == ["https://example.com"]
     assert first.severity == "HIGH"
 
 
@@ -685,21 +729,21 @@ def test_osv_search_parses_vulns(fake_http, rf):
 def test_osv_search_http_error_returns_empty(fake_http, rf):
     fake_http.route(OSV_API_URL, exception=httpx.ConnectError("down"))
 
-    assert rf.osv_search("6.1.0") == []
+    assert _run(rf.osv_search("6.1.0")) == []
 
 
 @pytest.mark.integration
 def test_osv_search_malformed_structure_returns_empty(fake_http, rf):
     fake_http.route(OSV_API_URL, payload={"vulns": "not-a-list"})
 
-    assert rf.osv_search("6.1.0") == []
+    assert _run(rf.osv_search("6.1.0")) == []
 
 
 @pytest.mark.integration
 def test_osv_search_posts_version_payload(fake_http, rf):
     fake_http.route(OSV_API_URL, payload={"vulns": []})
 
-    rf.osv_search("6.1.0")
+    _run(rf.osv_search("6.1.0"))
 
     method, url, kwargs = fake_http.calls[0]
     assert method == "POST"
@@ -719,7 +763,7 @@ def test_osv_search_real_vulnerable_versions(fake_http, rf):
         payload=_osv_kernel_payload(),
     )
 
-    findings = rf.osv_search("4.19.0")
+    findings = _run(rf.osv_search("4.19.0"))
 
     assert findings
     assert all(f.cve_id.startswith("CVE-") for f in findings)
@@ -744,7 +788,7 @@ def test_osv_search_expands_advisory_aliases(fake_http, rf):
         },
     )
 
-    findings = rf.osv_search("6.6.0")
+    findings = _run(rf.osv_search("6.6.0"))
 
     assert sorted(f.cve_id for f in findings) == [
         "CVE-2025-38352",
@@ -774,7 +818,7 @@ def test_osv_search_dedupes_shared_cves(fake_http, rf):
         },
     )
 
-    findings = rf.osv_search("6.1.0")
+    findings = _run(rf.osv_search("6.1.0"))
 
     assert [f.cve_id for f in findings] == ["CVE-2024-1086"]
 
@@ -797,7 +841,7 @@ def test_osv_search_follows_pagination(fake_http, rf):
         payload={"vulns": [{"id": "CVE-2025-38352", "aliases": []}]},
     )
 
-    findings = rf.osv_search("4.19.0")
+    findings = _run(rf.osv_search("4.19.0"))
 
     assert sorted(f.cve_id for f in findings) == [
         "CVE-2024-1086",
@@ -816,7 +860,7 @@ def test_osv_search_enriches_cvss_from_nist(fake_http, rf):
         CVEORG_BASE_URL + "CVE-2024-0001", payload=_cve_org_payload("CVE-2024-0001")
     )
 
-    findings = rf.osv_search("6.1.0")
+    findings = _run(rf.osv_search("6.1.0"))
 
     assert findings[0].cvss_score == 7.8
     assert findings[0].severity == "HIGH"
@@ -834,7 +878,7 @@ def test_osv_search_enrichment_keeps_osv_data_on_nist_error(fake_http, rf):
         exception=httpx.ConnectError("down"),
     )
 
-    findings = rf.osv_search("6.1.0")
+    findings = _run(rf.osv_search("6.1.0"))
 
     assert findings[0].cve_id == "CVE-2024-1086"
     assert findings[0].description == "nf_tables: use-after-free"
@@ -877,7 +921,7 @@ def test_cve_org_details_mitre_primary(fake_http, rf):
     payload = _cve_org_payload()
     fake_http.route(CVEORG_BASE_URL + "CVE-2024-1086", payload=payload)
 
-    data = rf._cve_org_details("CVE-2024-1086")
+    data = _run(rf._cve_org_details("CVE-2024-1086"))
 
     assert data is payload
     assert rf._mitre_available is True
@@ -890,7 +934,7 @@ def test_cve_org_details_fallback_to_nist(fake_http, rf):
     fake_http.route(mitre_url, exception=httpx.ConnectError("mitre down"))
     fake_http.route(nist_url, payload=_nist_raw_payload())
 
-    data = rf._cve_org_details("CVE-2024-1086")
+    data = _run(rf._cve_org_details("CVE-2024-1086"))
 
     assert data["dataType"] == "CVE_RECORD"
     assert data["containers"]["cna"]["metrics"][0]["cvssV3_1"]["baseScore"] == 7.8
@@ -904,8 +948,8 @@ def test_cve_org_details_uses_nist_after_fallback(fake_http, rf):
     fake_http.route(mitre_url, exception=httpx.ConnectError("down"))
     fake_http.route(nist_url, payload=_nist_raw_payload())
 
-    rf._cve_org_details("CVE-2024-1086")
-    rf._cve_org_details("CVE-2024-1086")
+    _run(rf._cve_org_details("CVE-2024-1086"))
+    _run(rf._cve_org_details("CVE-2024-1086"))
 
     mitre_calls = [c for c in fake_http.calls if c[1] == mitre_url]
     nist_calls = [c for c in fake_http.calls if c[1] == nist_url]
@@ -924,13 +968,13 @@ def test_cve_org_details_both_fail_raises(fake_http, rf):
     )
 
     with pytest.raises(httpx.ConnectError):
-        rf._cve_org_details("CVE-2024-1086")
+        _run(rf._cve_org_details("CVE-2024-1086"))
 
 @pytest.mark.integration
 def test_get_cve_details_cve_org_format_parses_cvss(fake_http, rf):
     fake_http.route(CVEORG_BASE_URL + "CVE-2024-1086", payload=_cve_org_payload())
 
-    details = rf.get_cve_details("CVE-2024-1086")
+    details = _run(rf.get_cve_details("CVE-2024-1086"))
 
     assert details["description"].startswith("Use-after-free")
     assert details["cvss_v3_score"] == 7.8
@@ -944,7 +988,7 @@ def test_get_cve_details_cve_org_format_parses_cvss(fake_http, rf):
 def test_get_cve_details_prefers_v3_over_v2(fake_http, rf):
     fake_http.route(CVEORG_BASE_URL + "CVE-2024-1086", payload=_cve_org_payload())
 
-    details = rf.get_cve_details("CVE-2024-1086")
+    details = _run(rf.get_cve_details("CVE-2024-1086"))
 
     assert details["cvss_v3_score"] == 7.8
 
@@ -954,7 +998,7 @@ def test_get_cve_details_falls_back_to_v2(fake_http, rf):
     payload = _cve_org_payload(metric_key="cvssV2_0")
     fake_http.route(CVEORG_BASE_URL + "CVE-2024-1086", payload=payload)
 
-    details = rf.get_cve_details("CVE-2024-1086")
+    details = _run(rf.get_cve_details("CVE-2024-1086"))
 
     assert details["cvss_v3_score"] == 7.2
 
@@ -965,7 +1009,7 @@ def test_get_cve_details_no_metrics(fake_http, rf):
         CVEORG_BASE_URL + "CVE-2024-1086", payload=_cve_org_payload_no_metrics()
     )
 
-    details = rf.get_cve_details("CVE-2024-1086")
+    details = _run(rf.get_cve_details("CVE-2024-1086"))
 
     assert details["cvss_v3_score"] is None
     assert details["severity"] is None
@@ -981,7 +1025,7 @@ def test_get_cve_details_nist_fallback_pipeline(fake_http, rf):
         NIST_CVE_DETAILS_API_URL + "CVE-2024-1086", payload=_nist_raw_payload()
     )
 
-    details = rf.get_cve_details("CVE-2024-1086")
+    details = _run(rf.get_cve_details("CVE-2024-1086"))
 
     assert details["cvss_v3_score"] == 7.8
     assert details["severity"] == "HIGH"
@@ -998,7 +1042,7 @@ def test_get_cve_details_error_returns_empty(fake_http, rf):
         exception=httpx.ConnectError("nist down"),
     )
 
-    assert rf.get_cve_details("CVE-2024-1086") == {}
+    assert _run(rf.get_cve_details("CVE-2024-1086")) == {}
 
 
 @pytest.mark.integration
@@ -1012,7 +1056,7 @@ def test_get_cve_details_malformed_mitre_falls_back_to_nist(fake_http, rf):
     )
     fake_http.route(nist_url, payload=_nist_raw_payload())
 
-    details = rf.get_cve_details("CVE-2024-1086")
+    details = _run(rf.get_cve_details("CVE-2024-1086"))
 
     assert details["cvss_v3_score"] == 7.8
     assert rf._mitre_available is False
@@ -1025,9 +1069,9 @@ def test_get_cve_details_many_batches_and_dedups(fake_http, rf):
         CVEORG_BASE_URL + "CVE-2024-0001", payload=_cve_org_payload("CVE-2024-0001")
     )
 
-    details = rf.get_cve_details_many(
+    details = _run(rf.get_cve_details_many(
         ["CVE-2024-1086", "CVE-2024-0001", "CVE-2024-1086"]
-    )
+    ))
 
     assert list(details.keys()) == ["CVE-2024-1086", "CVE-2024-0001"]
     assert details["CVE-2024-1086"]["cvss_v3_score"] == 7.8
@@ -1035,7 +1079,7 @@ def test_get_cve_details_many_batches_and_dedups(fake_http, rf):
 
 @pytest.mark.integration
 def test_get_cve_details_many_empty(fake_http, rf):
-    assert rf.get_cve_details_many([]) == {}
+    assert _run(rf.get_cve_details_many([])) == {}
 
 
 @pytest.mark.integration
@@ -1053,6 +1097,6 @@ def test_get_cve_details_many_drops_failed(fake_http, rf):
         payload=_nist_raw_payload("CVE-2024-0001"),
     )
 
-    details = rf.get_cve_details_many(["CVE-2024-1086", "CVE-2024-0001"])
+    details = _run(rf.get_cve_details_many(["CVE-2024-1086", "CVE-2024-0001"]))
 
     assert list(details.keys()) == ["CVE-2024-0001"]

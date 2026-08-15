@@ -3,6 +3,7 @@ import platform
 import re
 import shutil
 import subprocess
+from concurrent.futures import ThreadPoolExecutor  # python >= 3.14t
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -31,6 +32,14 @@ from schemas import (
     LesCVEItem,
     SecurityRecommendationType,
 )
+
+#: approximately date for current kernel, fetched once per full scan
+_BUILD_DATE_CACHE: dict[str, int] = {}
+
+#: /proc walks (per-process status, sysctl values) are read-dominated and
+#: syscall-bound; modest thread pool overlaps the I/O latency instead of
+#: serializing hundreds of tiny file reads
+_PROC_WORKERS = 16
 
 
 class LocalRecon:
@@ -114,6 +123,10 @@ class LocalRecon:
     @staticmethod
     def get_kernel_build_date(version) -> int:
         """get build date by changelog, returns None on error"""
+        if version in _BUILD_DATE_CACHE:
+            return _BUILD_DATE_CACHE[version]
+
+        result = 0
         try:
             major = version.split(".")[0]
             response = httpx.get(
@@ -126,15 +139,18 @@ class LocalRecon:
                     date_str = line.replace("Date:", "").strip()
                     for fmt in ("%a, %d %b %Y", "%a %b %d %H:%M:%S %Y %z"):
                         try:
-                            return int(datetime.strptime(date_str, fmt).timestamp())
+                            result = int(datetime.strptime(date_str, fmt).timestamp())
+                            break
                         except ValueError:
                             continue
-                    return 0
-            logger.warning("get kernel build date error")
-            return 0
+                    break
         except (httpx.HTTPError, ValueError) as e:
             logger.warning("get_kernel_build_date error: %s", e)
-            return 0
+
+        if not result:
+            logger.warning("get kernel build date error")
+        _BUILD_DATE_CACHE[version] = result
+        return result
 
     @staticmethod
     def run_lynis_audit() -> bool:
@@ -289,27 +305,29 @@ class LocalRecon:
                 logger.warning("/proc/sys not found")
                 return values
 
-            for path in root.rglob("*"):
+            paths = [p for p in root.rglob("*") if p.is_file()]
+
+            def read_one(path: Path) -> tuple[str, str] | None:
                 try:
-                    if not path.is_file():
-                        continue
                     key = ".".join(path.relative_to(root).parts)
                     if not key:
-                        continue
-                    try:
-                        value = path.read_text(
-                            encoding="utf-8", errors="ignore"
-                        ).strip()
-                    except PermissionError:
-                        continue
-                    except OSError as e:
-                        logger.debug("skip sysctl key %s: %s", key, e)
-                        continue
-                    if value:
-                        values[key] = value
+                        return None
+                    value = path.read_text(
+                        encoding="utf-8", errors="ignore"
+                    ).strip()
+                    return (key, value) if value else None
+                except PermissionError:
+                    return None
                 except OSError as e:
-                    logger.debug("skip sysctl entry %s: %s", path, e)
-                    continue
+                    logger.debug("skip sysctl key %s: %s", path, e)
+                    return None
+
+            # /proc/sys holds thousands of tiny files; reading them is
+            # syscall-bound, so overlap the reads across a small pool
+            with ThreadPoolExecutor(max_workers=_PROC_WORKERS) as pool:
+                for pair in pool.map(read_one, paths):
+                    if pair is not None:
+                        values[pair[0]] = pair[1]
 
             logger.debug("loaded %d sysctl values", len(values))
             return values
@@ -472,52 +490,62 @@ class LocalRecon:
             logger.warning("list /proc error: %s", e)
             return result
 
-        for pid in pids:
-            try:
-                status_file = proc_root / str(pid) / "status"
-                if not status_file.is_file():
-                    continue
-                status_text = status_file.read_text(
-                    encoding="utf-8", errors="ignore"
+        # reading + parsing every /proc/<pid>/status is I/O bound;
+        # then sort by pid for a stable report order
+        with ThreadPoolExecutor(max_workers=_PROC_WORKERS) as pool:
+            result = [
+                caps
+                for caps in pool.map(
+                    lambda pid: self._read_pid_caps(proc_root / str(pid) / "status", pid),
+                    pids,
                 )
-            except (PermissionError, OSError) as e:
-                logger.debug("skip pid %s status: %s", pid, e)
-                continue
-
-            fields = self.parser.parse_proc_status(status_text)
-            cap_eff = self.parser.decode_cap_mask(fields.get("CapEff"))
-            cap_prm = self.parser.decode_cap_mask(fields.get("CapPrm"))
-            cap_amb = self.parser.decode_cap_mask(fields.get("CapAmb"))
-
-            # keep only processes that actually hold (dangerous) capabilities
-            if not (cap_eff or cap_prm or cap_amb):
-                continue
-
-            uid_fields = fields.get("Uid", "").split()
-            uid = int(uid_fields[1]) if len(uid_fields) > 1 else None
-
-            secbits = fields.get("Secbits")
-            no_new_privs_raw = fields.get("NoNewPrivs")
-            result.append(
-                HostProcessCapabilities(
-                    pid=pid,
-                    process_name=fields.get("Name", ""),
-                    username=self.parser.username_for_uid(uid),
-                    cap_effective=fields.get("CapEff"),
-                    cap_permitted=fields.get("CapPrm"),
-                    cap_inheritable=fields.get("CapInh"),
-                    cap_bounding=fields.get("CapBnd"),
-                    cap_ambient=fields.get("CapAmb"),
-                    secbits=secbits,
-                    no_new_privs=(
-                        no_new_privs_raw == "1" if no_new_privs_raw else None
-                    ),
-                )
-            )
+                if caps is not None
+            ]
 
         result.sort(key=lambda c: c.pid)
         logger.info("collected capability masks for %d processes", len(result))
         return result
+
+    def _read_pid_caps(
+        self, status_file: Path, pid: int
+    ) -> HostProcessCapabilities | None:
+        """parse one /proc/<pid>/status into capability data, or None to skip"""
+        try:
+            if not status_file.is_file():
+                return None
+            status_text = status_file.read_text(encoding="utf-8", errors="ignore")
+        except (PermissionError, OSError) as e:
+            logger.debug("skip pid %s status: %s", pid, e)
+            return None
+
+        fields = self.parser.parse_proc_status(status_text)
+        cap_eff = self.parser.decode_cap_mask(fields.get("CapEff"))
+        cap_prm = self.parser.decode_cap_mask(fields.get("CapPrm"))
+        cap_amb = self.parser.decode_cap_mask(fields.get("CapAmb"))
+
+        # keep only processes that actually hold (dangerous) capabilities
+        if not (cap_eff or cap_prm or cap_amb):
+            return None
+
+        uid_fields = fields.get("Uid", "").split()
+        uid = int(uid_fields[1]) if len(uid_fields) > 1 else None
+
+        secbits = fields.get("Secbits")
+        no_new_privs_raw = fields.get("NoNewPrivs")
+        return HostProcessCapabilities(
+            pid=pid,
+            process_name=fields.get("Name", ""),
+            username=self.parser.username_for_uid(uid),
+            cap_effective=fields.get("CapEff"),
+            cap_permitted=fields.get("CapPrm"),
+            cap_inheritable=fields.get("CapInh"),
+            cap_bounding=fields.get("CapBnd"),
+            cap_ambient=fields.get("CapAmb"),
+            secbits=secbits,
+            no_new_privs=(
+                no_new_privs_raw == "1" if no_new_privs_raw else None
+            ),
+        )
 
     def get_bpath_caps(self) -> list[HostFileCapabilities]:
         """getcap every executable file found in $PATH"""
@@ -586,12 +614,24 @@ class LocalRecon:
             return "warning", "WARNING"
         return "info", "ok"
 
-    def get_capability_recommendations(self) -> list[SecurityRecommendationType]:
-        """summarise process + PATH-file capabilities as hardening findings"""
+    def get_capability_recommendations(
+        self,
+        process_caps: list[HostProcessCapabilities] | None = None,
+        file_caps: list[HostFileCapabilities] | None = None,
+    ) -> list[SecurityRecommendationType]:
+        """summarise process + PATH-file capabilities as hardening findings.
+        process_caps / file_caps may be supplied by the caller, so /proc and getcap are
+        only scanned once per recon run
+        """
         results: list[SecurityRecommendationType] = []
         idx = 0
 
-        for pc in self.get_pids_caps():
+        if process_caps is None:
+            process_caps = self.get_pids_caps()
+        if file_caps is None:
+            file_caps = self.get_bpath_caps()
+
+        for pc in process_caps:
             idx += 1
             eff_names = self.parser.cap_names_from_mask(pc.cap_effective)
             severity, status = self._proc_cap_severity(eff_names, pc.username)
@@ -620,7 +660,7 @@ class LocalRecon:
                 )
             )
 
-        for fc in self.get_bpath_caps():
+        for fc in file_caps:
             idx += 1
             eff_names = [c for c in (fc.cap_effective or "").split(",") if c]
             prm_names = [c for c in (fc.cap_permitted or "").split(",") if c]

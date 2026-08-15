@@ -414,13 +414,6 @@ def main_cli(db: ThreatDB):
         choices=["orm", "memory"],
         help="DB backend type (sqlite or in-memory)",
     )
-    parser.add_argument(
-        "--db",
-        type=str,
-        default=DB_BACKEND,
-        choices=["orm", "memory"],
-        help="DB backend type (sqlite or in-memory)",
-    )
 
     args = parser.parse_args()
 
