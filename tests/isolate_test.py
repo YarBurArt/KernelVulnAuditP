@@ -508,6 +508,157 @@ def test_ask_user_permission_no(monkeypatch):
     assert Isolate._ask_user_permission() is False
 
 
+def test_run_binary_backend_host(monkeypatch, tmp_path):
+    binary = tmp_path / "bin"
+    binary.write_text("x")
+
+    isolate = Isolate(backend="host")
+
+    fake_result = ExecutionResult(
+        stdout="ok",
+        stderr="",
+        returncode=0,
+        execution_mode="host",
+        logs={},
+        duration_ms=1.0,
+        crashed=False,
+    )
+    monkeypatch.setattr("isolate.HostEnvironment.execute", lambda self: fake_result)
+
+    result = isolate.run_binary(binary)
+
+    assert result is fake_result
+    assert result.execution_mode == "host"
+
+
+def test_run_binary_backend_forced_virtme(monkeypatch, tmp_path):
+    binary = tmp_path / "bin"
+    binary.write_text("x")
+
+    isolate = Isolate(backend="virtme-ng")
+
+    fake_result = ExecutionResult(
+        stdout="ok",
+        stderr="",
+        returncode=0,
+        execution_mode="virtme-ng",
+        logs={},
+        duration_ms=1.0,
+        crashed=False,
+    )
+    monkeypatch.setattr(
+        "isolate.VirtmeNGEnvironment.is_available", lambda self: True
+    )
+    monkeypatch.setattr(
+        "isolate.VirtmeNGEnvironment.execute", lambda self: fake_result
+    )
+
+    result = isolate.run_binary(binary)
+
+    assert result is fake_result
+    assert result.execution_mode == "virtme-ng"
+
+
+def test_run_binary_backend_forced_qemu(monkeypatch, tmp_path):
+    binary = tmp_path / "bin"
+    binary.write_text("x")
+
+    isolate = Isolate(backend="qemu")
+
+    fake_result = ExecutionResult(
+        stdout="ok",
+        stderr="",
+        returncode=0,
+        execution_mode="qemu",
+        logs={},
+        duration_ms=1.0,
+        crashed=False,
+    )
+    monkeypatch.setattr("isolate.QemuEnvironment.is_available", lambda self: True)
+    monkeypatch.setattr("isolate.QemuEnvironment.execute", lambda self: fake_result)
+
+    result = isolate.run_binary(binary)
+
+    assert result is fake_result
+    assert result.execution_mode == "qemu"
+
+
+def test_run_binary_backend_forced_missing(monkeypatch, tmp_path):
+    binary = tmp_path / "bin"
+    binary.write_text("x")
+
+    isolate = Isolate(backend="qemu")
+    monkeypatch.setattr("isolate.QemuEnvironment.is_available", lambda self: False)
+    monkeypatch.setattr(isolate, "_ask_user_permission", lambda: False)
+
+    result = isolate.run_binary(binary)
+
+    assert result is None
+
+
+def test_run_binary_unknown_backend_falls_back_to_auto(monkeypatch, tmp_path):
+    binary = tmp_path / "bin"
+    binary.write_text("x")
+
+    isolate = Isolate(backend="bogus")
+    monkeypatch.setattr(
+        "isolate.VirtmeNGEnvironment.is_available", lambda self: False
+    )
+    monkeypatch.setattr("isolate.QemuEnvironment.is_available", lambda self: False)
+    monkeypatch.setattr(isolate, "_ask_user_permission", lambda: False)
+
+    result = isolate.run_binary(binary)
+
+    assert result is None
+
+
+def test_run_binary_auto_skips_failed_backend(monkeypatch, tmp_path):
+    binary = tmp_path / "bin"
+    binary.write_text("x")
+
+    isolate = Isolate()
+
+    def failing_execute(self):
+        raise RuntimeError("virtme-ng exploded")
+
+    fake_qemu = ExecutionResult(
+        stdout="ok",
+        stderr="",
+        returncode=0,
+        execution_mode="qemu",
+        logs={},
+        duration_ms=1.0,
+        crashed=False,
+    )
+    monkeypatch.setattr(
+        "isolate.VirtmeNGEnvironment.is_available", lambda self: True
+    )
+    monkeypatch.setattr(
+        "isolate.VirtmeNGEnvironment.execute", failing_execute
+    )
+    monkeypatch.setattr("isolate.QemuEnvironment.is_available", lambda self: True)
+    monkeypatch.setattr("isolate.QemuEnvironment.execute", lambda self: fake_qemu)
+
+    result = isolate.run_binary(binary)
+
+    assert result is fake_qemu
+    assert result.execution_mode == "qemu"
+
+
+def test_isolate_backend_from_config(monkeypatch):
+    import isolate.isolate as iso_mod
+    from isolate import Isolate as Iso
+
+    monkeypatch.setattr(iso_mod, "SANDBOX_BACKEND", "qemu")
+    assert Iso().backend == "qemu"
+
+    monkeypatch.setattr(iso_mod, "SANDBOX_BACKEND", "virtme-ng")
+    assert Iso().backend == "virtme-ng"
+
+    monkeypatch.setattr(iso_mod, "SANDBOX_BACKEND", "bogus")
+    assert Iso().backend == "auto"
+
+
 def test_qemu_execute_detects_crash(monkeypatch, tmp_path):
     binary = tmp_path / "bin"
     binary.write_text("x")

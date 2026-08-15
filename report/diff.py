@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from core import norm_sysctl_value, proc_module_name, safe_get_attr
+from core import is_finding, norm_sysctl_value, proc_module_name, safe_get_attr
 from recon.parse_recon_reports import HIGH_RISK_CAPS, ParseReports
 
 #: diff section type -> human-readable label (shared by the renderers)
@@ -621,14 +621,9 @@ def build_capability_section(
     return _build_capability_section(capability_rows)
 
 
-def _is_finding(status: Any) -> bool:
-    """Whether a diff row status represents a real finding (not ok)."""
-    return str(status or "").strip().lower() not in ("", "ok", "success", "pass")
-
-
 def count_findings(rows: list[dict[str, Any]]) -> int:
     """Count only non-ok rows (findings), never correctly satisfied checks."""
-    return sum(1 for r in rows or [] if _is_finding(r.get("status")))
+    return sum(1 for r in rows or [] if is_finding(r.get("status")))
 
 
 def build_diff_columns(

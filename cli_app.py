@@ -1,13 +1,18 @@
 import argparse
 from dataclasses import asdict
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 import term
 from app_services import AppServices
 from config import DB_BACKEND
-from core import format_timestamp, update_config_file
+from core import (
+    format_run_timestamp,
+    format_timestamp,
+    rec_severity,
+    short_hash,
+    update_config_file,
+)
 from db.db import ThreatDB
 from schemas import ReconResult
 
@@ -183,7 +188,7 @@ class CLIApp:
         recs = local.get("security_recommendations", []) or []
         print(f"Security recommendations ({len(recs)}):")
         for rec in recs:
-            sev = self._rec_severity(rec)
+            sev = rec_severity(rec)[0]
             test_id = rec.get("test_id", "N/A")
             field = rec.get("field_name") or rec.get("category") or ""
             desc = rec.get("description") or ""
@@ -278,7 +283,7 @@ class CLIApp:
         crashed = run.get("crashed", False)
         exit_code = run.get("exit_code")
         platform = run.get("sandbox_platform", "unknown")
-        hash_short = (run.get("exploit_file_hash", "") or "")[:12]
+        hash_short = short_hash(run.get("exploit_file_hash"))
         stdout = run.get("stdout", "")
         stderr = run.get("stderr", "")
 
@@ -289,14 +294,7 @@ class CLIApp:
         else:
             severity = "FAIL"
 
-        ts = run.get("run_timestamp", "")
-        timestamp_str = ""
-        if ts:
-            try:
-                dt = datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
-                timestamp_str = dt.strftime("%H:%M:%S")
-            except (ValueError, TypeError):
-                timestamp_str = str(ts)[:19]
+        timestamp_str = format_run_timestamp(run.get("run_timestamp"))
 
         print(
             f"\n  {_paint_sev(severity)} {cve_id} [{platform}] exit:{exit_code} "
@@ -324,24 +322,6 @@ class CLIApp:
         if (stderr or crashed) and stderr:
             tail = "..." if len(stderr) > 500 else ""
             print(f"    STDERR: {stderr[:500]}{tail}")
-
-    @staticmethod
-    def _rec_severity(rec: dict[str, Any]) -> str:
-        try:
-            expected = float(rec.get("expected_value") or 0)
-            actual = float(rec.get("actual_value") or 0)
-            diff = abs(expected - actual)
-            if diff >= 2:
-                return "CRIT"
-            if diff == 1:
-                return "WARN"
-        except (TypeError, ValueError):
-            status = rec.get("status", "")
-            if status == "FAIL":
-                return "CRIT"
-            if status == "WARNING":
-                return "WARN"
-        return "INFO"
 
 
 _QUICK_START = r"""

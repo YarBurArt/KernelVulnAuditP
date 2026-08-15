@@ -1,30 +1,13 @@
 """Streamlit renderer for kernel vulnerability reports."""
 
-from typing import Any
+from typing import Any, ClassVar
 
-from core import dict_to_display_rows
+from core import dedupe_links, dict_to_display_rows, is_finding, status_severity
 from report.diff import (
     DIFF_SECTIONS,
     build_diff_columns,
     count_findings,
 )
-
-
-def _dedup_links(rows: list[dict[str, Any]]) -> list[str]:
-    """Deduplicated, non-empty link list across table rows (stable order).
-
-    Supports both a single link and a links list on each row.
-    """
-    seen: list[str] = []
-    for row in rows or []:
-        for link in [
-            row.get("link"),
-            *list(row.get("links", []) or []),
-        ]:
-            link = str(link or "").strip()
-            if link and link not in seen:
-                seen.append(link)
-    return seen
 
 try:
     import streamlit as st  # type: ignore[import-not-found]
@@ -263,17 +246,18 @@ class StreamlitReportRenderer:
 
     _DIFF_SECTIONS = DIFF_SECTIONS
 
+    #: severity class -> CSS text color (from core.status_severity classification)
+    _SEV_CLASS_COLORS: ClassVar[dict[str, str]] = {
+        "CRIT": "#b00020",
+        "WARN": "#b26a00",
+        "OK": "#1b7a3d",
+        "INFO": "inherit",
+    }
+
     @staticmethod
     def _status_color(status: str) -> str:
         """CSS text color for a status (never a background)."""
-        up = status.upper()
-        if up in ("FAIL", "NEW", "CRIT", "CRITICAL", "MISMATCH"):
-            return "#b00020"
-        if up in ("WARNING", "WARN", "MISSING", "REMOVED"):
-            return "#b26a00"
-        if up in ("OK", "SUCCESS"):
-            return "#1b7a3d"
-        return "inherit"
+        return StreamlitReportRenderer._SEV_CLASS_COLORS[status_severity(status)]
 
     @staticmethod
     def _two_column_table(table: dict) -> str:
@@ -304,18 +288,18 @@ class StreamlitReportRenderer:
             status = str(row.get("status", "")).upper()
             color = StreamlitReportRenderer._status_color(status)
             detail = str(row.get("detail", "") or "")
-            is_finding = status not in ("OK", "SUCCESS", "")
+            finding = is_finding(status)
 
             right_cell = (
                 f"<td style='padding:2px 8px; color:{color};"
                 f" font-weight:bold;'>{right}</td>"
-                if is_finding
+                if finding
                 else f"<td style='padding:2px 8px;'>{right}</td>"
             )
             detail_row = (
                 f"<tr><td colspan='3' style='padding:2px 8px; "
                 f"color:#555; font-size:0.85em;'>↳ {detail}</td></tr>"
-                if detail and is_finding
+                if detail and finding
                 else ""
             )
             out.append(
@@ -371,7 +355,7 @@ class StreamlitReportRenderer:
                         self._references_table(refs), unsafe_allow_html=True
                     )
                 else:
-                    links = _dedup_links(section["rows"])
+                    links = dedupe_links(section["rows"])
                     if links:
                         for link in links:
                             st.markdown(f"- {link}")

@@ -3,6 +3,7 @@ Core utility functions, more independent functionality
 Date parsing, dict/list processing, text extraction, criticality calc.
 """
 
+import logging
 import re
 from collections.abc import Callable
 from datetime import UTC, datetime
@@ -15,9 +16,13 @@ _CVSS_LIST_KEYS = ("cvssV3_1", "cvssV3_0", "cvssV2_0", "cvssV4_0")
 
 def try_parse(date_str: str, fmt: str) -> datetime | None:
     try:
-        return datetime.strptime(date_str, fmt)
+        # fmt may be naive; the result is normalized to UTC-aware below
+        dt = datetime.strptime(date_str, fmt)  # noqa: DTZ007
     except ValueError:
         return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=UTC)
+    return dt
 
 
 def parse_date_string(date_str: str) -> datetime | None:
@@ -25,7 +30,7 @@ def parse_date_string(date_str: str) -> datetime | None:
         return None
 
     try:
-        dt = datetime.fromisoformat(date_str.replace("Z", "+00:00"))
+        dt = datetime.fromisoformat(date_str)
     except ValueError:
         dt = None
 
@@ -80,7 +85,7 @@ def filter_items_by_date(
         elif isinstance(item, dict) and date_field in item:
             date_str = item[date_field]
 
-        if not date_str:
+        if not isinstance(date_str, str):
             continue
 
         dt = parse_date_string(date_str)
@@ -185,7 +190,7 @@ def extract_section_by_header(
         matches = re.findall(pattern, text, re.IGNORECASE | re.MULTILINE)
         if matches:
             extracted = matches[0].strip()
-            extracted = re.sub(r"\[.*?\]\(.*?\)", "", extracted)
+            extracted = re.sub(r"\[.*?]\(.*?\)", "", extracted)
             extracted = extracted.replace("*", "").replace("`", "")
             extracted = " ".join(extracted.split())
 
@@ -202,7 +207,7 @@ def extract_code_block_commands(
     commands = []
 
     lang_pattern = r"(?:" + "|".join(languages) + r")?" if languages else r""
-    block_pattern = rf"```({lang_pattern})?\n(.*?)```"
+    block_pattern = rf"`({lang_pattern})?\n(.*?)`"
 
     for block in re.findall(block_pattern, text, re.DOTALL):
         content = block[1] if isinstance(block, tuple) else block
@@ -215,14 +220,14 @@ def extract_code_block_commands(
 
 def clean_command_string(cmd: str) -> str:
     """clean command string from Markdown"""
-    cmd = cmd.replace("```", "").replace("`", "")
+    cmd = cmd.replace("`", "").replace("`", "")
     cmd = cmd.split("\n")[0]
     return cmd.strip()
 
 
 def parse_key_with_brackets(raw_key: str) -> tuple:
     """parse key with bracket notation: key, key[], key[name]"""
-    match = re.fullmatch(r"([^\[]+)(?:\[(.*?)\])?", raw_key)
+    match = re.fullmatch(r"([^\[]+)(?:\[(.*?)])?", raw_key)
     if not match:
         return raw_key, None
     return match.group(1), match.group(2)
@@ -509,3 +514,432 @@ def extract_english_description(descriptions: Any) -> str:
         if isinstance(first, dict):
             return str(first.get("value") or "")
     return ""
+
+
+# Shared formatting helpers for report and UI
+_BINARY_OUTPUT_MARKER = "========== BINARY OUTPUT =========="
+
+# sort weight for status-based hardening rows (lower = more severe)
+_SEV_RANK = {"FAIL": 0, "WARNING": 1, "OK": 2}
+
+# statuses that mean a check is correctly satisfied
+_OK_STATUSES = ("", "ok", "success", "pass")
+
+
+def is_url(text: Any) -> bool:
+    """Whether a string is a clickable URL."""
+    if not isinstance(text, str):
+        return False
+    return text.startswith(("http://", "https://")) and len(text) > 8
+
+
+def is_ok_status(status: Any) -> bool:
+    """Whether a row status means the check is correctly satisfied."""
+    return str(status or "").strip().lower() in _OK_STATUSES
+
+
+def is_finding(status: Any) -> bool:
+    """Whether a diff/row status represents a real finding"""
+    return not is_ok_status(status)
+
+
+def status_severity(status: Any) -> str:
+    """Map a diff/row status to a severity class: CRIT/WARN/OK/INFO with colors"""
+    up = str(status or "").upper()
+    if up in ("FAIL", "NEW", "CRIT", "CRITICAL", "MISMATCH"):
+        return "CRIT"
+    if up in ("WARNING", "WARN", "MISSING", "REMOVED"):
+        return "WARN"
+    if up in ("OK", "SUCCESS"):
+        return "OK"
+    return "INFO"
+
+
+def audit_priority(rec: Any) -> tuple[int, str]:
+    """Sort key for hardening recommendations (diff-based severity)."""
+    try:
+        expected = int(safe_get_attr(rec, "expected_value"))
+        actual = int(safe_get_attr(rec, "actual_value"))
+        diff = abs(expected - actual)
+        if diff >= 2:
+            return 0, "CRIT"
+        if diff == 1:
+            return 1, "WARN"
+    except (TypeError, ValueError):
+        pass
+    return 2, "INFO"
+
+
+def status_rank(rec: Any) -> int:
+    """Sort key for SELinux/capability host info recommendations"""
+    return _SEV_RANK.get(str(safe_get_attr(rec, "status", "")).upper(), 2)
+
+
+def rec_severity(rec: Any) -> tuple[str, str]:
+    """Return severity for a recommendation.
+    The expected/actual diff drives CRIT/WARN when both values parse as
+    numbers; otherwise the status field decides. Kernel hardening rows use
+    ok / mismatch / missing so every non-ok row is flagged
+    """
+    try:
+        diff = abs(
+            int(float(safe_get_attr(rec, "expected_value")))
+            - int(float(safe_get_attr(rec, "actual_value")))
+        )
+        if diff >= 2:
+            return "CRIT", "crit"
+        if diff == 1:
+            return "WARN", "warn"
+    except (TypeError, ValueError):
+        pass
+
+    status = str(safe_get_attr(rec, "status", ""))
+    if status == "FAIL":
+        return "CRIT", "crit"
+    if status in ("WARNING", "mismatch", "missing"):
+        return "WARN", "warn"
+    return "INFO", "info"
+
+
+def suggestion_for(rec: Any) -> str:
+    """Extract the readable suggestion/details from a recommendation"""
+    raw = safe_get_attr(rec, "raw_data", {}) or {}
+    if not isinstance(raw, dict):
+        raw = {}
+    suggestion = raw.get("suggestion", raw.get("details", raw.get("solution", "")))
+    if not suggestion:
+        suggestion = safe_get_attr(rec, "description", "")
+    suggestion = str(suggestion or "").strip()
+    if suggestion.lower() == "no description":
+        suggestion = ""
+    if not suggestion:
+        related = str(raw.get("related", "") or "")
+        if related:
+            suggestion = f"Check with: {related}"
+        else:
+            suggestion = "See the docs section for details"
+    return suggestion or "N/A"
+
+
+def rec_context_rows(rec: Any) -> list[str]:
+    """Extra "who/what is affected" lines for a recommendation's details"""
+    raw = safe_get_attr(rec, "raw_data", {}) or {}
+    if not isinstance(raw, dict):
+        raw = {}
+    rows: list[str] = []
+    source = str(safe_get_attr(rec, "source", ""))
+    if source == "selinux":
+        section = raw.get("section")
+        if section:
+            rows.append(f"Section: {section}")
+        persistent = raw.get("persistent")
+        if persistent:
+            rows.append(f"Persistent: {persistent}")
+    elif source in ("proc", "getcap"):
+        username = raw.get("username") or raw.get("owner_name")
+        if username:
+            rows.append(f"User: {username}")
+        pid = raw.get("pid")
+        if pid:
+            rows.append(f"PID: {pid}")
+    return rows
+
+
+def extract_links(rec: Any) -> list[str]:
+    """Unique http(s) links attached to a recommendation or diff row.
+
+    Reads the usual raw_data keys (solution/details/suggestion/link/url)
+    plus a links list, and the top-level link / links keys used by
+    the report diff rows.
+    """
+    raw = safe_get_attr(rec, "raw_data", {}) or {}
+    if not isinstance(raw, dict):
+        raw = {}
+    candidates = [
+        raw.get("solution"),
+        raw.get("details"),
+        raw.get("suggestion"),
+        raw.get("link"),
+        raw.get("url"),
+    ]
+    candidates += list(raw.get("links", []) or [])
+    candidates.append(safe_get_attr(rec, "link", ""))
+    candidates += list(safe_get_attr(rec, "links", []) or [])
+    out: list[str] = []
+    for candidate in candidates:
+        text = str(candidate or "").strip()
+        if is_url(text) and text not in out:
+            out.append(text)
+    return out
+
+
+def dedupe_links(items: list[Any]) -> list[str]:
+    """Deduplicated, stable-ordered list of links across recommendations"""
+    out: list[str] = []
+    for item in items or []:
+        for link in extract_links(item):
+            if link not in out:
+                out.append(link)
+    return out
+
+
+def binary_output(stdout: str) -> str:
+    """Filter VM logs: keep only the payload after the binary output marker."""
+    idx = stdout.find(_BINARY_OUTPUT_MARKER)
+    if idx == -1:
+        return stdout.strip()
+    body = stdout[idx + len(_BINARY_OUTPUT_MARKER):]
+    lines = [ln for ln in body.splitlines() if not ln.startswith("EXIT_CODE=")]
+    return "\n".join(lines).strip()
+
+
+def format_run_timestamp(ts: Any) -> str:
+    """Format an ISO timestamp just as HH:MM:SS"""
+    if not ts:
+        return ""
+    try:
+        dt = datetime.fromisoformat(str(ts))
+        return dt.strftime("%H:%M:%S")
+    except (ValueError, TypeError):
+        return str(ts)[:19]
+
+
+def short_hash(value: Any) -> str:
+    """Truncate an exploit file hash to 12 chars for headers"""
+    return (value or "")[:12] or "N/A"
+
+
+def format_kernel_line(kernel_info: dict) -> str:
+    """kernel line for a sandbox run details."""
+    return kernel_info.get("uname", kernel_info.get("date", "N/A"))
+
+
+def first_resource_line(resource: str | None) -> str | None:
+    """First line of a meminfo/cpuinfo blob"""
+    if not resource:
+        return None
+    return resource.split("\n")[0] if "\n" in resource else resource[:200]
+
+
+def _debug_indent(text: Any, spaces: int = 2) -> str:
+    """Indent every line of ``text`` for a log blob."""
+    pad = " " * spaces
+    return "\n".join(f"{pad}{line}" for line in str(text).splitlines())
+
+
+def _debug_mapping(value: Any, spaces: int = 2) -> str:
+    """Render a nested dict/list as aligned ``key: value`` log lines."""
+    if isinstance(value, dict):
+        if not value:
+            return "{}"
+        lines: list[str] = []
+        for key, item in value.items():
+            if isinstance(item, (dict, list)):
+                lines.append(f"{' ' * spaces}{key}:")
+                lines.append(_debug_mapping(item, spaces + 2))
+            else:
+                text = str(item)
+                if "\n" in text:
+                    lines.append(f"{' ' * spaces}{key}:")
+                    lines.append(_debug_indent(text, spaces + 2))
+                else:
+                    lines.append(f"{' ' * spaces}{key}: {text}")
+        return "\n".join(lines)
+    if isinstance(value, list):
+        if not value:
+            return "[]"
+        if all(not isinstance(item, (dict, list)) for item in value):
+            return ", ".join(str(item) for item in value)
+        return "\n".join(_debug_mapping(item, spaces) for item in value)
+    return str(value)
+
+
+def format_sandbox_detail(data: dict[str, Any]) -> str:
+    """Render one stored sandbox run as labeled DEBUG log lines.
+
+    Mirrors every field persisted by ``AppServices._store_sandbox_run`` so
+    the log keeps all data, just re-laid out instead of a dict repr.
+    """
+    lines: list[str] = []
+    add = lines.append
+    add(f"platform:      {data.get('sandbox_platform', 'unknown')}")
+    add(f"timestamp:     {data.get('run_timestamp', '')}")
+    add(f"exploit hash:  {data.get('exploit_file_hash', '')}")
+    add(f"success:       {data.get('execution_success', False)}")
+    add(f"exit_code:     {data.get('exit_code', '')}")
+    add(f"crashed:       {data.get('crashed', False)}")
+    if data.get("stdin"):
+        add(f"command:       {data.get('stdin')}")
+    if data.get("notes"):
+        add(f"notes:         {data.get('notes')}")
+    kernel_info = data.get("kernel_info") or {}
+    if kernel_info:
+        add(f"kernel_info:   {format_kernel_line(kernel_info)}")
+    resources = data.get("resources") or {}
+    mem = first_resource_line(resources.get("meminfo"))
+    cpu = first_resource_line(resources.get("cpuinfo"))
+    if mem:
+        add(f"memory:        {mem}")
+    if cpu:
+        add(f"cpu:           {cpu}")
+    modules = data.get("modules") or []
+    if modules:
+        add(f"modules ({len(modules)}):      {', '.join(str(m) for m in modules)}")
+    processes = data.get("open_processes") or []
+    if processes:
+        add(
+            f"processes ({len(processes)}):  "
+            f"{', '.join(str(p) for p in processes)}"
+        )
+    files = data.get("open_files") or []
+    if files:
+        add(f"files ({len(files)}):        {', '.join(str(f) for f in files)}")
+    for key, label in (("stdout", "STDOUT"), ("stderr", "STDERR")):
+        blob = data.get(key)
+        if blob:
+            add(f"{label}:")
+            add(_debug_indent(blob, 2))
+    return "\n".join(lines)
+
+
+def log_sandbox_run(logger: logging.Logger, cve_id: str, data: dict[str, Any]) -> None:
+    """Emit a stored sandbox run as separate DEBUG records, one per field.
+
+    Replaces the single unreadable ``dict`` dump with several log records so
+    no field is lost while the log stays greppable: scalars become one line,
+    nested dicts/lists are laid out key-per-record, and multi-line blobs
+    (stdout/stderr/notes) are split line-by-line. Skipped from the TUI
+    console, same as the other verbose sandbox dump.
+    """
+    if not logger.isEnabledFor(logging.DEBUG):
+        return
+    extra = {"skip_console": True}
+    logger.debug("%s isolated sandbox run:", cve_id, extra=extra)
+    for key, value in data.items():
+        if isinstance(value, (dict, list)):
+            if not value:
+                logger.debug("  %s: %r", key, value, extra=extra)
+                continue
+            logger.debug("  %s:", key, extra=extra)
+            for line in _debug_mapping(value, 4).splitlines():
+                logger.debug("%s", line, extra=extra)
+        elif isinstance(value, str) and "\n" in value:
+            logger.debug("  %s:", key, extra=extra)
+            for line in value.splitlines():
+                logger.debug("%s", _debug_indent(line, 4), extra=extra)
+        else:
+            logger.debug("  %s: %s", key, value, extra=extra)
+
+
+def format_execution_report(report: dict[str, Any]) -> str:
+    """Render the execution-tests report as readable, detailed DEBUG log text.
+
+    Every piece of data in the report is preserved (CVE metadata, PoC
+    metadata, sandbox IO, kernel info, resources, module/process/file
+    lists); it is only re-laid out as labeled sections instead of the raw
+    report dict.
+    """
+    lines: list[str] = []
+    add = lines.append
+    add("=== Execution Report ===")
+    add(f"Kernel:   {report.get('kernel', 'N/A')}")
+    add(f"Build:    {report.get('build_date', 'N/A')}")
+    add(f"CVEs:     {report.get('cves_processed', 0)}")
+
+    stats = report.get("stats") or {}
+    if stats:
+        add("Stats:")
+        add(
+            "  total:        {}\n"
+            "  with_exploits:{}\n"
+            "  in_cisa_kev:  {}\n"
+            "  ransomware:   {}\n"
+            "  critical:     {}\n"
+            "  avg_cvss:     {}".format(
+                stats.get("total", 0),
+                stats.get("with_exploits", 0),
+                stats.get("in_cisa_kev", 0),
+                stats.get("ransomware_related", 0),
+                stats.get("critical_count", 0),
+                stats.get("avg_cvss", 0),
+            )
+        )
+        if stats.get("by_severity"):
+            add("  by_severity:")
+            add(_debug_mapping(stats["by_severity"], 4))
+        if stats.get("security_recommendations"):
+            add("  security_recommendations:")
+            add(_debug_mapping(stats["security_recommendations"], 4))
+
+    entries = report.get("entries") or []
+    add(f"Entries:  {len(entries)}")
+    for index, entry in enumerate(entries, 1):
+        add("")
+        add(
+            f"[{index}] CVE {entry.get('cve_id', 'N/A')} | "
+            f"{entry.get('severity', 'N/A')} | "
+            f"CVSS {entry.get('cvss_v3_score', 'N/A')}"
+        )
+        description = str(entry.get("description") or "").strip()
+        if description:
+            add(f"    Description: {description}")
+        sources = entry.get("sources") or []
+        if sources:
+            add(f"    Sources:     {', '.join(str(s) for s in sources)}")
+        pocs = entry.get("pocs") or []
+        if not pocs:
+            add("    PoCs:        none")
+        for poc in pocs:
+            add(
+                f"    PoC: {poc.get('url', 'N/A')} "
+                f"[{poc.get('language', '?')} stars:{poc.get('stars', 0)}]"
+            )
+            if poc.get("compile_cmd"):
+                add(f"      compile: {poc['compile_cmd']}")
+            if poc.get("test_cmd"):
+                add(f"      test:    {poc['test_cmd']}")
+            if poc.get("sandbox_error"):
+                add(f"      sandbox error: {poc['sandbox_error']}")
+                continue
+            sandbox = poc.get("sandbox")
+            if not isinstance(sandbox, dict):
+                continue
+            add(
+                f"      sandbox: mode={sandbox.get('mode', 'unknown')} "
+                f"returncode={sandbox.get('returncode')} "
+                f"success={sandbox.get('success')} "
+                f"crashed={sandbox.get('crashed')}"
+            )
+            logs = sandbox.get("logs") or {}
+            exploit_hash = logs.get("exploit_hash", logs.get("binary", ""))
+            if exploit_hash:
+                add(f"      exploit hash: {exploit_hash}")
+            kernel_info = sandbox.get("kernel_info") or {}
+            if kernel_info:
+                add(f"      kernel: {format_kernel_line(kernel_info)}")
+                extra = {k: v for k, v in kernel_info.items() if k not in ("uname", "date")}
+                if extra:
+                    add("      kernel_info:")
+                    add(_debug_mapping(extra, 8))
+            resources = sandbox.get("resources") or {}
+            if resources:
+                add("      resources:")
+                add(_debug_mapping(resources, 8))
+            modules = sandbox.get("modules") or []
+            if modules:
+                add(f"      modules ({len(modules)}): {', '.join(str(m) for m in modules)}")
+            processes = sandbox.get("processes") or []
+            if processes:
+                add(
+                    f"      processes ({len(processes)}): "
+                    f"{', '.join(str(p) for p in processes)}"
+                )
+            files = sandbox.get("files") or []
+            if files:
+                add(f"      files ({len(files)}): {', '.join(str(f) for f in files)}")
+            for key, label in (("stdout", "STDOUT"), ("stderr", "STDERR")):
+                blob = sandbox.get(key)
+                if blob:
+                    add(f"      {label}:")
+                    add(_debug_indent(blob, 8))
+    return "\n".join(lines)

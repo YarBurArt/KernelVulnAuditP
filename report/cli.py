@@ -4,34 +4,12 @@ import textwrap
 from typing import Any, ClassVar
 
 import term
+from core import dedupe_links, is_ok_status, status_severity
 from report.diff import (
     DIFF_SECTIONS,
     build_diff_columns,
     count_findings,
 )
-
-_OK_STATUSES = {"", "ok", "success", "pass"}
-
-
-def _is_ok_status(status: Any) -> bool:
-    """Whether a row status means the check is correctly satisfied."""
-    return str(status or "").strip().lower() in _OK_STATUSES
-
-
-def _dedup_links(rows: list[dict[str, Any]]) -> list[str]:
-    """Deduplicated, non-empty link list across table rows (stable order).
-    Supports both a single link and a links list on each row.
-    """
-    seen: list[str] = []
-    for row in rows or []:
-        for link in [
-            row.get("link"),
-            *list(row.get("links", []) or []),
-        ]:
-            link = str(link or "").strip()
-            if link and link not in seen:
-                seen.append(link)
-    return seen
 
 
 class CLIReportRenderer:
@@ -290,6 +268,14 @@ class CLIReportRenderer:
 
     _DIFF_SECTIONS = DIFF_SECTIONS
 
+    #: severity class -> ANSI color (from core.status_severity classification)
+    _SEV_CLASS_COLORS: ClassVar[dict[str, str]] = {
+        "CRIT": term.CRIT,
+        "WARN": term.WARN,
+        "OK": term.OK,
+        "INFO": term.GRAY,
+    }
+
     @staticmethod
     def _row_status_color(status: str) -> str:
         """CLI color for a two-column row based on its status.
@@ -297,14 +283,7 @@ class CLIReportRenderer:
         red = FAIL/mismatch/new, yellow = WARNING/missing/removed,
         green = ok/perfect for the current state of host
         """
-        up = status.upper()
-        if up in ("FAIL", "NEW", "CRIT", "CRITICAL", "MISMATCH"):
-            return term.CRIT
-        if up in ("WARNING", "WARN", "MISSING", "REMOVED"):
-            return term.WARN
-        if up in ("OK", "SUCCESS"):
-            return term.OK
-        return term.GRAY
+        return CLIReportRenderer._SEV_CLASS_COLORS[status_severity(status)]
 
     def _render_two_column(self, table: dict) -> str:
         """Render a two-column comparison table with aligned columns"""
@@ -337,7 +316,7 @@ class CLIReportRenderer:
             out += f"  {key:<{key_w}}  {left:<{left_w}}  {right}\n"
             detail = str(r.get("detail", "") or "")
             status = str(r.get("status", "") or "")
-            if detail and (self.verbose or not _is_ok_status(status)):
+            if detail and (self.verbose or not is_ok_status(status)):
                 out += f"  {'':<{key_w}}  {'':<{left_w}}  ↳ {detail}\n"
         return out
 
@@ -371,7 +350,7 @@ class CLIReportRenderer:
             if refs:
                 out += self._render_references_table(refs)
             else:
-                links = _dedup_links(section["rows"])
+                links = dedupe_links(section["rows"])
                 if links:
                     out += f"  References:\n    {', '.join(links)}\n"
         return out
