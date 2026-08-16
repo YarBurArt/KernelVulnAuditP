@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Search and collect CVE Linux kernel xpls in C, Ruby, Python
 
@@ -23,6 +22,8 @@ import logging
 import re
 import shutil
 import subprocess
+import threading
+import time
 from pathlib import Path
 from typing import Any
 
@@ -36,6 +37,23 @@ from core import (
 )
 
 logger = logging.getLogger(f"kernel_audit.{__name__}")
+
+#: GitHub search API rate limits unauthenticated clients to 10 req/min; keep a
+#: small safety margin so a batch of CVEs does not 403 out silently.
+_SEARCH_MIN_INTERVAL = 6.0
+_search_gate = threading.Lock()
+_search_last = 0.0
+
+
+def _throttle_search() -> None:
+    """serialize GitHub API calls to stay under the rate limit."""
+    global _search_last
+    with _search_gate:
+        now = time.monotonic()
+        wait = _SEARCH_MIN_INTERVAL - (now - _search_last)
+        if wait > 0:
+            time.sleep(wait)
+        _search_last = time.monotonic()
 
 
 class GitHubExploitSearcher:
@@ -85,36 +103,72 @@ class GitHubExploitSearcher:
         self, cve_id: str, max_results: int = 10
     ) -> list[dict[str, Any]]:
         """search by id like CVE-2024-1086"""
-        results = []
         # check template first
         template = self.get_template(cve_id)
         if template:
             # print(f"template for {cve_id}")
             return template.get("github_repos", [])
-        # FIXME: lang filters
-        # lang_filters = " OR ".join(
-        # [f"language:{lang}" for lang in self.LANGUAGES])
+
+        # Fetch a larger pool than `max_results`: _extract_repo_info drops
+        # top-ranked repos (e.g. Shell PoCs outranking C ones), so the
+        # interesting results are not necessarily the first N by stars.
+        pool_size = min(max(max_results * 3, 10), 30)
         params: dict[str, str | int] = {
             "q": cve_id,
             "sort": "stars",
             "order": "desc",
-            "per_page": min(max_results, 30),
+            "per_page": pool_size,
         }
 
         try:
-            response = httpx.get(
-                self.SEARCH_REPOS, headers=self.headers, params=params, timeout=30.0
-            )
-            if response.status_code == 200:
-                data = response.json()
+            response = self._github_get(self.SEARCH_REPOS, params=params)
+            if response.status_code != 200:
+                logger.warning(
+                    "GitHub search for %s returned HTTP %s: %s",
+                    cve_id,
+                    response.status_code,
+                    response.text[:200],
+                )
+                return []
+            data = response.json()
 
-                for repo in data.get("items", [])[:max_results]:
-                    repo_info = self._extract_repo_info(repo, cve_id)
-                    if repo_info:
-                        results.append(repo_info)
+            results = []
+            for repo in data.get("items", []):
+                repo_info = self._extract_repo_info(repo, cve_id)
+                if repo_info:
+                    results.append(repo_info)
+                if len(results) >= max_results:
+                    break
         except (httpx.HTTPError, ValueError) as e:
             logger.warning("GitHub search for %s failed: %s", cve_id, e)
         return results
+
+    def _github_get(
+        self,
+        url: str,
+        *,
+        params: dict[str, str | int] | None = None,
+        timeout: float = 30.0,
+        attempts: int = 3,
+    ):
+        """GET with a politeness gate and bounded retries on rate limiting."""
+        for attempt in range(attempts):
+            _throttle_search()
+            response = httpx.get(
+                url, headers=self.headers, params=params, timeout=timeout
+            )
+            if response.status_code not in (403, 429) or attempt == attempts - 1:
+                return response
+            retry_after = response.headers.get("Retry-After")
+            delay = 0.0
+            if retry_after:
+                try:
+                    delay = float(retry_after)
+                except (TypeError, ValueError):
+                    delay = 0.0
+            delay = max(delay, 2.0 * (attempt + 1))
+            time.sleep(min(delay, 30.0))
+        return response
 
     def _extract_repo_info(
         self, repo: dict[str, Any], cve_id: str

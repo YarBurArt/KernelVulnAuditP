@@ -523,7 +523,7 @@ def test_load_kev_no_build_date_keeps_all(kev_path, rf):
 @pytest.mark.integration
 def test_load_kev_build_date_filters_later_added(kev_path, rf):
     kev_path.write_text(json.dumps(_kev_catalog_with_dates()), encoding="utf-8")
-    build_date = int(datetime.strptime("2026-04-22", "%Y-%m-%d").timestamp())
+    build_date = int(datetime(2026, 4, 22, tzinfo=UTC).timestamp())
     _run(rf.load_kev(build_date))
 
     cve_ids = [item["cveID"] for item in rf.kev_kern_vuln]
@@ -536,7 +536,7 @@ def test_load_kev_build_date_filters_later_added(kev_path, rf):
 @pytest.mark.integration
 def test_load_kev_build_date_later_than_all(kev_path, rf):
     kev_path.write_text(json.dumps(_kev_catalog_with_dates()), encoding="utf-8")
-    build_date = int(datetime.strptime("2027-01-01", "%Y-%m-%d").timestamp())
+    build_date = int(datetime(2027, 1, 1, tzinfo=UTC).timestamp())
     _run(rf.load_kev(build_date))
 
     assert rf.kev_kern_vuln == []
@@ -768,7 +768,7 @@ def test_osv_search_real_vulnerable_versions(fake_http, rf):
     assert findings
     assert all(f.cve_id.startswith("CVE-") for f in findings)
     assert all(f.source == "OSV" for f in findings)
-    method, url, kwargs = fake_http.calls[0]
+    _, _, kwargs = fake_http.calls[0]
     assert kwargs["json"]["version"] == "4.19.0"
 
 
@@ -882,6 +882,69 @@ def test_osv_search_enrichment_keeps_osv_data_on_nist_error(fake_http, rf):
 
     assert findings[0].cve_id == "CVE-2024-1086"
     assert findings[0].description == "nf_tables: use-after-free"
+
+
+@pytest.mark.integration
+def test_osv_search_retries_transient_read_error(fake_http, rf, monkeypatch):
+    """A dropped connection mid-body (httpx.ReadError) must be retried, not
+    silently abort the search."""
+    monkeypatch.setattr("recon.remote_feeds_recon._OSV_RETRY_BASE_DELAY", 0.0)
+    fake_http.route(OSV_API_URL, exception=httpx.ReadError("mid-body drop"), times=1)
+    fake_http.route(OSV_API_URL, payload=_osv_payload())
+
+    findings = _run(rf.osv_search("6.1.0"))
+
+    osv_posts = [c for c in fake_http.calls if c[1] == OSV_API_URL]
+    assert len(osv_posts) == 2
+    assert [f.cve_id for f in findings] == ["CVE-2024-1086", "CVE-2024-0001"]
+
+
+@pytest.mark.integration
+def test_osv_search_gives_up_after_repeated_transport_errors(fake_http, rf, monkeypatch):
+    """Persistent transport errors must stop retrying and return []."""
+    monkeypatch.setattr("recon.remote_feeds_recon._OSV_RETRY_BASE_DELAY", 0.0)
+    from recon import remote_feeds_recon as rfr
+
+    fake_http.route(
+        OSV_API_URL,
+        exception=httpx.ReadError("down"),
+        times=rfr._OSV_RETRIES + 1,
+    )
+
+    assert _run(rf.osv_search("6.1.0")) == []
+    assert len([c for c in fake_http.calls if c[1] == OSV_API_URL]) == rfr._OSV_RETRIES + 1
+
+
+@pytest.mark.integration
+def test_osv_search_keeps_first_page_when_later_page_transient_fails(
+    fake_http, rf, monkeypatch
+):
+    """If a follow-up page dies with a transient error, the findings already
+    collected from earlier pages must survive."""
+    monkeypatch.setattr("recon.remote_feeds_recon._OSV_RETRY_BASE_DELAY", 0.0)
+    from recon import remote_feeds_recon as rfr
+
+    page1 = {"version": "6.1.0", "package": {"name": "Kernel", "ecosystem": "Linux"}}
+    page2 = {**page1, "page_token": "next-token"}
+    fake_http.route(
+        OSV_API_URL,
+        json=page1,
+        payload={
+            "vulns": [{"id": "CVE-2024-1086", "aliases": []}],
+            "next_page_token": "next-token",
+        },
+    )
+    fake_http.route(
+        OSV_API_URL,
+        json=page2,
+        exception=httpx.ReadError("connection reset"),
+        times=rfr._OSV_RETRIES + 1,
+    )
+
+    findings = _run(rf.osv_search("6.1.0"))
+
+    assert [f.cve_id for f in findings] == ["CVE-2024-1086"]
+
 
 @pytest.mark.integration
 def test_reformat_cve_details_empty():

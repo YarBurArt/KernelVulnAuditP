@@ -27,6 +27,11 @@ logger = logging.getLogger(f"kernel_audit.{__name__}")
 
 # OSV queries paginate after ~1000 results; cap the follow-up pages
 _OSV_MAX_PAGES = 10
+# OSV intermittently drops connections mid-body; retry transient transport
+# errors (httpx.ReadError/ReadTimeout/ConnectError) before giving up
+_OSV_TRANSIENT_ERRORS = (httpx.TransportError,)
+_OSV_RETRIES = 2
+_OSV_RETRY_BASE_DELAY = 1.0
 _DETAILS_WORKERS = 4
 # NIST pages its CVE catalog server-side; the largest page keeps the request count minimal,
 # so only one page's JSON is ever resident instead of the whole catalog, near was leak
@@ -328,16 +333,8 @@ class ReconFeeds:
             body = dict(payload)
             if page_token:
                 body["page_token"] = page_token
-            try:
-                response = await client.post(
-                    OSV_API_URL,
-                    json=body,
-                    timeout=httpx.Timeout(_OSV_READ_TIMEOUT, connect=5.0),
-                )
-                response.raise_for_status()
-                data = response.json()
-            except _FEED_API_ERRORS as e:
-                logger.warning("OSV search error: %s", _exc_desc(e))
+            data = await self._osv_post(client, body)
+            if data is None:
                 break
 
             for vuln in data.get("vulns", []) or []:
@@ -355,6 +352,37 @@ class ReconFeeds:
 
         await self._enrich_osv_findings(findings)
         return findings
+
+    async def _osv_post(
+        self, client, body: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        """POST one OSV page; transient transport errors (e.g. the connection
+        being dropped mid-body, httpx.ReadError) are retried with backoff."""
+        for attempt in range(_OSV_RETRIES + 1):
+            try:
+                response = await client.post(
+                    OSV_API_URL,
+                    json=body,
+                    timeout=httpx.Timeout(_OSV_READ_TIMEOUT, connect=5.0),
+                )
+                response.raise_for_status()
+                return response.json()
+            except _OSV_TRANSIENT_ERRORS as e:
+                if attempt < _OSV_RETRIES:
+                    logger.warning(
+                        "OSV transport error, retrying (%d/%d): %s",
+                        attempt + 1,
+                        _OSV_RETRIES,
+                        _exc_desc(e),
+                    )
+                    await asyncio.sleep(_OSV_RETRY_BASE_DELAY * (2**attempt))
+                    continue
+                logger.warning("OSV search error: %s", _exc_desc(e))
+                return None
+            except _FEED_API_ERRORS as e:
+                logger.warning("OSV search error: %s", _exc_desc(e))
+                return None
+        return None
 
     async def _enrich_osv_findings(self, findings: list[CVEFinding]) -> None:
         """batch-fetch CVE metadata concurrently to fill missing OSV data"""
