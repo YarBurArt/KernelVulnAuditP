@@ -19,7 +19,8 @@
 
         # Runtime tools the app shells out to. QEMU backend needs
         # qemu-system-x86_64, cpio, busybox and musl-gcc (the initrd build);
-        # git is used to clone PoCs; gcc backs the musl-gcc wrapper.
+        # git clones PoCs, gcc+make compile them on the host before the
+        # produced binary is handed to the sandbox.
         runtimeTools = [
           pkgs.lynis
           pkgs.linux-exploit-suggester
@@ -29,6 +30,7 @@
           pkgs.busybox
           pkgs.musl.dev
           pkgs.gcc
+          pkgs.gnumake
           pkgs.git
           pkgs.coreutils
           pkgs.findutils
@@ -159,6 +161,7 @@
             pkgs.busybox
             pkgs.musl.dev
             pkgs.gcc
+            pkgs.gnumake
             pkgs.git
             pkgs.coreutils
             pkgs.findutils

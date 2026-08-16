@@ -23,17 +23,27 @@ _STATUS_LABEL = {
     "fail": "failed",
 }
 
-#: (key, display name) for the top-level scan stages
+#: (key, display name, description) for the top-level scan stages
 STAGES = [
-    ("local", "Local Recon"),
-    ("feeds", "TI Feeds"),
-    ("full", "Full Cycle"),
-    ("exec", "Exec Tests"),
+    ("local", "Local Recon", "on-host hardening, SELinux, capabilities, CVE hints"),
+    ("feeds", "TI Feeds", "KEV / NIST / OSV / GitHub threat-intel"),
+    ("full", "Full Cycle", "local recon + threat feeds together"),
+    ("exec", "Exec Tests", "sandbox PoC compilation and execution"),
 ]
 
 #: cap on rendered sub-steps per stage
 #: raised so longer runs (per-CVE execution tests) show their real detail
 _MAX_SUB_STEPS = 14
+
+
+#: progress-bar labels that are just the stage headline and would duplicate
+#: the stage name as a sub-step -> dropped
+_HEADLINE_LABELS = {
+    "local recon",
+    "threat-intel feeds",
+    "threat feeds",
+    "executing pocs",
+}
 
 
 def stage_for_label(label: str) -> str | None:
@@ -54,9 +64,12 @@ class StageRow(Static):
     long the stage ran once it finishes.
     """
 
-    def __init__(self, key: str, name: str, *args, **kwargs) -> None:
+    def __init__(
+        self, key: str, name: str, description: str = "", *args, **kwargs
+    ) -> None:
         self._key = key
         self._stage_name = name
+        self._description = description
         self._status = "idle"
         self._current: str = ""
         self._current_note: str = ""
@@ -146,6 +159,8 @@ class StageRow(Static):
             )
         if self._status == "idle":
             rows = [f"[dim]{rows[0]}[/]"]
+            if self._description:
+                rows.append(f"    [dim]{self._description}[/]")
         self.update("\n".join(rows))
 
 
@@ -176,8 +191,8 @@ class StagesPanel(VerticalScroll):
 
     def compose(self) -> ComposeResult:
         yield Static("STAGES", classes="section-label")
-        for key, name in STAGES:
-            yield StageRow(key, name)
+        for key, name, description in STAGES:
+            yield StageRow(key, name, description)
 
     def on_mount(self) -> None:
         self.set_timer(0.05, self._autoscale)
@@ -187,8 +202,9 @@ class StagesPanel(VerticalScroll):
 
     def _autoscale(self) -> None:
         """Size the pane to its widest rendered line, within 22-40%."""
-        if self.parent is not None and self.parent.region.width > 0:
-            total = self.parent.region.width
+        parent_region = getattr(self.parent, "region", None)
+        if parent_region is not None and getattr(parent_region, "width", 0) > 0:
+            total = parent_region.width
         else:
             total = self.screen.size.width
         total = max(total, 1)
@@ -235,4 +251,4 @@ class StagesPanel(VerticalScroll):
         self._autoscale()
 
 
-__all__ = ["STAGES", "StagesPanel", "stage_for_label"]
+__all__ = ["STAGES", "_HEADLINE_LABELS", "StagesPanel", "stage_for_label"]

@@ -1,7 +1,9 @@
 import asyncio
 import logging
 import os
-import shlex
+import re
+import shutil
+import subprocess
 import tempfile
 from collections.abc import Callable
 from dataclasses import asdict
@@ -10,9 +12,13 @@ from pathlib import Path
 from typing import Any
 
 import httpx
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
-from config import ALLOW_HOST_EXECUTION, ISOLATION_TIMEOUT_SEC
+from config import (
+    ALLOW_HOST_EXECUTION,
+    COMPILE_TIMEOUT_SEC,
+    ISOLATION_TIMEOUT_SEC,
+)
 from core import (
     format_report,
     format_sandbox_detail,
@@ -22,6 +28,7 @@ from core import (
 from db.db import ThreatDB
 from db.models import SecurityRecommendation
 from isolate import Isolate
+from isolate.isolate import _timeout_text, run_cmd
 from recon.local_target_recon import LocalRecon
 from recon.remote_feeds_recon import ReconFeeds
 from schemas import (
@@ -298,7 +305,7 @@ class AppServices:
             return None
 
         try:
-            return datetime.strptime(value, "%Y-%m-%d")
+            return datetime.strptime(value, "%Y-%m-%d").replace(tzinfo=UTC)
         except ValueError as exc:
             logger.debug("Failed to parse date '%s': %s", value, exc)
             return None
@@ -341,7 +348,7 @@ class AppServices:
         except IntegrityError:
             # a previous KEV run already persisted this row
             return False
-        except Exception:
+        except (SQLAlchemyError, ValueError, KeyError, TypeError, OSError):
             logger.exception("Error storing KEV entry %s", cve_id)
             return False
 
@@ -501,10 +508,19 @@ class AppServices:
             max_results=3,
         )
         downloads = await asyncio.to_thread(GitHubExploitSearcher.load_xpls, repos)
-        pocs = [
-            await asyncio.to_thread(self._record_poc_for_cve, cve_id, poc)
-            for poc in downloads
-        ]
+
+        # PoCs run in bounded concurrency: one hanging compile (bounded by its
+        # own timeout) must not serialize the whole CVE set, and several VMs at
+        # once would thrash the host.
+        sem = asyncio.Semaphore(2)
+
+        async def _record(poc: dict) -> dict:
+            async with sem:
+                return await asyncio.to_thread(
+                    self._record_poc_for_cve, cve_id, poc
+                )
+
+        pocs = await asyncio.gather(*(_record(poc) for poc in downloads))
         entry["pocs"] = pocs
 
         return entry
@@ -517,27 +533,30 @@ class AppServices:
         pocs = entry.get("pocs") or []
         if not pocs:
             return "no PoCs"
-        crashed = sum(
-            1
-            for poc in pocs
-            if isinstance(poc.get("sandbox"), dict) and poc["sandbox"].get("crashed")
-        )
-        ok = sum(
-            1
-            for poc in pocs
-            if isinstance(poc.get("sandbox"), dict) and poc["sandbox"].get("success")
-        )
-        modes = {
-            poc["sandbox"].get("mode")
-            for poc in pocs
-            if isinstance(poc.get("sandbox"), dict) and poc["sandbox"].get("mode")
-        }
+        crashed = 0
+        ok = 0
+        errors = 0
+        modes: set[str] = set()
+        for poc in pocs:
+            sbx = poc.get("sandbox")
+            if not isinstance(sbx, dict):
+                errors += 1
+                continue
+            if sbx.get("crashed"):
+                crashed += 1
+            if sbx.get("success"):
+                ok += 1
+            mode = sbx.get("mode")
+            if mode:
+                modes.add(mode)
         mode = next(iter(modes), "") if len(modes) == 1 else ""
         bits = [f"{len(pocs)} PoCs"]
         if ok:
             bits.append(f"{ok} ok")
         if crashed:
             bits.append(f"{crashed} crashed")
+        if errors:
+            bits.append(f"{errors} errors")
         if mode:
             bits.append(mode)
         return " · ".join(bits)
@@ -595,34 +614,66 @@ class AppServices:
         if not repo:
             return {}
 
-        # build first, then run: skipping the compile step was making the
-        # test_cmd fail with "binary: No such file or directory" (exit 127)
-        steps = [
-            c
-            for c in (poc.get("compile_cmd"), poc.get("test_cmd"))
-            if c and str(c).strip()
-        ]
-        if not steps:
-            return {}
-        command = " && ".join(str(s) for s in steps)
+        repo_path = Path(repo)
+        compile_cmd = poc.get("compile_cmd")
+        test_cmd = poc.get("test_cmd")
 
-        script = self._build_runner_script(Path(repo), str(command))
-        logger.debug("build runner script: %s", script)
+        # no build or run steps -> nothing to sandbox
+        if not (compile_cmd and str(compile_cmd).strip()) and not (
+            test_cmd and str(test_cmd).strip()
+        ):
+            return {}
+
+        # build the PoC on the host where the sources and toolchain exist;
+        # the qemu initrd ships no compiler, so only the produced binary is
+        # handed to the sandbox. A failing compile is a legitimate outcome.
+        if compile_cmd and str(compile_cmd).strip():
+            try:
+                self._compile_poc(
+                    repo_path,
+                    str(compile_cmd),
+                    on_output=lambda line: logger.debug(
+                        "%s compile: %s", cve_id, line
+                    ),
+                )
+            except (RuntimeError, OSError, subprocess.TimeoutExpired) as exc:
+                logger.warning("%s: compile failed: %s", cve_id, exc)
+                return {"sandbox_error": f"compile failed: {exc}"}
+
+        binary = self._resolve_poc_binary(repo_path, test_cmd, compile_cmd)
+        if binary is None:
+            return {"sandbox_error": "no executable produced by the PoC build"}
+
+        command = str(test_cmd or f"./{binary.name}")
 
         try:
             logger.info("%s: %s - is started", cve_id, command)
-            result = self.isolate.run_binary(script)
-            if not result:
-                return {}
+            result = self.isolate.run_binary(binary)
+            if result is None:
+                return {
+                    "sandbox_error": (
+                        "no sandbox backend available "
+                        "(virtme-ng/qemu missing and host denied)"
+                    )
+                }
 
             logger.info("%s poc - is finished", cve_id)
-            self._store_sandbox_run(cve_id, result, str(command))
+            self._store_sandbox_run(cve_id, result, command)
 
             return {
                 "sandbox": summarize_sandbox(result),
             }
 
-        except Exception as exc:
+        except (
+            OSError,
+            RuntimeError,
+            subprocess.TimeoutExpired,
+            ValueError,
+            TypeError,
+            KeyError,
+            FileNotFoundError,
+            PermissionError,
+        ) as exc:
             # A failed sandbox run is a legitimate test outcome; keep the
             # user-facing summary at WARNING and the full traceback at DEBUG
             # so genuine bugs in our runner aren't hidden by the short line.
@@ -633,11 +684,127 @@ class AppServices:
                 "sandbox_error": str(exc),
             }
 
+    @staticmethod
+    def _compile_poc(
+        repo_path: Path,
+        compile_cmd: str,
+        timeout: int = COMPILE_TIMEOUT_SEC,
+        on_output: Callable[[str], None] | None = None,
+    ) -> None:
+        """Run the PoC compile command inside its cloned repo directory.
+
+        PoCs are built statically with musl-gcc: the qemu initrd is a minimal
+        rootfs without glibc, and glibc-linked binaries abort there. A gcc/cc
+        shim plus CC/CFLAGS force ``make``-based builds to do the same.
+
+        The build is bounded by ``timeout`` and killed as a whole process
+        tree; ``on_output`` receives each stdout/stderr line as it is produced
+        so the TUI can show live compile progress instead of a silent wait.
+        """
+        cmd = compile_cmd
+        env = os.environ.copy()
+        shim_dir: Path | None = None
+        musl_gcc = shutil.which("musl-gcc")
+
+        if musl_gcc:
+            # direct gcc/cc invocations -> musl-gcc -static (only these get
+            # the -static flag; make/other tools must not see it as an option)
+            compiler_direct = bool(re.match(r"^\s*(?:gcc|cc)\s+", cmd))
+            cmd = re.sub(r"^\s*(?:gcc|cc)\s+", "musl-gcc ", cmd, count=1)
+            if compiler_direct and "-static" not in cmd and not re.search(
+                r"-shared\b", cmd
+            ):
+                cmd = f"{cmd} -static"
+            # musl-gcc is a thin wrapper that execs $REALGCC (the real gcc);
+            # point it at the real binary so a gcc/cc shim never recurses
+            real_gcc = shutil.which("gcc")
+            if real_gcc:
+                env["REALGCC"] = real_gcc
+            # Makefile builds call $(CC)/$(CFLAGS) or hardcode gcc; a shim
+            # named gcc/cc forces every such invocation through musl-gcc -static
+            # (glibc and dynamic-musl binaries abort in the minimal initrd)
+            shim_dir = Path(tempfile.mkdtemp(prefix="kernaudit-cc-"))
+            shim_script = f"#!/bin/sh\nexec {musl_gcc} -static \"$@\"\n"
+            for name in ("gcc", "cc"):
+                shim = shim_dir / name
+                shim.write_text(shim_script)
+                shim.chmod(0o755)
+            env["PATH"] = f"{shim_dir}:{env.get('PATH', '')}"
+            env["CC"] = "musl-gcc -static"
+            env["CFLAGS"] = f"{env.get('CFLAGS', '')} -static".strip()
+
+        try:
+            proc = run_cmd(
+                cmd,
+                shell=True,
+                cwd=repo_path,
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                line_callback=on_output,
+            )
+        except subprocess.TimeoutExpired as exc:
+            out_text, err_text = _timeout_text(exc)
+            partial = (err_text or out_text).strip()[:400]
+            raise RuntimeError(
+                f"compile timed out after {timeout}s\n{partial}"
+            ) from exc
         finally:
-            try:
-                script.unlink()
-            except FileNotFoundError as exc:
-                logger.debug("unlink failed, missing script: %s", exc)
+            if shim_dir is not None:
+                shutil.rmtree(shim_dir, ignore_errors=True)
+
+        if proc.returncode != 0:
+            detail = (proc.stderr or proc.stdout or "").strip()[:400]
+            raise RuntimeError(f"rc={proc.returncode}: {detail}")
+
+    @staticmethod
+    def _resolve_poc_binary(
+        repo_path: Path,
+        test_cmd: Any,
+        compile_cmd: Any,
+    ) -> Path | None:
+        """Find the executable the compile/test steps produced in the repo."""
+        name: str | None = None
+
+        # the runnable the test step references (./prog -> prog)
+        if test_cmd:
+            match = re.match(r"^\s*\./(\S+)", str(test_cmd))
+            if match:
+                name = match.group(1)
+
+        # else the -o output of the compile step
+        if name is None and compile_cmd:
+            match = re.search(r"(?<!\S)-o\s+(\S+)", str(compile_cmd))
+            if match:
+                name = match.group(1).rstrip(",;")
+
+        # bare "gcc foo.c" (no -o) produces a.out
+        if (
+            name is None
+            and compile_cmd
+            and "gcc" in str(compile_cmd)
+            and re.search(r"\.c\b", str(compile_cmd))
+            and not re.search(r"(?<!\S)-o\b", str(compile_cmd))
+        ):
+            name = "a.out"
+
+        if name:
+            candidate = (repo_path / name).resolve()
+            if candidate.is_file() and os.access(candidate, os.X_OK):
+                return candidate
+
+        # fall back to the newest executable at the repo root (e.g. make)
+        best: Path | None = None
+        try:
+            for f in repo_path.iterdir():
+                if f.is_file() and os.access(f, os.X_OK) and (
+                    best is None or f.stat().st_mtime > best.stat().st_mtime
+                ):
+                    best = f
+        except OSError:
+            return None
+        return best
 
     def _record_poc_for_cve(
         self,
@@ -649,18 +816,6 @@ class AppServices:
         summary.update(self._execute_poc(cve_id, poc))
 
         return summary
-
-    @staticmethod
-    def _build_runner_script(repo_path: Path, command: str) -> Path:
-        fd, path = tempfile.mkstemp(prefix="kernaudit-run-", suffix=".sh")
-        os.close(fd)
-        script = Path(path)
-        script.write_text(
-            f"#!/bin/sh\nset -e\ncd {shlex.quote(str(repo_path))}\n{command}\n",
-            encoding="utf-8",
-        )
-        script.chmod(0o755)
-        return script
 
     def _store_sandbox_run(self, cve_id: str, result, command: str) -> None:
         logs = getattr(result, "logs", {}) or {}

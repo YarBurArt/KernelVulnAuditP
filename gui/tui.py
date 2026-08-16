@@ -18,11 +18,16 @@ from gui.entities.services import Services
 from gui.features.report_controller import ReportController
 from gui.features.scan_controller import ScanController
 from gui.pages.scan_page import ScanPage
+from gui.shared.errors import APP_ERRORS
 from gui.shared.log_bridge import TUIHandler
 from gui.widgets.console_log import ConsoleLog
 from gui.widgets.metrics_bar import MetricsBar
 from gui.widgets.progress_box import ProgressBox
-from gui.widgets.stages_panel import StagesPanel, stage_for_label
+from gui.widgets.stages_panel import (
+    _HEADLINE_LABELS,
+    StagesPanel,
+    stage_for_label,
+)
 
 GUI_E = True
 
@@ -92,7 +97,7 @@ class KernelVulnTUI(App[str]):
         def _worker() -> None:
             try:
                 result = fn()
-            except Exception as exc:
+            except APP_ERRORS as exc:
                 # Always keep the full traceback in the log
                 logger.exception("Background task %r failed", fn)
                 if on_error is not None:
@@ -121,6 +126,10 @@ class KernelVulnTUI(App[str]):
         panel = self.get_stages_panel()
         if panel is None:
             return
+        # headline progress labels ("Local recon") would duplicate the stage
+        # name as a sub-step -> drop them
+        if str(label).strip().lower() in _HEADLINE_LABELS:
+            return
         key = stage_for_label(label)
         if key is None:
             return
@@ -144,7 +153,7 @@ class KernelVulnTUI(App[str]):
             screen = self.get_screen("scan")
             if widget_type is None:
                 return screen.query_one(query)
-            return screen.query_one(query, widget_type)
+            return screen.query_one(query, widget_type)  # type: ignore[arg-type]
         except NoMatches:
             return None
 

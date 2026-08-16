@@ -132,6 +132,11 @@ class ProgressBar:
     def step(self, amount: int = 1, label: str | None = None) -> None:
         self.update(self._n + amount, label)
 
+    def detail(self, label: str, note: str = "") -> None:
+        """rerender the current state carrying a per-step outcome note"""
+        self._label = label
+        self._draw(note=note)
+
     def finish(self, label: str | None = None, note: str = "") -> None:
         if label is not None:
             self._label = label

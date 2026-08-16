@@ -1,11 +1,18 @@
 import os
+import re
 import shutil
 import subprocess
 import tempfile
 import time
 from pathlib import Path
 
-from isolate.isolate import ASSETS, ExecutionResult, IsolationEnvironment
+from isolate.isolate import (
+    ASSETS,
+    ExecutionResult,
+    IsolationEnvironment,
+    _timeout_text,
+    run_cmd,
+)
 from isolate.parse_vm_internal_results import QEMU_CRASH_PATTERNS, ParseVmResults
 
 
@@ -75,8 +82,11 @@ class QemuEnvironment(IsolationEnvironment):
             self._log("stage", "vm_created")
 
             try:
-                proc = subprocess.run(
-                    cmd, timeout=self.timeout, text=True, capture_output=True
+                proc = run_cmd(
+                    cmd,
+                    timeout=self.timeout,
+                    text=True,
+                    capture_output=True,
                 )
                 self._log("stage", "vm_finished")
                 self._log("qemu_returncode", str(proc.returncode))
@@ -99,10 +109,13 @@ class QemuEnvironment(IsolationEnvironment):
                 crashed = ParseVmResults.detect_crash(
                     stdout + proc.stderr, QEMU_CRASH_PATTERNS
                 )
+                # the qemu process itself always exits 0; the meaningful
+                # outcome is the guest's EXIT_CODE echoed by the audit script
+                returncode = exit_code if proc.returncode == 0 else proc.returncode
                 return ExecutionResult(
                     stdout=stdout,
                     stderr=proc.stderr,
-                    returncode=proc.returncode,
+                    returncode=returncode,
                     execution_mode="qemu",
                     duration_ms=duration,
                     crashed=crashed,
@@ -113,18 +126,23 @@ class QemuEnvironment(IsolationEnvironment):
                     files=files,
                     processes=processes,
                 )
-            except subprocess.TimeoutExpired as e:
+            except subprocess.TimeoutExpired as exc:
                 duration = (time.perf_counter() - start) * 1000
                 stdout = (
                     serial_log.read_text(errors="replace")
                     if serial_log.exists()
                     else ""
                 )
+                out_text, err_text = _timeout_text(exc)
+                partial = (err_text or out_text).strip()[:400]
                 self._log("stdout_size", str(len(stdout)))
-                self._log("stderr_size", str(len(e.stderr or "")))
+                self._log("stderr_size", str(len(err_text)))
                 return ExecutionResult(
                     stdout=stdout,
-                    stderr="execution timeout",
+                    stderr=(
+                        f"execution timeout ({self.timeout}s)\n"
+                        f"{partial or 'no qemu output captured'}"
+                    ),
                     returncode=-1,
                     execution_mode="qemu",
                     duration_ms=duration,
@@ -142,6 +160,7 @@ class QemuEnvironment(IsolationEnvironment):
             (root / d).mkdir(parents=True, exist_ok=True)
 
         self._install_busybox(root)
+        self._install_runtime_libs(root)
 
         self._write_guest_init(root)
         self._write_guest_script(root)
@@ -217,6 +236,45 @@ class QemuEnvironment(IsolationEnvironment):
 
         self._log("initrd_contents", listing.stdout)
         self._log("initrd_size", str(archive.stat().st_size))
+
+    def _install_runtime_libs(self, root: Path) -> None:
+        """Copy the dynamic libraries needed by the guest binaries.
+
+        The initrd is a minimal rootfs with no glibc, so both the nix-provided
+        busybox (sh) and the target PoC would otherwise fail to load. ldd also
+        reveals the ELF interpreter paths which are preserved as-is. Static
+        binaries report a non-zero ldd status and are left alone.
+        """
+        targets = [root / "bin/busybox", self.binary_path]
+        for binary in targets:
+            if not binary.is_file():
+                continue
+            try:
+                proc = subprocess.run(
+                    ["ldd", str(binary)],
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                    check=False,
+                )
+            except (FileNotFoundError, subprocess.TimeoutExpired):
+                continue
+            if proc.returncode != 0:
+                continue
+
+            for line in proc.stdout.splitlines():
+                match = re.search(r"(/\S+\.so(?:\.\d+)*)", line)
+                if not match:
+                    continue
+                src = Path(match.group(1))
+                if not src.is_file():
+                    continue
+                dest = root / src.relative_to("/")
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                try:
+                    shutil.copy2(src, dest)
+                except OSError:
+                    continue
 
     @staticmethod
     def _find_kernel() -> Path:

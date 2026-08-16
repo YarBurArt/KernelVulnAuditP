@@ -8,6 +8,8 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from gui.shared.errors import APP_ERRORS
+
 if TYPE_CHECKING:
     from gui.tui import KernelVulnTUI
 
@@ -70,7 +72,7 @@ class ReportController:
 
             renderer = CLIReportRenderer(data, verbose=True)
             return renderer.build_full_report() + "\nReport generated (CLI mode)\n"
-        except Exception as exc:
+        except APP_ERRORS as exc:
             # only for Engine-stdout tab instead of being hidden by the error line
             logger.exception("CLI report generation failed")
             return f"CLI report error: {exc}\n"

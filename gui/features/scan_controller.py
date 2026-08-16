@@ -7,6 +7,7 @@ import re
 from typing import TYPE_CHECKING
 
 from textual.containers import VerticalScroll
+from textual.css.query import NoMatches
 
 from core import format_execution_report
 from gui.entities.sandbox_runs import SandboxRun
@@ -232,7 +233,7 @@ class ScanController:
                 f"{len(audit) + len(selinux) + len(cap_groups)} hardening"
                 f", {len(cve_items)} CVEs"
             )
-        except Exception:
+        except (TypeError, ValueError, AttributeError, KeyError, NoMatches, OSError):
             logger.exception("local recon render failed")
             self._app.log_terminal("Local recon render error", "FAIL")
         finally:
@@ -270,12 +271,12 @@ class ScanController:
                 )
             if items:
                 cve_list.mount(*items)
-            cve_list.sort_children(key=lambda c: str(c.cve_id).lower())
+            cve_list.sort_children(key=lambda c: str(getattr(c, "cve_id", "")).lower())
 
             self._app.log_terminal("Threat feeds sync complete.", "OK")
             self._app.set_metrics(cve=len(cve_list.children))
             summary = f"{len(cve_list.children)} CVEs"
-        except Exception:
+        except (TypeError, ValueError, AttributeError, KeyError, NoMatches, OSError):
             logger.exception("feeds recon render failed")
             self._app.log_terminal("Feeds recon render error", "FAIL")
         finally:
@@ -302,9 +303,12 @@ class ScanController:
                 key=lambda r: (str(r.cve_id or "").lower(), r.run_timestamp)
             )
             self._mount(SANDBOX, [SandboxItem(run) for run in sandbox_runs])
+            failed = sum(1 for run in sandbox_runs if not run.execution_success)
             self._app.set_metrics(runs=len(sandbox_runs))
             summary = f"{len(sandbox_runs)} PoC runs"
-        except Exception:
+            if failed:
+                summary += f", {failed} failed"
+        except (TypeError, ValueError, AttributeError, KeyError, NoMatches, OSError):
             logger.exception("exec tests render failed")
             self._app.log_terminal("Exec tests render error", "FAIL")
         finally:

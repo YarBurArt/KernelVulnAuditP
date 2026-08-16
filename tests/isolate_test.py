@@ -135,7 +135,7 @@ def test_virtme_execute_success(monkeypatch, tmp_path):
             stdout.write(guest_out.encode())
         return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
 
-    monkeypatch.setattr(subprocess, "run", fake_run)
+    monkeypatch.setattr("isolate.virtme_ng_vm.run_cmd", fake_run)
 
     result = env.execute()
 
@@ -160,7 +160,7 @@ def test_virtme_execute_timeout(monkeypatch, tmp_path):
     def fake_run(cmd, **kwargs):
         raise subprocess.TimeoutExpired(cmd=["virtme-ng"], timeout=5)
 
-    monkeypatch.setattr(subprocess, "run", fake_run)
+    monkeypatch.setattr("isolate.virtme_ng_vm.run_cmd", fake_run)
 
     result = env.execute()
 
@@ -191,11 +191,15 @@ def test_qemu_execute_success(monkeypatch, tmp_path):
 
     (tmp_path / "serial.log").write_text("noise\nEXIT_CODE=42\n")
     completed = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
-    monkeypatch.setattr(subprocess, "run", lambda *a, **k: completed)
+    monkeypatch.setattr(
+        "isolate.qemu_vm.run_cmd",
+        lambda *a, **k: completed,
+    )
 
     result = env.execute()
 
-    assert result.returncode == 0
+    # the guest's EXIT_CODE is the meaningful outcome, not qemu's own rc
+    assert result.returncode == 42
     assert result.stdout == "noise\nEXIT_CODE=42\n"
     assert result.crashed is False
     assert result.execution_mode == "qemu"
@@ -217,7 +221,7 @@ def test_qemu_execute_timeout(monkeypatch, tmp_path):
             cmd=["qemu"], timeout=5, output="partial", stderr="timeout"
         )
 
-    monkeypatch.setattr(subprocess, "run", fake_run)
+    monkeypatch.setattr("isolate.qemu_vm.run_cmd", fake_run)
 
     result = env.execute()
 
@@ -242,7 +246,7 @@ def test_qemu_execute_timeout_no_partial_stderr(monkeypatch, tmp_path):
     def fake_run(*args, **kwargs):
         raise subprocess.TimeoutExpired(cmd=["qemu"], timeout=5)
 
-    monkeypatch.setattr(subprocess, "run", fake_run)
+    monkeypatch.setattr("isolate.qemu_vm.run_cmd", fake_run)
 
     result = env.execute()
 
@@ -340,8 +344,7 @@ def test_compile_success(monkeypatch, tmp_path):
     compiler = CCompiler(source, tmp_path)
 
     monkeypatch.setattr(
-        subprocess,
-        "run",
+        "isolate.isolate.run_cmd",
         lambda *a, **k: subprocess.CompletedProcess(
             args=[],
             returncode=0,
@@ -362,8 +365,7 @@ def test_compile_failure(monkeypatch, tmp_path):
     compiler = CCompiler(source, tmp_path)
 
     monkeypatch.setattr(
-        subprocess,
-        "run",
+        "isolate.isolate.run_cmd",
         lambda *a, **k: subprocess.CompletedProcess(
             args=[],
             returncode=1,
@@ -387,7 +389,7 @@ def test_compile_with_extra_flags(monkeypatch, tmp_path):
         captured_cmd.extend(cmd)
         return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
 
-    monkeypatch.setattr(subprocess, "run", fake_run)
+    monkeypatch.setattr("isolate.isolate.run_cmd", fake_run)
 
     compiler.compile(extra_flags=["-g", "-DDEBUG"])
 
@@ -674,7 +676,7 @@ def test_qemu_execute_detects_crash(monkeypatch, tmp_path):
 
     completed = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
 
-    monkeypatch.setattr(subprocess, "run", lambda *a, **k: completed)
+    monkeypatch.setattr("isolate.qemu_vm.run_cmd", lambda *a, **k: completed)
 
     result = env.execute()
 
@@ -698,12 +700,13 @@ def test_qemu_execute_nonzero_exit_code(monkeypatch, tmp_path):
         stdout="",
         stderr="",
     )
-    monkeypatch.setattr(subprocess, "run", lambda *a, **k: completed)
+    monkeypatch.setattr("isolate.qemu_vm.run_cmd", lambda *a, **k: completed)
 
     result = env.execute()
 
     assert result.stdout == "ok\nEXIT_CODE=13\n"
-    assert result.returncode == 0
+    # the guest's EXIT_CODE is the meaningful outcome, not qemu's own rc
+    assert result.returncode == 13
     assert result.crashed is False
     assert result.logs["exit_code"] == "13"
 
@@ -725,7 +728,7 @@ def test_qemu_execute_preserves_qemu_stderr(monkeypatch, tmp_path):
         stdout="",
         stderr="qemu: warning: something minor",
     )
-    monkeypatch.setattr(subprocess, "run", lambda *a, **k: completed)
+    monkeypatch.setattr("isolate.qemu_vm.run_cmd", lambda *a, **k: completed)
 
     result = env.execute()
 

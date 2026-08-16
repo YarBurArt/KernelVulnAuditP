@@ -4,7 +4,12 @@ import tempfile
 import time
 from pathlib import Path
 
-from isolate.isolate import ExecutionResult, IsolationEnvironment
+from isolate.isolate import (
+    ExecutionResult,
+    IsolationEnvironment,
+    _timeout_text,
+    run_cmd,
+)
 from isolate.parse_vm_internal_results import VIRTME_CRASH_PATTERNS, ParseVmResults
 
 # guest script run via `vng --run --exec`, emits the same section markers that
@@ -28,10 +33,11 @@ echo "========== FILESYSTEM SNAPSHOT =========="
 ls -la /
 echo "========== PROCESS LIST =========="
 ps -eo pid,user,comm 2>/dev/null | head -n 50
-echo "========== BINARY OUTPUT =========="
+echo "========== BINARY OUTPUT START =========="
 __POC__
 EXITCODE=$?
 echo "EXIT_CODE=$EXITCODE"
+echo "========== BINARY OUTPUT END =========="
 exit $EXITCODE
 """
 
@@ -94,14 +100,12 @@ class VirtmeNGEnvironment(IsolationEnvironment):
 
             try:
                 with stdout_log.open("wb") as out, stderr_log.open("wb") as err:
-                    proc = subprocess.run(
+                    proc = run_cmd(
                         cmd,
                         cwd=workdir,
-                        stdin=subprocess.DEVNULL,
                         stdout=out,
                         stderr=err,
                         timeout=self.timeout,
-                        check=False,
                     )
                 self._log("stage", "vm_finished")
                 self._log("virtme_returncode", str(proc.returncode))
@@ -122,10 +126,15 @@ class VirtmeNGEnvironment(IsolationEnvironment):
                 crashed = ParseVmResults.detect_crash(
                     stdout + stderr, VIRTME_CRASH_PATTERNS
                 )
+                # virtme-ng propagates the guest `exit $EXITCODE`, but trust the
+                # guest's own echo over the host-side rc (mirrors qemu)
+                returncode = (
+                    exit_code if proc.returncode == 0 else proc.returncode
+                )
                 return ExecutionResult(
                     stdout=stdout,
                     stderr=stderr,
-                    returncode=proc.returncode,
+                    returncode=returncode,
                     execution_mode="virtme-ng",
                     duration_ms=duration,
                     crashed=crashed,
@@ -136,14 +145,21 @@ class VirtmeNGEnvironment(IsolationEnvironment):
                     files=files,
                     processes=processes,
                 )
-            except subprocess.TimeoutExpired:
+            except subprocess.TimeoutExpired as exc:
                 duration = (time.perf_counter() - start) * 1000
                 stdout = stdout_log.read_text(errors="replace") if stdout_log.exists() else ""
+                stderr = stderr_log.read_text(errors="replace") if stderr_log.exists() else ""
                 self._log("stdout_size", str(len(stdout)))
+                self._log("stderr_size", str(len(stderr)))
+                out_text, err_text = _timeout_text(exc)
+                partial = (err_text or out_text).strip()[:400]
                 self._log("error", f"Timeout after {self.timeout}s")
                 return ExecutionResult(
                     stdout=stdout,
-                    stderr=f"Execution timeout ({self.timeout}s)",
+                    stderr=(
+                        f"Execution timeout ({self.timeout}s)\n"
+                        f"{partial or 'no guest output captured'}"
+                    ),
                     returncode=-1,
                     execution_mode="virtme-ng",
                     duration_ms=duration,

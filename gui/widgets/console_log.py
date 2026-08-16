@@ -20,7 +20,16 @@ _LEVEL_STYLE = {
 
 
 class ConsoleLog(RichLog):
-    """RichLog-based terminal used by the Engine stdout tab."""
+    """RichLog-based terminal used by the Engine stdout tab.
+
+    ``highlight=True`` keeps the log legible; a per-line length cap keeps
+    Textual safe even when DEBUG logs carry multi-kilobyte dict dumps (the
+    full text is still written to logs/kernel_audit.log by the file handler).
+    """
+
+    #: longest line rendered in the TUI; longer DEBUG dumps are wrapped so the
+    #: per-line Pygments/parse pass never chokes on one huge line
+    _MAX_LINE = 4096
 
     def __init__(self, *args, **kwargs) -> None:
         kwargs.setdefault("markup", True)
@@ -30,11 +39,20 @@ class ConsoleLog(RichLog):
         kwargs.setdefault("max_lines", 2000)
         super().__init__(*args, **kwargs)
 
+    @staticmethod
+    def _cap(line: str) -> str:
+        if len(line) > ConsoleLog._MAX_LINE:
+            return line[: ConsoleLog._MAX_LINE] + "…"
+        return line
+
     def log_line(self, message: str, level: str = "INFO") -> None:
         style = _LEVEL_STYLE.get(level, "#8b949e")
-        self.write(
-            f"[{style}]{markup_escape(f'[{level}]')} {markup_escape(message)}"
-        )
+        for part in str(message).splitlines() or [""]:
+            self.write(
+                f"[{style}]{markup_escape(f'[{level}]')} "
+                f"{markup_escape(self._cap(part))}"
+            )
 
     def write_raw(self, message: str) -> None:
-        self.write(markup_escape(message))
+        for part in str(message).splitlines() or [""]:
+            self.write(markup_escape(self._cap(part)))

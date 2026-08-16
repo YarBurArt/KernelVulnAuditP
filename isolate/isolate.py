@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 relatively safe compile and run xpl binaries in isolated environments.
 Supports virtme-ng/virtme, QEMU microvm,
@@ -8,18 +7,149 @@ and host execution with comprehensive logging
 import json
 import logging
 import os
+import signal
 import subprocess
 import tempfile
+import threading
+from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
-from config import ALLOW_HOST_EXECUTION, SANDBOX_BACKEND
+from config import (
+    ALLOW_HOST_EXECUTION,
+    COMPILE_TIMEOUT_SEC,
+    ISOLATION_TIMEOUT_SEC,
+    SANDBOX_BACKEND,
+)
 
 logger = logging.getLogger(f"kernel_audit.{__name__}")
 # the assets live at the repo root, not inside the isolate/ package
 ASSETS = Path(__file__).resolve().parent.parent / "assets"
+
+
+def _kill_tree(proc: subprocess.Popen) -> None:
+    """SIGKILL the whole process group, then the group leader itself."""
+    try:
+        os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+    except (ProcessLookupError, PermissionError):
+        pass
+    try:
+        proc.kill()
+    except ProcessLookupError:
+        pass
+
+
+def _timeout_text(exc: subprocess.TimeoutExpired) -> tuple[str, str]:
+    """Decode the partial output captured on a timeout.
+
+    ``communicate()`` and ``_stream_output`` stash the partial output in
+    ``exc.output``/``exc.stderr`` (raw bytes even with ``text=True``); this
+    normalizes both back to ``str`` for our ``str``-typed callers.
+    """
+
+    def to_text(value: object) -> str:
+        if value is None:
+            return ""
+        if isinstance(value, bytes):
+            return value.decode(errors="replace")
+        return str(value)
+
+    return to_text(exc.output), to_text(exc.stderr)
+
+
+def _stream_output(
+    proc: subprocess.Popen,
+    timeout: float,
+    line_callback: Callable[[str], None],
+) -> tuple[str, str]:
+    """Read stdout/stderr line by line, calling line_callback for each line.
+
+    The reader threads are daemons so a timeout can kill the process group and
+    join them without deadlocking the caller.
+    """
+    out: list[str] = []
+    err: list[str] = []
+
+    def pump(pipe, sink: list[str]) -> None:
+        for line in pipe:
+            sink.append(line)
+            line_callback(line.rstrip("\n"))
+
+    threads = []
+    for pipe, sink in ((proc.stdout, out), (proc.stderr, err)):
+        if pipe is None:
+            continue
+        thread = threading.Thread(target=pump, args=(pipe, sink), daemon=True)
+        thread.start()
+        threads.append(thread)
+
+    try:
+        proc.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        _kill_tree(proc)
+        proc.wait()
+        for thread in threads:
+            thread.join(timeout=5)
+        raise subprocess.TimeoutExpired(
+            proc.args, timeout, output="".join(out), stderr="".join(err)
+        ) from None
+
+    for thread in threads:
+        thread.join(timeout=5)
+    return "".join(out), "".join(err)
+
+
+def run_cmd(
+    cmd: list[str] | str,
+    *,
+    timeout: float,
+    check: bool = False,
+    line_callback: Callable[[str], None] | None = None,
+    **kwargs: Any,
+) -> subprocess.CompletedProcess:
+    """subprocess.run() that never blocks on stdin and kills the whole tree.
+
+    ``subprocess.run(timeout=...)`` only SIGKILLs the direct child, so a
+    ``make``/``gcc``/``cc1`` tree survives the timeout as orphans that keep
+    burning CPU (the 120s-workaround problem). Each run owns its own session
+    (``start_new_session``) so a timeout can ``killpg`` the entire tree, and
+    stdin defaults to /dev/null so nothing blocks on input. With
+    ``line_callback`` the output is streamed line by line instead of buffered.
+    """
+    kwargs.setdefault("start_new_session", True)
+    kwargs.setdefault("stdin", subprocess.DEVNULL)
+    if kwargs.pop("capture_output", False):
+        kwargs.setdefault("stdout", subprocess.PIPE)
+        kwargs.setdefault("stderr", subprocess.PIPE)
+
+    proc = subprocess.Popen(cmd, **kwargs)
+    try:
+        if line_callback is None:
+            stdout, stderr = proc.communicate(timeout=timeout)
+        else:
+            stdout, stderr = _stream_output(proc, timeout, line_callback)
+    except subprocess.TimeoutExpired as exc:
+        _kill_tree(proc)
+        if kwargs.get("text"):
+            # communicate()'s TimeoutExpired carries raw bytes even in text
+            # mode; normalize so callers always get str partial output
+            out, err = _timeout_text(exc)
+            exc = subprocess.TimeoutExpired(
+                exc.cmd, exc.timeout, output=out, stderr=err
+            )
+
+        # original (raw-bytes) one instead of chaining it
+        raise exc  # noqa: TRY201
+
+    if check and proc.returncode != 0:
+        raise subprocess.CalledProcessError(
+            proc.returncode, cmd, output=stdout, stderr=stderr
+        )
+    return subprocess.CompletedProcess(
+        args=cmd, returncode=proc.returncode, stdout=stdout, stderr=stderr
+    )
 
 # binary start and end markers to track stdout
 BIN_INIT = """#!/bin/sh
@@ -110,7 +240,7 @@ class HostEnvironment(IsolationEnvironment):
         return ALLOW_HOST_EXECUTION  # TODO: also check env from local recon
 
     def execute(self) -> ExecutionResult:
-        start = datetime.now()
+        start = datetime.now(UTC)
 
         self._log("warning", "Executing on host system - take that risk! :)")
         self._log("binary_path", str(self.binary_path.absolute()))
@@ -132,8 +262,9 @@ class HostEnvironment(IsolationEnvironment):
                 timeout=self.timeout,
                 env=env,
                 cwd=tempfile.gettempdir(),
+                check=False,
             )
-            duration = (datetime.now() - start).total_seconds() * 1000
+            duration = (datetime.now(UTC) - start).total_seconds() * 1000
             crashed = result.returncode < 0
 
             if crashed:
@@ -151,9 +282,8 @@ class HostEnvironment(IsolationEnvironment):
 
         except subprocess.TimeoutExpired as e:
             # its not mean system is not vulnerable, just xpl not run
-            duration = (datetime.now() - start).total_seconds() * 1000
-            stdout = e.stdout or ""
-            stderr = e.stderr or ""
+            duration = (datetime.now(UTC) - start).total_seconds() * 1000
+            stdout, stderr = _timeout_text(e)
 
             self._log("timeout_stdout_size", str(len(stdout)))
             self._log("timeout_stderr_size", str(len(stderr)))
@@ -173,9 +303,15 @@ class CCompiler:
     """abstraction layer over the compiler
     to further add support for multiple compilers"""
 
-    def __init__(self, source_path: Path, output_dir: Path | None = None):
+    def __init__(
+        self,
+        source_path: Path,
+        output_dir: Path | None = None,
+        timeout: int = COMPILE_TIMEOUT_SEC,
+    ):
         self.source_path = source_path
         self.output_dir = output_dir or Path(tempfile.gettempdir())
+        self.timeout = timeout
         self.binary_path: Path | None = None
 
     def compile(self, extra_flags: list[str] | None = None) -> Path | None:
@@ -191,7 +327,19 @@ class CCompiler:
 
         cmd = ["gcc"] + flags + ["-o", str(self.binary_path), str(self.source_path)]
         logger.debug("Compiling: %s", " ".join(cmd))
-        result = subprocess.run(cmd, capture_output=True, text=True)
+        try:
+            result = run_cmd(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=self.timeout,
+            )
+        except subprocess.TimeoutExpired as exc:
+            stdout, stderr = _timeout_text(exc)
+            partial = (stderr or stdout).strip()[:400]
+            raise RuntimeError(
+                f"Compilation timed out after {self.timeout}s\n{partial}"
+            ) from exc
 
         if result.returncode != 0:
             logger.warning("Compilation failed with exit code %d", result.returncode)
@@ -207,10 +355,12 @@ class Isolate:
     """
 
     # allowed SANDBOX_BACKEND values, empty string means "auto"
-    _BACKENDS: tuple[str] = {"", "auto", "virtme-ng", "qemu", "host"}
+    _BACKENDS: tuple[str, ...] = ("", "auto", "virtme-ng", "qemu", "host")
 
-    def __init__(self, timeout: int = 120, backend: str | None = None):
-        self.timeout = timeout
+    def __init__(self, timeout: int | None = None, backend: str | None = None):
+        self.timeout = (
+            timeout if timeout is not None else ISOLATION_TIMEOUT_SEC
+        )
         self.allow_host_execution = False
         raw = (backend or SANDBOX_BACKEND).strip().lower()
         if raw not in self._BACKENDS:
@@ -253,7 +403,7 @@ class Isolate:
                     )
                 logger.info("Using %s sandbox", type(env).__name__)
                 return env.execute()
-            except Exception as exc:
+            except (RuntimeError, OSError, FileNotFoundError, PermissionError) as exc:
                 logger.warning(
                     "%s sandbox failed: %s", type(env).__name__, exc
                 )

@@ -517,7 +517,9 @@ def extract_english_description(descriptions: Any) -> str:
 
 
 # Shared formatting helpers for report and UI
-_BINARY_OUTPUT_MARKER = "========== BINARY OUTPUT =========="
+# the VM guest script wraps the payload between these two lines
+_BINARY_OUTPUT_START = "========== BINARY OUTPUT START =========="
+_BINARY_OUTPUT_END = "========== BINARY OUTPUT END =========="
 
 # sort weight for status-based hardening rows (lower = more severe)
 _SEV_RANK = {"FAIL": 0, "WARNING": 1, "OK": 2}
@@ -684,11 +686,12 @@ def dedupe_links(items: list[Any]) -> list[str]:
 
 
 def binary_output(stdout: str) -> str:
-    """Filter VM logs: keep only the payload after the binary output marker."""
-    idx = stdout.find(_BINARY_OUTPUT_MARKER)
-    if idx == -1:
+    """Filter VM logs: keep only the payload between the binary output markers."""
+    start = stdout.find(_BINARY_OUTPUT_START)
+    end = stdout.find(_BINARY_OUTPUT_END)
+    if start == -1 or end == -1:
         return stdout.strip()
-    body = stdout[idx + len(_BINARY_OUTPUT_MARKER):]
+    body = stdout[start + len(_BINARY_OUTPUT_START):end]
     lines = [ln for ln in body.splitlines() if not ln.startswith("EXIT_CODE=")]
     return "\n".join(lines).strip()
 
@@ -722,13 +725,13 @@ def first_resource_line(resource: str | None) -> str | None:
 
 
 def _debug_indent(text: Any, spaces: int = 2) -> str:
-    """Indent every line of ``text`` for a log blob."""
+    """Indent every line of text for a log blob."""
     pad = " " * spaces
     return "\n".join(f"{pad}{line}" for line in str(text).splitlines())
 
 
 def _debug_mapping(value: Any, spaces: int = 2) -> str:
-    """Render a nested dict/list as aligned ``key: value`` log lines."""
+    """Render a nested dict/list as aligned key: value log lines."""
     if isinstance(value, dict):
         if not value:
             return "{}"
@@ -757,7 +760,7 @@ def _debug_mapping(value: Any, spaces: int = 2) -> str:
 def format_sandbox_detail(data: dict[str, Any]) -> str:
     """Render one stored sandbox run as labeled DEBUG log lines.
 
-    Mirrors every field persisted by ``AppServices._store_sandbox_run`` so
+    Mirrors every field persisted by AppServices._store_sandbox_run so
     the log keeps all data, just re-laid out instead of a dict repr.
     """
     lines: list[str] = []
@@ -805,7 +808,7 @@ def format_sandbox_detail(data: dict[str, Any]) -> str:
 def log_sandbox_run(logger: logging.Logger, cve_id: str, data: dict[str, Any]) -> None:
     """Emit a stored sandbox run as separate DEBUG records, one per field.
 
-    Replaces the single unreadable ``dict`` dump with several log records so
+    Replaces the single unreadable dict dump with several log records so
     no field is lost while the log stays greppable: scalars become one line,
     nested dicts/lists are laid out key-per-record, and multi-line blobs
     (stdout/stderr/notes) are split line-by-line. Skipped from the TUI

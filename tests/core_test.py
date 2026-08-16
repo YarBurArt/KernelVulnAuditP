@@ -844,11 +844,17 @@ class TestSandboxFormatting(unittest.TestCase):
         self.assertEqual(binary_output("  hello  "), "hello")
 
     def test_binary_output_with_marker(self):
-        stdout = "prefix\n========== BINARY OUTPUT ==========\npayload\nEXIT_CODE=0\n"
+        stdout = (
+            "prefix\n========== BINARY OUTPUT START ==========\n"
+            "payload\nEXIT_CODE=0\n========== BINARY OUTPUT END ==========\n"
+        )
         self.assertEqual(binary_output(stdout), "payload")
 
     def test_binary_output_drops_exit_code_lines_only_after_marker(self):
-        stdout = "EXIT_CODE=1\n========== BINARY OUTPUT ==========\nbody\nEXIT_CODE=0\n"
+        stdout = (
+            "EXIT_CODE=1\n========== BINARY OUTPUT START ==========\n"
+            "body\nEXIT_CODE=0\n========== BINARY OUTPUT END ==========\n"
+        )
         self.assertEqual(binary_output(stdout), "body")
 
     def test_format_run_timestamp(self):
