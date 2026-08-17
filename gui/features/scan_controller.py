@@ -19,6 +19,7 @@ from gui.widgets.cve_item import CveItem
 from gui.widgets.references_bar import ReferencesBar
 from gui.widgets.sandbox_item import SandboxItem
 from report.diff import build_capability_section
+from term import unicode_glyph
 
 if TYPE_CHECKING:
     from gui.tui import KernelVulnTUI
@@ -330,7 +331,8 @@ class ScanController:
             feeds = self._recon_summaries.get("feeds", "")
             if local or feeds:
                 self._app.set_stage_summary(
-                    "full", " · ".join(p for p in (local, feeds) if p)
+                    "full",
+                    f" {unicode_glyph('·', '.')} ".join(p for p in (local, feeds) if p),
                 )
     def _list(self, name: str) -> VerticalScroll:
         return self._app.get_scan_list(name)

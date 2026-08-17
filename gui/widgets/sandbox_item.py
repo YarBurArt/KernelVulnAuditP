@@ -23,6 +23,7 @@ from gui.shared.formatting import (
     short_hash,
 )
 from gui.widgets.colorized_list import ColorizedList
+from term import unicode_glyph
 
 
 class SandboxItem(Collapsible):
@@ -64,7 +65,7 @@ class SandboxItem(Collapsible):
         if run.sandbox_platform in ("error", "compile"):
             reason = " ".join(str(run.stderr).split())
             if len(reason) > 56:
-                reason = reason[:56] + "…"
+                reason = reason[:56] + unicode_glyph("…", "...")
             return (
                 f"[bold {color}]{sev}[/] "
                 f"[dim]{cve}[/] "
@@ -96,7 +97,8 @@ class SandboxItem(Collapsible):
             # a failure that never reached a VM (compile/build/sandbox error)
             children.append(
                 Static(
-                    f"Status: {SandboxItem._status_text(run)} — "
+                    f"Status: {SandboxItem._status_text(run)} "
+                    f"{unicode_glyph('—', '-')} "
                     f"{markup_escape(run.stderr)}",
                     classes="mono terminal-fail",
                 )

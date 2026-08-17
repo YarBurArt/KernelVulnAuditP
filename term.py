@@ -1,5 +1,6 @@
 """Stdlib-only terminal helpers for the CLI and TUI"""
 
+import locale
 import os
 import sys
 import time
@@ -86,6 +87,42 @@ def _stream_tty(stream) -> bool:
         return False
 
 
+def supports_unicode(stream=None) -> bool:
+    """Whether the terminal can render non-ASCII glyphs (✓ ● ✗ … · —).
+
+    Pure TTYs (TERM=linux / dumb / vt*) with a non-UTF-8 locale often lack
+    those glyphs in their font; callers fall back to ASCII markers on them.
+    """
+    stream = stream or sys.stdout
+    term_env = os.environ.get("TERM") or ""
+    if term_env in ("dumb", "linux") or term_env.startswith("vt"):
+        return False
+    if not _stream_tty(stream):
+        return True
+    encoding = ""
+    try:
+        encoding = str(stream.encoding or "").lower()
+    except (AttributeError, ValueError):
+        encoding = ""
+    if not encoding:
+        try:
+            encoding = str(locale.getencoding()).lower()
+        except (AttributeError, ValueError):
+            encoding = ""
+    return "utf" in encoding
+
+
+_unicode_supported: bool | None = None
+
+
+def unicode_glyph(unicode_char: str, ascii_fallback: str) -> str:
+    """Pick a glyph for the current terminal, ASCII-safe on pure TTYs."""
+    global _unicode_supported
+    if _unicode_supported is None:
+        _unicode_supported = supports_unicode()
+    return unicode_char if _unicode_supported else ascii_fallback
+
+
 class ProgressBar:
     """
     Writes to stderr by default so stdout stays clean for pipes and
@@ -123,14 +160,16 @@ class ProgressBar:
     def set_label(self, label: str) -> None:
         self._label = label
 
-    def update(self, n: int, label: str | None = None) -> None:
+    def update(self, n: int, label: str | None = None, note: str = "") -> None:
         self._n = max(int(n or 0), 0)
         if label is not None:
             self._label = label
-        self._draw()
+        self._draw(note=note)
 
-    def step(self, amount: int = 1, label: str | None = None) -> None:
-        self.update(self._n + amount, label)
+    def step(
+        self, amount: int = 1, label: str | None = None, note: str = ""
+    ) -> None:
+        self.update(self._n + amount, label, note)
 
     def detail(self, label: str, note: str = "") -> None:
         """rerender the current state carrying a per-step outcome note"""

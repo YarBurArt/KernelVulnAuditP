@@ -2,16 +2,31 @@
 
 from __future__ import annotations
 
+from typing import ClassVar
+
 from textual.app import ComposeResult
+from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.events import Resize
-from textual.widgets import Button, Static, TabbedContent, TabPane
+from textual.widgets import Button, Footer, Static, TabbedContent, TabPane
 
 from gui.pages.base_screen import BaseScreen
 from gui.widgets.console_log import ConsoleLog
 from gui.widgets.metrics_bar import MetricsBar
 from gui.widgets.progress_box import ProgressBox
 from gui.widgets.stages_panel import StagesPanel
+
+#: (TabPane id, key) pairs, in visual order. TabbedContent itself has no key
+#: bindings, so on a mouse-less pure TTY the tabs are only reachable through
+#: these numbered shortcuts plus [ ] cycling.
+_TAB_KEYS = [
+    ("tab-audit", "1", "Hardening"),
+    ("tab-selinux", "2", "SELinux"),
+    ("tab-caps", "3", "Capabilities"),
+    ("tab-cve", "4", "Exploit Vectors"),
+    ("tab-sandbox", "5", "Sandbox Runs"),
+    ("tab-engine", "6", "Engine stdout"),
+]
 
 
 class ScanPage(BaseScreen):
@@ -22,6 +37,18 @@ class ScanPage(BaseScreen):
     _PROGRESS_MIN_WIDE_TERMINAL = 150
     _PROGRESS_GROUP = "progress-relayout"
     _relocating = False
+
+    BINDINGS: ClassVar[
+        list[Binding | tuple[str, str] | tuple[str, str, str]]
+    ] = [
+        *BaseScreen.BINDINGS,
+        *[
+            Binding(key, f"goto_tab('{pane_id}')", f"Tab: {label}", show=False)
+            for pane_id, key, label in _TAB_KEYS
+        ],
+        Binding("[", "previous_tab", "Previous tab"),
+        Binding("]", "next_tab", "Next tab"),
+    ]
 
     @staticmethod
     def compose() -> ComposeResult:
@@ -38,19 +65,51 @@ class ScanPage(BaseScreen):
                     yield MetricsBar(id="metrics_bar")
                 yield ProgressBox(id="progress_box", classes="hidden")
             with TabbedContent():
-                with TabPane("Kernel Hardening"):
+                with TabPane("Kernel Hardening", id="tab-audit"):
                     yield VerticalScroll(id="audit_list")
-                with TabPane("SELinux Hardening"):
+                with TabPane("SELinux Hardening", id="tab-selinux"):
                     yield VerticalScroll(id="selinux_list")
-                with TabPane("Capabilities mistakes"):
+                with TabPane("Capabilities mistakes", id="tab-caps"):
                     yield VerticalScroll(id="caps_list")
-                with TabPane("Exploit Vectors"):
+                with TabPane("Exploit Vectors", id="tab-cve"):
                     yield VerticalScroll(id="cve_list")
-                with TabPane("Sandbox Runs"):
+                with TabPane("Sandbox Runs", id="tab-sandbox"):
                     yield VerticalScroll(id="sandbox_list")
-                with TabPane("Engine stdout"), Horizontal(id="engine_out"):
-                        yield StagesPanel(id="stages_panel")
-                        yield ConsoleLog(id="console_log")
+                with TabPane("Engine stdout", id="tab-engine"), Horizontal(id="engine_out"):
+                    yield StagesPanel(id="stages_panel")
+                    yield ConsoleLog(id="console_log")
+        yield Footer()
+
+    def _tabbed(self) -> TabbedContent:
+        return self.query_one(TabbedContent)
+
+    def action_goto_tab(self, pane_id: str) -> None:
+        self._tabbed().active = pane_id
+
+    def _tab_order(self) -> list[str]:
+        return [pane.id for pane in self._tabbed().query(TabPane) if pane.id]
+
+    def action_next_tab(self) -> None:
+        tabbed = self._tabbed()
+        order = self._tab_order()
+        if not order:
+            return
+        try:
+            index = order.index(tabbed.active)
+        except ValueError:
+            index = -1
+        tabbed.active = order[(index + 1) % len(order)]
+
+    def action_previous_tab(self) -> None:
+        tabbed = self._tabbed()
+        order = self._tab_order()
+        if not order:
+            return
+        try:
+            index = order.index(tabbed.active)
+        except ValueError:
+            index = 0
+        tabbed.active = order[(index - 1) % len(order)]
 
     def on_mount(self) -> None:
         self._place_progress()

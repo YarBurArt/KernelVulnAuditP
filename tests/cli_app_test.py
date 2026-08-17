@@ -1,5 +1,6 @@
 """Unit tests for the main CLI argument parsing and report-producing flows."""
 
+import io
 from pathlib import Path
 from unittest import mock
 
@@ -66,6 +67,21 @@ def test_quiet_disables_progress_bar(MockServices):
 def test_non_quiet_uses_progress_bar(MockServices):
     CLIApp(db=mock.Mock(), quiet=False)
     assert MockServices.call_args.kwargs["progress"] is term.ProgressBar
+
+
+def test_progress_bar_step_accepts_note_kwarg():
+    """AppServices calls bar.step(label=..., note=...); the CLI bar must
+    accept it (the old signature raised TypeError, which aborted the async
+    flow and left asyncio.to_thread coroutines never awaited)."""
+    with mock.patch.object(term, "_stream_tty", return_value=True):
+        bar = term.ProgressBar(total=5, label="Local recon", stream=io.StringIO())
+        bar.step(label="lynis", note="147 checks")
+        bar.step(label="linpeas", note="3 CVEs")
+        bar.finish(note="complete")
+    drawn = bar._stream.getvalue()
+    assert "lynis" in drawn
+    assert "147 checks" in drawn
+    assert "100% 5/5" in drawn
 
 
 @mock.patch("cli_app.AppServices")

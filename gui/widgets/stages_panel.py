@@ -9,11 +9,13 @@ from textual.containers import VerticalScroll
 from textual.css.query import NoMatches
 from textual.widgets import Static
 
+from term import unicode_glyph
+
 _STAGE_STYLE = {
     "idle": (" ", "#8b949e"),
-    "running": ("●", "#58a6ff"),
-    "done": ("✓", "#2ec27e"),
-    "fail": ("✗", "#ff5f5f"),
+    "running": (unicode_glyph("●", "*"), "#58a6ff"),
+    "done": (unicode_glyph("✓", "+"), "#2ec27e"),
+    "fail": (unicode_glyph("✗", "x"), "#ff5f5f"),
 }
 
 _STATUS_LABEL = {
@@ -22,6 +24,10 @@ _STATUS_LABEL = {
     "done": "done",
     "fail": "failed",
 }
+
+_DOT = unicode_glyph("·", ".")
+_DONE_MARK = unicode_glyph("✓", "+")
+_RUNNING_MARK = unicode_glyph("●", "*")
 
 #: (key, display name, description) for the top-level scan stages
 STAGES = [
@@ -140,7 +146,7 @@ class StageRow(Static):
             suffix = f" [dim]{status}[/]"
         elif self._status == "fail":
             suffix = f" [bold {color}]{status}[/]"
-        summary = f"  [dim]· {self._summary}[/]" if self._summary else ""
+        summary = f"  [dim]{_DOT} {self._summary}[/]" if self._summary else ""
         duration = ""
         if self._status in ("done", "fail") and self._duration is not None:
             duration = f"  [dim]({self._format_duration(self._duration)})[/]"
@@ -148,11 +154,11 @@ class StageRow(Static):
             f"[{color}]{marker}[/] [bold]{self._stage_name}[/]{suffix}{duration}{summary}"
         ]
         for label, note in self._done[-_MAX_SUB_STEPS:]:
-            note_txt = f"  [dim]· {note}[/]" if note else ""
-            rows.append(f"    [dim]✓ {label}[/]{note_txt}")
+            note_txt = f"  [dim]{_DOT} {note}[/]" if note else ""
+            rows.append(f"    [dim]{_DONE_MARK} {label}[/]{note_txt}")
         if self._current:
-            note_txt = f"  [dim]· {self._current_note}[/]" if self._current_note else ""
-            rows.append(f"    [{color}]* {self._current}[/]{note_txt}")
+            note_txt = f"  [dim]{_DOT} {self._current_note}[/]" if self._current_note else ""
+            rows.append(f"    [{color}]{_RUNNING_MARK} {self._current}[/]{note_txt}")
         if len(self._done) > _MAX_SUB_STEPS:
             rows.append(
                 f"    [dim]+{len(self._done) - _MAX_SUB_STEPS} more[/]"

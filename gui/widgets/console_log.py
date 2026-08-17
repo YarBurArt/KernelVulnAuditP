@@ -5,6 +5,7 @@ from __future__ import annotations
 from textual.widgets import RichLog
 
 from gui.shared.formatting import markup_escape
+from term import unicode_glyph
 
 _LEVEL_STYLE = {
     "FAIL": "#ff5f5f",
@@ -42,7 +43,7 @@ class ConsoleLog(RichLog):
     @staticmethod
     def _cap(line: str) -> str:
         if len(line) > ConsoleLog._MAX_LINE:
-            return line[: ConsoleLog._MAX_LINE] + "…"
+            return line[: ConsoleLog._MAX_LINE] + unicode_glyph("…", "...")
         return line
 
     def log_line(self, message: str, level: str = "INFO") -> None:

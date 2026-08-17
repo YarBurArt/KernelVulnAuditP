@@ -8,12 +8,13 @@ from textual.widgets import Collapsible, Static
 
 from gui.shared.colors import SEVERITY_COLORS
 from gui.shared.formatting import markup_escape, rec_severity
+from term import unicode_glyph
 
 
 def _clip(text: str, width: int) -> str:
     if len(text) <= width:
         return text.ljust(width)
-    return text[: max(width - 1, 0)] + "…"
+    return text[: max(width - 1, 0)] + unicode_glyph("…", "...")
 
 
 class AuditItem(Static):
