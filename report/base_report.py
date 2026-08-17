@@ -16,6 +16,7 @@ from report.diff import (
     host_module_set,
     load_selinux_params,
 )
+from report.export import REPORT_FORMATS, emit_report, save_report
 
 logger = logging.getLogger(f"kernel_audit.{__name__}")
 
@@ -26,10 +27,8 @@ try:
 except ImportError:
     STREAMLIT_AVAILABLE = False
 
-import term
 from db import get_db
 from recon.local_target_recon import LocalRecon
-from report.cli import CLIReportRenderer
 from report.streamlit_rep import StreamlitReportRenderer
 
 
@@ -271,8 +270,10 @@ def build_report_data(db=None) -> dict[str, Any]:
 def main(
     verbose: bool = False,
     save_json: bool = False,
-    filepath: str = "report_data.json",
+    filepath: str | None = None,
     force_cli: bool = False,
+    fmt: str = "txt",
+    quiet: bool = False,
 ):
     """main entry point for report generation"""
     db = get_db("orm")
@@ -282,13 +283,16 @@ def main(
 
         if STREAMLIT_AVAILABLE and not force_cli:
             if save_json:
-                save_report_json(data, filepath)
+                save_report_json(data, filepath or "report_data.json")
             StreamlitReportRenderer(data).render()
         else:
-            CLIReportRenderer(
-                data, verbose=verbose, color=term.supports_color()
-            ).render()
-            save_report_json(data, filepath)
+            emit_report(
+                data,
+                output=filepath,
+                fmt=fmt,
+                verbose=verbose,
+                quiet=quiet,
+            )
 
     finally:
         db.close()
@@ -303,14 +307,27 @@ def main_cli():
         "--verbose", "-v", action="store_true", help="Enable verbose output"
     )
     parser.add_argument(
-        "--save", "-s", action="store_true", help="Save report to JSON file"
+        "--save", "-s", action="store_true", help="Save report to file"
     )
     parser.add_argument(
         "--output",
         "-o",
         type=str,
-        default="report_data.json",
-        help="Output JSON file path (default: report_data.json)",
+        default=None,
+        help="Output report path (default: report_data.<format>)",
+    )
+    parser.add_argument(
+        "--format",
+        type=str,
+        default="txt",
+        choices=list(REPORT_FORMATS),
+        help=f"Report output format (default: txt) {list(REPORT_FORMATS)}",
+    )
+    parser.add_argument(
+        "--quiet",
+        "-q",
+        action="store_true",
+        help="Save the report without printing it to stdout",
     )
     parser.add_argument(
         "--load",
@@ -334,12 +351,25 @@ def main_cli():
             sys.exit(1)
         if STREAMLIT_AVAILABLE and not args.cli:
             StreamlitReportRenderer(data).render()
+            if args.output:
+                save_report(data, args.output, args.format)
         else:
-            CLIReportRenderer(
-                data, verbose=args.verbose, color=term.supports_color()
-            ).render()
+            emit_report(
+                data,
+                output=args.output,
+                fmt=args.format,
+                verbose=args.verbose,
+                quiet=args.quiet,
+            )
     else:
-        main(verbose=args.verbose, save_json=args.save, filepath=args.output, force_cli=args.cli,)
+        main(
+            verbose=args.verbose,
+            save_json=args.save,
+            filepath=args.output,
+            force_cli=args.cli,
+            fmt=args.format,
+            quiet=args.quiet,
+        )
 
 
 if __name__ == "__main__":

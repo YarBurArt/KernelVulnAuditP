@@ -1,7 +1,11 @@
 import argparse
+import sys
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
+
+import httpx
+from sqlalchemy.exc import SQLAlchemyError
 
 import term
 from app_services import AppServices
@@ -42,10 +46,18 @@ def _paint_sev(severity: str) -> str:
 class CLIApp:
     """CLI entrypoints for kernel audit flows."""
 
-    def __init__(self, db: ThreatDB, verbose: bool = False):
+    def __init__(self, db: ThreatDB, verbose: bool = False, quiet: bool = False):
         self.db = db
-        self.services = AppServices(db=db, progress=term.ProgressBar)
+        self.services = AppServices(
+            db=db, progress=term.ProgressBar if not quiet else None
+        )
         self.verbose = verbose
+        self.quiet = quiet
+
+    def _emit(self, *args, **kwargs) -> None:
+        """Print to stdout unless running in quiet mode."""
+        if not self.quiet:
+            print(*args, **kwargs)
 
     def run_local(self, save: bool = False) -> None:
         result = self.services.run_local_recon()
@@ -53,7 +65,7 @@ class CLIApp:
             saved = self.services.store_security_recommendations(
                 result.security_recommendations
             )
-            print(f"Saved {saved} security recommendation(s) to DB")
+            self._emit(f"Saved {saved} security recommendation(s) to DB")
         self._print_local(asdict(result))
 
     def run_feeds(self) -> None:
@@ -67,13 +79,15 @@ class CLIApp:
             saved = self.services.store_security_recommendations(
                 result.local.security_recommendations
             )
-            print(f"Saved {saved} security recommendation(s) to DB")
+            self._emit(f"Saved {saved} security recommendation(s) to DB")
         self._print_local(asdict(result.local))
         self._print_feeds(asdict(result.feeds))
 
     def run_execution_tests(self) -> None:
         """Validate kernel CVEs by sandbox-executing PoCs"""
         report = self.services.run_execution_tests()
+        if self.quiet:
+            return
         print(f"Kernel: {report['kernel']}")
         if report.get("build_date"):
             print(f"Build date: {report['build_date']}")
@@ -95,15 +109,50 @@ class CLIApp:
                 status = "OK" if sandbox.get("success") else "FAIL"
                 print(f"     [{mode}] {_paint_sev(status)} {url}")
 
-    def run_report(self) -> None:
-        from report import CLIReportRenderer, build_report_data
+    def run_report(
+        self, output: str | None = None, fmt: str = "txt"
+    ) -> None:
+        """Build the DB-driven report, save it and print it unless quiet."""
+        from report import build_report_data, emit_report
 
         data = build_report_data(self.db)
-        renderer = CLIReportRenderer(data, verbose=self.verbose)
-        term.pager(renderer.build_full_report())
-        print("Report generated (CLI mode)")
+        path = emit_report(
+            data,
+            output=output,
+            fmt=fmt,
+            verbose=self.verbose,
+            quiet=self.quiet,
+        )
+        self._emit(f"Report saved to {path}")
+
+    def run_full_poc_tests(
+        self, output: str | None = None, fmt: str = "txt"
+    ) -> None:
+        """Full scan + sandbox PoC execution + report in one run.
+
+        Persists the host snapshot, KEV entries, security recommendations,
+        tested CVEs and their sandbox runs into the DB, then emits the
+        detailed report in the requested format.
+        """
+        result: ReconResult = self.services.run_full_recon()
+        saved = self.services.store_security_recommendations(
+            result.local.security_recommendations
+        )
+        self._emit(f"Full scan complete, saved {saved} recommendation(s) to DB")
+
+        exec_report = self.services.run_execution_tests()
+        pocs_run = sum(
+            len(entry.get("pocs", [])) for entry in exec_report.get("entries", [])
+        )
+        self._emit(
+            f"Execution tests complete: {exec_report.get('cves_processed', 0)} "
+            f"CVEs, {pocs_run} PoC run(s)"
+        )
+        self.run_report(output=output, fmt=fmt)
 
     def list_kev(self) -> None:
+        if self.quiet:
+            return
         kev_entries = self.services.get_cisa_kev_entries(limit=50)
         print(f"\n=== CISA KEV Catalog ({len(kev_entries)} entries) ===\n")
         for idx, entry in enumerate(kev_entries[:20], 1):
@@ -120,6 +169,8 @@ class CLIApp:
 
     def list_sandbox_runs(self) -> None:
         """Load and print sandbox runs from the DB"""
+        if self.quiet:
+            return
         vulns = self.db.search(has_exploit=True, limit=200)
         total = 0
         for vuln in vulns:
@@ -131,8 +182,9 @@ class CLIApp:
                 total += 1
         print(f"Loaded {total} sandbox run(s) from DB")
 
-    @staticmethod
-    def show_settings() -> None:
+    def show_settings(self) -> None:
+        if self.quiet:
+            return
         import config
 
         names = (
@@ -174,6 +226,8 @@ class CLIApp:
 
 
     def _print_local(self, local: dict[str, Any]):
+        if self.quiet:
+            return
         build_date = local.get("build_date")
         build_date_str = (
             format_timestamp(build_date) if isinstance(build_date, int) else "N/A"
@@ -242,6 +296,8 @@ class CLIApp:
             print(f"  {cap.get('path')} -> {cap.get('cap_effective') or ''}")
 
     def _print_feeds(self, feeds: dict[str, Any]):
+        if self.quiet:
+            return
         print("\nRunning ReconFeeds searches...")
         self._print_stats()
 
@@ -339,11 +395,15 @@ def _print_quick_help() -> None:
     print(term.paint("  CLI commands (Textual TUI is not installed):", term.DIM))
     print()
     rows = [
+        ("--full-poc-tests", "full scan + sandbox PoCs + report in one shot"),
         ("--scan", "full scan (local recon + feeds)"),
         ("--local", "local recon only (Lynis + LES + hardening)"),
         ("--feeds", "threat-intel feeds (NIST / OSV / GitHub)"),
         ("--exec-tests", "fetch + sandbox-run PoCs"),
         ("--report", "generate the vulnerability report"),
+        ("-o/--output PATH", "report output path"),
+        ("--format txt|json|yaml", "report output format"),
+        ("-q/--quiet", "save the report without printing it"),
         ("--list-kev", "list CISA KEV entries"),
         ("--sandbox-runs", "list stored sandbox runs"),
         ("--settings", "show current configuration"),
@@ -357,12 +417,14 @@ def _print_quick_help() -> None:
     print()
     print("  Examples:")
     print("    python main.py --scan --save --db orm")
-    print("    python main.py --exec-tests")
-    print("    python main.py --report")
+    print("    python main.py --full-poc-tests -o report.yaml --format yaml")
+    print("    python main.py --full-poc-tests -o report.txt -q")
+    print("    python main.py --report -o report.json --format json")
     print()
 
 
-def main_cli(db: ThreatDB):
+def build_parser() -> argparse.ArgumentParser:
+    """Build the main CLI argument parser (kept separate for tests)."""
     parser = argparse.ArgumentParser(description="Kernel Vulnerability Auditor")
     parser.add_argument(
         "--local", "-l", action="store_true", help="Run local recon (Lynis + LES)"
@@ -380,6 +442,32 @@ def main_cli(db: ThreatDB):
         "--exec-tests",
         action="store_true",
         help="Run execution tests (CVE => PoC -> sandbox)",
+    )
+    parser.add_argument(
+        "--full-poc-tests",
+        action="store_true",
+        help="Full scan + sandbox PoC execution tests + saved report",
+    )
+    parser.add_argument(
+        "--output",
+        "-o",
+        type=str,
+        default=None,
+        metavar="PATH",
+        help="Report output path (default: report_data.<format>)",
+    )
+    parser.add_argument(
+        "--format",
+        type=str,
+        default=None,
+        choices=["txt", "json", "yaml"],
+        help="Report output format (default: txt)",
+    )
+    parser.add_argument(
+        "--quiet",
+        "-q",
+        action="store_true",
+        help="Save the report without printing it to stdout",
     )
     parser.add_argument(
         "--sandbox-runs",
@@ -414,10 +502,13 @@ def main_cli(db: ThreatDB):
         choices=["orm", "memory"],
         help="DB backend type (sqlite or in-memory)",
     )
+    return parser
 
-    args = parser.parse_args()
 
-    app = CLIApp(db=db, verbose=args.verbose)
+def main_cli(db: ThreatDB):
+    args = build_parser().parse_args()
+
+    app = CLIApp(db=db, verbose=args.verbose, quiet=args.quiet)
 
     command_requested = any((
         args.set,
@@ -425,6 +516,7 @@ def main_cli(db: ThreatDB):
         args.list_kev,
         args.sandbox_runs,
         args.exec_tests,
+        args.full_poc_tests,
         args.local,
         args.feeds,
         args.scan,
@@ -435,30 +527,56 @@ def main_cli(db: ThreatDB):
         _print_quick_help()
         return
 
-    if args.set:
-        app.save_settings(args.set)
-    elif args.settings:
-        app.show_settings()
-    elif args.list_kev:
-        app.list_kev()
-    elif args.sandbox_runs:
-        app.list_sandbox_runs()
-    elif args.exec_tests:
-        app.run_execution_tests()
-    elif args.local:
-        app.run_local(save=args.save)
-    elif args.feeds:
-        app.run_feeds()
-    elif args.scan:
-        app.run_scan(save=args.save)
-    elif args.report:
-        app.run_report()
-    else:
-        print(
-            "This tool checks the practical functionality of"
-            " linux kernel exploits\n"
-            "Use --help for available options"
-        )
+    fmt = args.format or "txt"
+    try:
+        if args.set:
+            app.save_settings(args.set)
+        elif args.settings:
+            app.show_settings()
+        elif args.list_kev:
+            app.list_kev()
+        elif args.sandbox_runs:
+            app.list_sandbox_runs()
+        elif args.exec_tests:
+            app.run_execution_tests()
+            if args.output or args.format:
+                app.run_report(output=args.output, fmt=fmt)
+        elif args.local:
+            app.run_local(save=args.save)
+            if args.output or args.format:
+                app.run_report(output=args.output, fmt=fmt)
+        elif args.feeds:
+            app.run_feeds()
+            if args.output or args.format:
+                app.run_report(output=args.output, fmt=fmt)
+        elif args.scan:
+            app.run_scan(save=args.save)
+            if args.output or args.format:
+                app.run_report(output=args.output, fmt=fmt)
+        elif args.full_poc_tests:
+            app.run_full_poc_tests(output=args.output, fmt=fmt)
+        elif args.report:
+            app.run_report(output=args.output, fmt=fmt)
+        else:
+            print(
+                "This tool checks the practical functionality of"
+                " linux kernel exploits\n"
+                "Use --help for available options"
+            )
+    except KeyboardInterrupt:
+        print("\nInterrupted", file=sys.stderr)
+        sys.exit(130)
+    except (
+        OSError,
+        ValueError,
+        KeyError,
+        TypeError,
+        RuntimeError,
+        SQLAlchemyError,
+        httpx.HTTPError,
+    ) as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        sys.exit(1)
 
 
-__all__ = ["CLIApp", "main_cli"]
+__all__ = ["CLIApp", "build_parser", "main_cli"]

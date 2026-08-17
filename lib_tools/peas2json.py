@@ -28,13 +28,17 @@ COLORS = {
 
 
 # Final JSON structure
-FINAL_JSON = {}
+FINAL_JSON: dict[str, Any] = {}
 
 # Constructing the structure
-C_SECTION = FINAL_JSON
-C_MAIN_SECTION = FINAL_JSON
-C_2_SECTION = FINAL_JSON
-C_3_SECTION = FINAL_JSON
+C_SECTION: dict[str, Any] = FINAL_JSON
+C_MAIN_SECTION: dict[str, Any] = FINAL_JSON
+C_2_SECTION: dict[str, Any] = FINAL_JSON
+C_3_SECTION: dict[str, Any] = FINAL_JSON
+
+# Paths used by parse_peass
+OUTPUT_PATH: str = ""
+JSON_PATH: str = ""
 
 
 def is_section(line: str, pattern: str) -> bool:
@@ -45,10 +49,10 @@ def is_section(line: str, pattern: str) -> bool:
     return line.find(pattern) > -1
 
 
-def get_colors(line: str) -> dict:
+def get_colors(line: str) -> dict[str, list[str]]:
     """Given a line return the colored strings"""
 
-    colors: dict[Any, Any] = {}
+    colors: dict[str, list[str]] = {}
     for c, regexs in COLORS.items():
         colors[c] = []
         for reg in regexs:
@@ -109,10 +113,10 @@ def parse_title(line: str) -> str:
     return clean_colors(clean_title(line))
 
 
-def parse_line(line: str):
+def parse_line(line: str) -> None:
     """Parse the given line adding it to the FINAL_JSON structure"""
 
-    global FINAL_JSON, C_SECTION, C_MAIN_SECTION, C_2_SECTION, C_3_SECTION
+    global C_SECTION, C_MAIN_SECTION, C_2_SECTION, C_3_SECTION
 
     if is_section(line, TITLE1_PATTERN):
         title = parse_title(line)

@@ -33,9 +33,18 @@ from report.diff import (
     host_selinux_map,
     load_selinux_params,
 )
+from report.export import (
+    REPORT_FORMATS,
+    default_report_path,
+    emit_report,
+    render_report,
+    resolve_report_path,
+    save_report,
+)
 from report.streamlit_rep import StreamlitReportRenderer
 
 __all__ = [
+    "REPORT_FORMATS",
     "STREAMLIT_AVAILABLE",
     "CLIReportRenderer",
     "StreamlitReportRenderer",
@@ -53,6 +62,8 @@ __all__ = [
     "build_two_column",
     "collect_sandbox_modules",
     "count_findings",
+    "default_report_path",
+    "emit_report",
     "fetch_all_vulnerabilities",
     "get_kernel_info",
     "get_scan_times",
@@ -64,6 +75,9 @@ __all__ = [
     "load_selinux_params",
     "main",
     "main_cli",
+    "render_report",
+    "resolve_report_path",
+    "save_report",
     "save_report_json",
     "sort_vulnerabilities",
 ]

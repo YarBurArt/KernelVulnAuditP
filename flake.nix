@@ -70,6 +70,7 @@
           p.sqlalchemy
           p.rich
           p.textual
+          p.pyyaml # report yaml export
           p.streamlit # optional web report (kishirika-report)
         ]);
 

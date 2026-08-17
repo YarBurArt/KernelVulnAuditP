@@ -77,11 +77,15 @@ Long-running operations (local recon, threat-intel feeds, CISA KEV import, PoC e
 | flag | description | notes |
 | --- | --- | --- |
 | `--cli` / `--gui` | force CLI or the Textual TUI | TUI needs no extra deps; `--cli` with no command prints a quick-start menu on a TTY |
+| `--full-poc-tests` | full audit: scan + sandbox PoC tests | runs local recon + feeds + KEV + sandbox execution, then writes the report (see `-o`/`--format`) |
 | `--scan`, `-s` | run local recon + threat‑intel feeds in one shot | uses uname, /proc, Lynis, LinPEAS, LES, OSV, NVD, GitHub search  with KEV filters |
 | `--local`, `-l` | local recon only | uname/proc, Lynis, LinPEAS, LES, SELinux/capabilities hardening |
 | `--feeds`, `-f` | threat-intel feeds only | NIST / OSV / GitHub PoC search |
-| `--report`, `-r` | print a condensed vulnerability summary | pulls cached DB stats and KEV counts |
-| `--exec-tests` | fetch PoCs, compile/run them in the sandbox | uses virtme-ng/QEMU microvm to isolate; respects `ALLOW_HOST_EXECUTION` |
+| `--report`, `-r` | build the full report and save it | prints to stdout unless `-q`; saved per `-o`/`--format` |
+| `--exec-tests` | fetch PoCs, compile/run them in the sandbox | uses virtme-ng/QEMU microvm to isolate; respects `ALLOW_HOST_EXECUTION`; add `-o`/`--format` to also emit a report |
+| `--output`, `-o PATH` | report output path | default `report_data.<format>` in the current directory; a missing extension is appended from `--format` |
+| `--format txt / json / yaml` | report output format | default `txt`; the txt report mirrors the CLI/Streamlit view, json/yaml are machine-readable |
+| `--quiet`, `-q` | save the report without printing it to stdout | keeps errors on stderr; disables progress bars; ideal for scripts |
 | `--sandbox-runs`, `-b` | list sandbox runs stored in the DB | grouped per CVE |
 | `--list-kev` | print CISA KEV entries already in the DB | limit 50, shows ransomware flag |
 | `--settings` / `--set KEY=VALUE` | show / change config values | e.g. `--set ISOLATION_TIMEOUT_SEC=30` |
@@ -98,9 +102,11 @@ Report logic lives in the `report/` package (`base_report.py` for data building,
 | flag | description | notes |
 | --- | --- | --- |
 | `--verbose`, `-v` | include top items from each section in CLI renderer | |
-| `--save`, `-s` | export report JSON (`--output` path) before rendering | works in Streamlit or CLI |
-| `--output`, `-o` | set JSON output filename (default `report_data.json`) | |
-| `--load`, `-l` | render a previously saved JSON instead of live DB | skips fresh scans |
+| `--save`, `-s` | save the report to the `--output` path | saving happens by default for the CLI/`--format` paths |
+| `--output`, `-o` | report output path | default `report_data.<format>` |
+| `--format txt / json / yaml` | report output format | default `txt`; reuse of the data seen in the Streamlit view |
+| `--quiet`, `-q` | save the report without printing it to stdout | |
+| `--load`, `-l` | render a previously saved report instead of live DB | skips fresh scans; honors `--format`/`-o`/`-q` too |
 | `--cli` | force CLI output | default already when streamlit isn't installed |
 
 ### Sandbox & isolation
@@ -112,6 +118,10 @@ Report logic lives in the `report/` package (`base_report.py` for data building,
 - After the script runs, update the paths in `config.py` (`PATH_LINPEAS`, `LES_PATH`, `LYNIS_BINARY`, report/log paths) so scans pick up the freshly built tools.
 - `uv run python main.py --scan --save --db orm` gives the most complete run (DB persistence + feeds); `--exec-tests` will trigger sandboxed PoC execution, so keep `ALLOW_HOST_EXECUTION` = `False` unless you accept host risk.
 - `uv run python report.py --save --output report_data.json` writes the JSON before rendering; add `--verbose` for more lines in CLI mode.
+
+- `--full-poc-tests` runs the whole flow (local recon, feeds, KEV import, sandboxed PoC execution) and then builds the report from the same data the Streamlit view shows (what is vulnerable and why, why a PoC did not run, deduplicated links to sources/references).
+- `-q` keeps stdout clean; progress bars are disabled, errors still go to stderr and exit codes are non-zero on failure.
+- Replace `--format json` with `yaml` for a diff-friendly report, or drop `--format` for the default `txt` and drop `-q` to page the report on the terminal.
 
 ## check this in the config
 
