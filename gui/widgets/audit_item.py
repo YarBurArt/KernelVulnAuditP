@@ -113,5 +113,7 @@ class CapsItem(Collapsible):
             *children,
             title=title,
             collapsed=True,
+            collapsed_symbol=unicode_glyph("▶", ">"),
+            expanded_symbol=unicode_glyph("▼", "v"),
             **kwargs,
         )

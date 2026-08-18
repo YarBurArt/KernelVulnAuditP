@@ -7,6 +7,7 @@ from typing import Any
 from textual.widgets import Collapsible, Static
 
 from gui.shared.formatting import markup_escape
+from term import unicode_glyph
 
 
 class ReferencesBar(Collapsible):
@@ -18,6 +19,8 @@ class ReferencesBar(Collapsible):
         super().__init__(
             *[self._link_static(link) for link in self._links],
             title=self._references_title(),
+            collapsed_symbol=unicode_glyph("▶", ">"),
+            expanded_symbol=unicode_glyph("▼", "v"),
             **kwargs,
         )
 

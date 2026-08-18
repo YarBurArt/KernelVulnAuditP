@@ -33,7 +33,13 @@ class SandboxItem(Collapsible):
         self._run = run
         children = self._body(run)
         super().__init__(
-            *args, *children, title=self._header(run), collapsed=True, **kwargs
+            *args,
+            *children,
+            title=self._header(run),
+            collapsed=True,
+            collapsed_symbol=unicode_glyph("▶", ">"),
+            expanded_symbol=unicode_glyph("▼", "v"),
+            **kwargs,
         )
 
     @staticmethod

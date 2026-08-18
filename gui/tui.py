@@ -13,6 +13,7 @@ from textual.css.query import NoMatches, QueryType
 from textual.screen import Screen
 from textual.widget import Widget
 
+from gui.compat import apply_glyph_compat
 from gui.entities.progress import ProgressAdapter
 from gui.entities.services import Services
 from gui.features.report_controller import ReportController
@@ -57,6 +58,10 @@ class KernelVulnTUI(App[str]):
     }
 
     def __init__(self, db, **kwargs) -> None:
+        # Stripped-down TTYs (TERM=linux/vt/dumb) cannot draw the Unicode
+        # box-drawing glyphs Textual renders borders/bars/scrollbars with;
+        # swap them for ASCII before any frame is rendered.
+        apply_glyph_compat()
         super().__init__(**kwargs)
         self.services = Services(db=db, progress=self._make_progress_bar)
         self.scan_controller = ScanController(self, self.services)

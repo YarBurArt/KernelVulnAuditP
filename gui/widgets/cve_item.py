@@ -5,6 +5,7 @@ from __future__ import annotations
 from textual.widgets import Collapsible, Static
 
 from gui.shared.formatting import is_url, markup_escape
+from term import unicode_glyph
 
 
 class CveItem(Collapsible):
@@ -46,5 +47,7 @@ class CveItem(Collapsible):
             *children,
             title=f"[dim]{src}[/] [bold]{cve}[/] {title_text}",
             collapsed=True,
+            collapsed_symbol=unicode_glyph("▶", ">"),
+            expanded_symbol=unicode_glyph("▼", "v"),
             **kwargs,
         )
