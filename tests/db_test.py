@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import UTC, datetime
 
 import pytest
 
@@ -362,8 +362,8 @@ def test_host_info_missing_returns_none(db):
 
 
 def test_host_info_latest_ordering(db):
-    db.add_host_info(_sample_host("older", datetime(2023, 1, 1, 8, 0, 0)))
-    db.add_host_info(_sample_host("newer", datetime(2025, 1, 1, 8, 0, 0)))
+    db.add_host_info(_sample_host("older", datetime(2023, 1, 1, 8, 0, 0, tzinfo=UTC)))
+    db.add_host_info(_sample_host("newer", datetime(2025, 1, 1, 8, 0, 0, tzinfo=UTC)))
 
     latest = db.get_latest_host_info()
 
@@ -383,7 +383,7 @@ def test_host_infos_header_only(db):
 
 def test_host_infos_pagination(db):
     for i in range(3):
-        db.add_host_info(_sample_host(f"host-{i}", datetime(2024, 1, i + 1)))
+        db.add_host_info(_sample_host(f"host-{i}", datetime(2024, 1, i + 1, tzinfo=UTC)))
 
     page = db.get_host_infos(limit=2, offset=0)
 

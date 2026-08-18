@@ -94,8 +94,8 @@
 
             # Point recon-tool paths at the store and force the QEMU backend
             substituteInPlace $out/share/kernelvulnauditp/config.py \
-              --replace '"/tmp/linpeas_kernel.sh"' '"${linpeas}/bin/linpeas_kernel.sh"' \
-              --replace '"/tmp/linux-exploit-suggester/linux-exploit-suggester.sh"' '"${pkgs.linux-exploit-suggester}/bin/linux-exploit-suggester"' \
+              --replace '"lib_tools/linpeas_kernel.sh"' '"${linpeas}/bin/linpeas_kernel.sh"' \
+              --replace '"lib_tools/linux-exploit-suggester/linux-exploit-suggester.sh"' '"${pkgs.linux-exploit-suggester}/bin/linux-exploit-suggester"' \
               --replace '"auto"' '"qemu"'
 
             makeWrapper ${appPython}/bin/python $out/bin/kishirika-gui \

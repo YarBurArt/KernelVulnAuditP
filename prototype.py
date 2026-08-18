@@ -68,9 +68,9 @@ def compile_and_run(src="./data/xpl.c", out="./xpl/tmp.out") -> tuple[str, str] 
 
     proc = subprocess.run(
         [compiler, "-o", out, src],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        capture_output=True,
         text=True,
+        check=False,
     )
     if proc.returncode != 0:
         return None
@@ -79,7 +79,11 @@ def compile_and_run(src="./data/xpl.c", out="./xpl/tmp.out") -> tuple[str, str] 
 
     try:
         proc = subprocess.run(
-            [out], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=24
+            [out],
+            capture_output=True,
+            text=True,
+            timeout=24,
+            check=False,
         )
         if proc.returncode != 0:
             return None

@@ -212,3 +212,9 @@ cache_kernel
 known_exploited_vulnerabilities.json
 logs/
 kernel_audit.log
+# tools installed by ./install_tools.sh
+lib_tools/linpeas_kernel.sh
+lib_tools/pocs/
+lib_tools/lynis/
+lib_tools/linux-exploit-suggester/
+lib_tools/PEASS-ng/

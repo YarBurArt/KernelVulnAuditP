@@ -1,5 +1,3 @@
-from pathlib import Path
-
 from sqxpl import GitHubExploitSearcher, _fix_stale_compile_cmd
 
 C_README = """

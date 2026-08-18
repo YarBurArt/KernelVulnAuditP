@@ -370,7 +370,7 @@ class GitHubExploitSearcher:
 
     @staticmethod
     def load_xpls(expls: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        """download PoCs into /tmp/kernauditp/CVE-id/username_repo"""
+        """download PoCs into <POCS_BASE_PATH>/CVE-id/username_repo"""
         base_dir = Path(POCS_BASE_PATH)
         base_dir.mkdir(parents=True, exist_ok=True)
         downloaded_l: list[dict] = []

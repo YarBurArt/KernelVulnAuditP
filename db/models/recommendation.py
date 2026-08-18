@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import (
@@ -34,7 +34,9 @@ class SecurityRecommendation(Base):
     severity: Mapped[str | None] = mapped_column(String(50), index=True)
     source: Mapped[str | None] = mapped_column(String(100))
     raw_data: Mapped[dict[str, Any] | None] = mapped_column(JSON)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=datetime.now(UTC)
+    )
 
     def to_dict(self) -> dict[str, Any]:
         return {

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import (
@@ -237,7 +237,7 @@ class HostUser(Base):
     home_dir: Mapped[str | None] = mapped_column(String(1000))
     shell: Mapped[str | None] = mapped_column(String(255))
     gecos: Mapped[str | None] = mapped_column(String(500))
-    last_login: Mapped[datetime | None] = mapped_column(DateTime)
+    last_login: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     locked: Mapped[bool | None] = mapped_column(Boolean)
 
     host_info: Mapped[HostInfo] = relationship(back_populates="users")
@@ -587,7 +587,9 @@ class HostInfo(Base):
     __tablename__ = "host_info"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    captured_at: Mapped[datetime | None] = mapped_column(DateTime, index=True)
+    captured_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), index=True
+    )
     hostname: Mapped[str | None] = mapped_column(String(255), index=True)
     kernel_version: Mapped[str | None] = mapped_column(String(100), index=True)
     kernel_release: Mapped[str | None] = mapped_column(String(100))
@@ -613,9 +615,13 @@ class HostInfo(Base):
     selinux_mode: Mapped[str | None] = mapped_column(String(50))
     selinux_mount: Mapped[str | None] = mapped_column(String(255))
     notes: Mapped[str | None] = mapped_column(Text)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=datetime.now(UTC)
+    )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+        DateTime(timezone=True),
+        default=datetime.now(UTC),
+        onupdate=datetime.now(UTC),
     )
 
     environment_variables: Mapped[list[HostEnvironmentVariable]] = relationship(

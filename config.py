@@ -1,4 +1,8 @@
+import atexit
 import os
+import shutil
+import tempfile
+from pathlib import Path
 
 CISA_KEV_URL = (
     "https://www.cisa.gov/sites/default/files/feeds/"
@@ -20,15 +24,35 @@ REQUIREMENTS_RE = r"(?:requirements?|prerequisites?|dependencies|kernel version|
 VERSIONS_RE = r"(?:tested on|works on|vulnerable)[\s:]+([^\n#]+)"
 
 LYNIS_BINARY = "lynis"
-LYNIS_REPORT_FILE = "/tmp/lynis-report.dat"
-LYNIS_LOG_FILE = "/tmp/lynis.log"
-LINPEAS_OUT_JSON = "/tmp/linpeas_report.json"
-# check here https://github.com/peass-ng/PEASS-ng/tree/master/linPEAS/builder
-PATH_LINPEAS = "/tmp/linpeas_kernel.sh"
-POCS_BASE_PATH = "/tmp/kernauditp"
 
-LES_PATH = "/tmp/linux-exploit-suggester/linux-exploit-suggester.sh"
-LES_REPORT_PATH = "/tmp/les_report.txt"
+
+def _make_scratch_dir() -> Path:
+    """One private (0o700) scratch dir per process for generated reports.
+
+    lynis/linpeas/les write fixed filenames; a unique, non-world-writable
+    directory per process avoids predictable-/tmp symlink races and prevents
+    concurrent scans from clobbering each other's reports.
+    """
+    scratch = Path(tempfile.mkdtemp(prefix="kernauditp-"))
+    atexit.register(shutil.rmtree, scratch, ignore_errors=True)
+    return scratch
+
+
+_SCRATCH_DIR = _make_scratch_dir()
+
+LYNIS_REPORT_FILE = str(_SCRATCH_DIR / "lynis-report.dat")
+LYNIS_LOG_FILE = str(_SCRATCH_DIR / "lynis.log")
+LINPEAS_OUT_JSON = str(_SCRATCH_DIR / "linpeas_report.json")
+LINPEAS_REPORT_TXT = str(_SCRATCH_DIR / "linpeas_report.txt")
+LES_REPORT_PATH = str(_SCRATCH_DIR / "les_report.txt")
+
+# tool input locations, installed by install_tools.sh into the repo's
+# lib_tools/ dir; override here if you keep them elsewhere
+# check here https://github.com/peass-ng/PEASS-ng/tree/master/linPEAS/builder
+PATH_LINPEAS = "lib_tools/linpeas_kernel.sh"
+POCS_BASE_PATH = "lib_tools/pocs"
+
+LES_PATH = "lib_tools/linux-exploit-suggester/linux-exploit-suggester.sh"
 DB_BACKEND = "orm"
 
 # full VM boot + PoC run needs more than a few seconds; the VMs also shut

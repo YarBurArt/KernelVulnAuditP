@@ -51,7 +51,6 @@ from core import (
     strip_ansi_sequences,
     suggestion_for,
     summarize_sandbox,
-    try_parse,
     update_config_file,
 )
 
@@ -82,6 +81,18 @@ class TestDateParsing(unittest.TestCase):
         self.assertEqual(dt.year, 2024)
         self.assertEqual(dt.month, 1)
 
+    def test_parse_rfc_with_weekday_and_offset(self):
+        dt = parse_date_string("Thu, 21 Mar 2024 13:36:27 +0900")
+        self.assertIsNotNone(dt)
+        self.assertEqual(dt.tzinfo, UTC)
+        self.assertEqual(dt.hour, 4)  # 13:36 +09:00 == 04:36 UTC
+
+    def test_parse_day_month_year_naive_as_utc(self):
+        dt = parse_date_string("14 Aug 2023 13:36:27")
+        self.assertIsNotNone(dt)
+        self.assertEqual(dt.tzinfo, UTC)
+        self.assertEqual(dt.hour, 13)
+
     def test_parse_simple_date(self):
         dt = parse_date_string("2024-01-15")
         self.assertIsNotNone(dt)
@@ -100,19 +111,6 @@ class TestDateParsing(unittest.TestCase):
     def test_parse_none(self):
         dt = parse_date_string(None)
         self.assertIsNone(dt)
-
-    def test_try_parse_naive_format_is_utc_aware(self):
-        dt = try_parse("2024-01-15 10:30:00", "%Y-%m-%d %H:%M:%S")
-        self.assertIsNotNone(dt)
-        self.assertEqual(dt.tzinfo, UTC)
-
-    def test_try_parse_aware_format_keeps_offset(self):
-        dt = try_parse("2024-01-15 10:30:00 +0500", "%Y-%m-%d %H:%M:%S %z")
-        self.assertIsNotNone(dt)
-        self.assertEqual(dt.utcoffset().total_seconds(), 5 * 3600)
-
-    def test_try_parse_invalid(self):
-        self.assertIsNone(try_parse("garbage", "%Y-%m-%d"))
 
     def test_filter_items_by_date_no_min(self):
         items = [

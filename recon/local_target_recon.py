@@ -4,7 +4,8 @@ import re
 import shutil
 import subprocess
 from concurrent.futures import ThreadPoolExecutor  # python >= 3.14t
-from datetime import datetime
+from datetime import UTC, datetime
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +16,7 @@ from config import (
     LES_PATH,
     LES_REPORT_PATH,
     LINPEAS_OUT_JSON,
+    LINPEAS_REPORT_TXT,
     LYNIS_BINARY,
     LYNIS_LOG_FILE,
     LYNIS_REPORT_FILE,
@@ -137,12 +139,22 @@ class LocalRecon:
             for line in response.text.split("\n")[:10]:
                 if line.startswith("Date:"):
                     date_str = line.replace("Date:", "").strip()
-                    for fmt in ("%a, %d %b %Y", "%a %b %d %H:%M:%S %Y %z"):
+                    try:
+                        parsed = parsedate_to_datetime(date_str)
+                    except (TypeError, ValueError):
+                        # date-only variant (e.g. "Mon, 14 Aug 2023"): interpret
+                        # as UTC midnight so .timestamp() never depends on the
+                        # host's local timezone
                         try:
-                            result = int(datetime.strptime(date_str, fmt).timestamp())
-                            break
+                            parsed = datetime.strptime(
+                                f"{date_str} 00:00:00 +0000",
+                                "%a, %d %b %Y %H:%M:%S %z",
+                            )
                         except ValueError:
-                            continue
+                            break
+                    if parsed.tzinfo is None:
+                        parsed = parsed.replace(tzinfo=UTC)
+                    result = int(parsed.timestamp())
                     break
         except (httpx.HTTPError, ValueError) as e:
             logger.warning("get_kernel_build_date error: %s", e)
@@ -187,7 +199,6 @@ class LocalRecon:
             "/opt/linpeas/linpeas.sh",
             "./linpeas.sh",
             "linpeas.sh",
-            "/tmp/linpeas.sh",
         ]:
             if os.path.isfile(loc) and os.access(loc, os.X_OK):
                 return loc
@@ -228,7 +239,7 @@ class LocalRecon:
 
     def get_linpeas_scan_details(
         self,
-        output_path: str = "/tmp/linpeas_report.txt",
+        output_path: str = LINPEAS_REPORT_TXT,
     ) -> KernelLPE | None:
         """linpeas facade"""
         try:

@@ -7,6 +7,7 @@ import logging
 import re
 from collections.abc import Callable
 from datetime import UTC, datetime
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 from typing import Any
 
@@ -14,54 +15,37 @@ _CVSS_DICT_KEYS = ("cvssMetricV31", "cvssMetricV30", "cvssMetricV2")
 _CVSS_LIST_KEYS = ("cvssV3_1", "cvssV3_0", "cvssV2_0", "cvssV4_0")
 
 
-def try_parse(date_str: str, fmt: str) -> datetime | None:
-    try:
-        # fmt may be naive; the result is normalized to UTC-aware below
-        dt = datetime.strptime(date_str, fmt)  # noqa: DTZ007
-    except ValueError:
-        return None
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=UTC)
-    return dt
-
-
 def parse_date_string(date_str: str) -> datetime | None:
+    """Parse an ISO-8601 or RFC-2822 date string into a UTC-aware datetime.
+
+    Naive inputs are interpreted as UTC; aware inputs are converted to UTC,
+    so the result never depends on the host's local timezone.
+    """
     if not date_str:
         return None
 
+    dt: datetime | None = None
     try:
         dt = datetime.fromisoformat(date_str)
     except ValueError:
-        dt = None
-
-    if dt is None:
-        dt = try_parse(date_str, "%a %b %d %H:%M:%S %Y %z")
-
-    if dt is None:
+        # fromisoformat may reject over-precise fractional seconds; retry the
+        # truncated form (the original code parsed "%Y-%m-%dT%H:%M:%S" here)
         base = date_str.split(".")[0]
-        dt = try_parse(base, "%Y-%m-%dT%H:%M:%S")
-        if dt is not None:
-            dt = dt.replace(tzinfo=UTC)
+        try:
+            dt = datetime.fromisoformat(base)
+        except ValueError:
+            dt = None
 
     if dt is None:
-        for fmt in (
-            "%Y-%m-%d %H:%M:%S",
-            "%d %b %Y %H:%M:%S",
-            "%a, %d %b %Y %H:%M:%S %z",
-            "%Y-%m-%d",
-        ):
-            dt = try_parse(date_str, fmt)
-            if dt is not None:
-                break
+        try:
+            dt = parsedate_to_datetime(date_str)
+        except (TypeError, ValueError):
+            dt = None
 
     if dt is None:
         return None
 
-    return (
-        dt.replace(tzinfo=UTC)
-        if dt.tzinfo is None
-        else dt.astimezone(UTC)
-    )
+    return dt.replace(tzinfo=UTC) if dt.tzinfo is None else dt.astimezone(UTC)
 
 
 def filter_items_by_date(

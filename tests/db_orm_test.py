@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import UTC, datetime
 
 import pytest
 
@@ -25,7 +25,7 @@ def _sample_host(hostname: str = "sample", captured_at: datetime | None = None):
     return HostInfoData(
         hostname=hostname,
         kernel_version="6.8.0",
-        captured_at=captured_at or datetime(2024, 1, 1, 12, 0, 0),
+        captured_at=captured_at or datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC),
         environment_variables=[HostEnvironmentVariable(name="PATH", value="/usr/bin")],
         kernel_modules=[HostKernelModule(module_name="ext4", size=4096)],
         kernel_hardening=[HostKernelHardening(test_id="KRNL-6000", status="ok")],
@@ -39,7 +39,7 @@ def test_upsert_vulnerability(db):
         {
             "cve_id": "CVE-2024-5678",
             "description": "Critical SQL injection vulnerability",
-            "published_date": datetime(2024, 1, 15),
+            "published_date": datetime(2024, 1, 15, tzinfo=UTC),
             "cvss_v3_score": 9.8,
             "cvss_v3_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
             "severity": "CRITICAL",
@@ -136,7 +136,7 @@ def test_add_cisa_kev(db):
     db.add_cisa_kev(
         "CVE-2024-5678",
         {
-            "date_added": datetime(2024, 1, 20),
+            "date_added": datetime(2024, 1, 20, tzinfo=UTC),
             "required_action": "Apply updates immediately",
             "known_ransomware": True,
             "vendor_project": "Example Corp",
@@ -164,7 +164,7 @@ def test_add_sandbox_run(db):
     db.add_sandbox_run(
         "CVE-2024-5678",
         {
-            "run_timestamp": datetime(2024, 1, 21, 10, 30),
+            "run_timestamp": datetime(2024, 1, 21, 10, 30, tzinfo=UTC),
             "sandbox_platform": "virtme-ng",
             "exploit_file_hash": s_hash,
             "execution_success": True,
@@ -173,7 +173,7 @@ def test_add_sandbox_run(db):
             "stderr": "Warning",
             "stdin": "./xpl\n",
             "open_processes": ["/bin/bash", "/bin/nc"],
-            "open_files": ["/tmp/xpl", "/etc/passwd"],
+            "open_files": ["/opt/xpl", "/etc/passwd"],
             "notes": "Confirmed LPE",
         },
     )
@@ -289,8 +289,8 @@ def test_host_info_missing_returns_none(db):
 
 
 def test_latest_host_info_ordering(db):
-    db.add_host_info(_sample_host("older", datetime(2023, 1, 1, 8, 0, 0)))
-    db.add_host_info(_sample_host("newer", datetime(2025, 1, 1, 8, 0, 0)))
+    db.add_host_info(_sample_host("older", datetime(2023, 1, 1, 8, 0, 0, tzinfo=UTC)))
+    db.add_host_info(_sample_host("newer", datetime(2025, 1, 1, 8, 0, 0, tzinfo=UTC)))
 
     latest = db.get_latest_host_info()
 
@@ -311,7 +311,7 @@ def test_host_infos_header_only(db):
 
 def test_host_infos_pagination(db):
     for i in range(3):
-        db.add_host_info(_sample_host(f"host-{i}", datetime(2024, 1, i + 1)))
+        db.add_host_info(_sample_host(f"host-{i}", datetime(2024, 1, i + 1, tzinfo=UTC)))
 
     page = db.get_host_infos(limit=2, offset=0)
 

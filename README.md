@@ -117,8 +117,8 @@ Report logic lives in the `report/` package (`base_report.py` for data building,
 - The default micro-VM uses `virtme-ng --quiet --memory 512M` on top of QEMU `microvm` machine type; adjust in `isolate.py` if you want let less or more RAM/CPU.
 
 ## install notes
-- `./install_tools.sh [OUTPUT_PATH]` clones Lynis and LES into `/tmp`, then builds a kernel-focused LinPEAS script via the PEASS builder; pass a custom script path if you don’t want `/tmp/linpeas_kernel.sh`.
-- After the script runs, update the paths in `config.py` (`PATH_LINPEAS`, `LES_PATH`, `LYNIS_BINARY`, report/log paths) so scans pick up the freshly built tools.
+- `./install_tools.sh [OUTPUT_PATH]` clones Lynis and LES into `lib_tools/`, then builds a kernel-focused LinPEAS script via the PEASS builder; pass a custom script path if you don’t want `lib_tools/linpeas_kernel.sh`.
+- `config.py` defaults already point at `lib_tools/`, so no path edits are needed after the script runs; override `PATH_LINPEAS` / `LES_PATH` / `LYNIS_BINARY` if you keep the tools elsewhere.
 - `uv run python main.py --scan --save --db orm` gives the most complete run (DB persistence + feeds); `--exec-tests` will trigger sandboxed PoC execution, so keep `ALLOW_HOST_EXECUTION` = `False` unless you accept host risk.
 - `uv run python report.py --save --output report_data.json` writes the JSON before rendering; add `--verbose` for more lines in CLI mode.
 
@@ -144,17 +144,18 @@ Edit the file and re-run. Full reference:
 | `CH_API_URL` | `https://cdn.kernel.org/.../ChangeLog-{version}` | kernel changelog mirror |
 | `REQUIREMENTS_RE` / `VERSIONS_RE` | regexes | PoC README parsing heuristics |
 | `LYNIS_BINARY` | `lynis` | lynis executable (or absolute path) |
-| `LYNIS_REPORT_FILE` | `/tmp/lynis-report.dat` | lynis output file |
-| `LYNIS_LOG_FILE` | `/tmp/lynis.log` | lynis log file |
-| `LINPEAS_OUT_JSON` | `/tmp/linpeas_report.json` | LinPEAS JSON output |
-| `PATH_LINPEAS` | `/tmp/linpeas_kernel.sh` | kernel-focused LinPEAS script path |
-| `POCS_BASE_PATH` | `/tmp/kernauditp` | where PoCs are cloned/staged |
-| `LES_PATH` | `/tmp/linux-exploit-suggester/linux-exploit-suggester.sh` | Linux Exploit Suggester script |
-| `LES_REPORT_PATH` | `/tmp/les_report.txt` | LES output file |
+| `LYNIS_REPORT_FILE` | per-process scratch dir | lynis output file |
+| `LYNIS_LOG_FILE` | per-process scratch dir | lynis log file |
+| `LINPEAS_OUT_JSON` | per-process scratch dir | LinPEAS JSON output |
+| `LINPEAS_REPORT_TXT` | per-process scratch dir | LinPEAS text output |
+| `PATH_LINPEAS` | `lib_tools/linpeas_kernel.sh` | kernel-focused LinPEAS script path |
+| `POCS_BASE_PATH` | `lib_tools/pocs` | where PoCs are cloned/staged |
+| `LES_PATH` | `lib_tools/linux-exploit-suggester/linux-exploit-suggester.sh` | Linux Exploit Suggester script |
+| `LES_REPORT_PATH` | per-process scratch dir | LES output file |
 | `ISOLATION_TIMEOUT_SEC` | `20` | per-command timeout inside the micro-VM |
 | `ALLOW_HOST_EXECUTION` | `False` | `True` runs PoCs directly on the host (risky); keep `False` for virtme-ng/QEMU isolation |
 
-Change the `/tmp/...` defaults if you store the tools elsewhere, but clean per scan.
+Report/log files are written to a private per-process scratch directory (mode 0700, cleaned at exit), so concurrent scans never share reports. Change the `lib_tools/...` tool defaults if you store the tools elsewhere.
 
 ## Docs for used libs and tools 
 
