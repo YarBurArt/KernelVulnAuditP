@@ -108,6 +108,75 @@ def test_qemu_detect_crash_negative():
     assert ParseVmResults.detect_crash("hello world", QEMU_CRASH_PATTERNS) is False
 
 
+def test_parse_exit_code_bad_value_keeps_previous():
+    assert ParseVmResults.parse_exit_code("EXIT_CODE=notanumber\n") == 0
+
+
+def test_parse_exit_code_invalid_then_valid():
+    assert (
+        ParseVmResults.parse_exit_code("EXIT_CODE=abc\nEXIT_CODE=7\n") == 7
+    )
+
+
+def test_parse_exit_code_multiple_last_wins():
+    assert (
+        ParseVmResults.parse_exit_code("EXIT_CODE=1\nEXIT_CODE=2\n") == 2
+    )
+
+
+def test_parse_guest_output_dmesg_cpu_memory_sections():
+    parser = ParseVmResults()
+
+    output = """========== VM START ==========
+Sat Aug  1 12:00:00 UTC 2026
+Linux test 6.1.0 #1 SMP
+========== DMESG ==========
+[    0.000000] Linux version 6.1.0
+========== CPU ==========
+processor : 0
+========== MEMORY ==========
+MemTotal: 512
+"""
+
+    kernel_info, resources, modules, files, processes = parser.parse_guest_output(
+        output
+    )
+
+    assert kernel_info["dmesg"] == "[    0.000000] Linux version 6.1.0"
+    assert resources["cpuinfo"] == "processor : 0"
+    assert resources["meminfo"] == "MemTotal: 512"
+
+
+def test_parse_guest_output_modules_fallback_from_dmesg():
+    parser = ParseVmResults()
+
+    output = """========== DMESG ==========
+[    1.0] ext4 loaded
+[    2.0] kvm loaded
+"""
+
+    kernel_info, resources, modules, files, processes = parser.parse_guest_output(
+        output
+    )
+
+    assert modules == ["ext4", "kvm"]
+
+
+def test_parse_guest_output_resources_single_line():
+    parser = ParseVmResults()
+
+    output = """========== RESOURCES ==========
+0.00 0.01 0.02 1/123 456
+"""
+
+    kernel_info, resources, modules, files, processes = parser.parse_guest_output(
+        output
+    )
+
+    assert resources["loadavg"] == "0.00 0.01 0.02 1/123 456"
+    assert "stat" not in resources
+
+
 def test_virtme_execute_success(monkeypatch, tmp_path):
     binary = tmp_path / "bin"
     binary.write_text("x")

@@ -5,6 +5,7 @@ from report import (
     build_caps_diff,
     build_diff,
     build_diff_columns,
+    build_hardening_diff,
     build_module_diff,
     build_param_diff,
     build_selinux_diff,
@@ -13,6 +14,9 @@ from report import (
     count_findings,
     host_module_names,
     host_module_set,
+    host_param_map,
+    host_selinux_map,
+    load_selinux_params,
 )
 from schemas import HostInfoData, HostKernelModule, HostKernelParameter
 
@@ -551,3 +555,208 @@ def test_host_module_names_sorted_dedup():
     host = {"kernel_modules": [{"module_name": "btrfs"}, {"module_name": "ext4"}]}
     assert host_module_names(host) == ["btrfs", "ext4"]
     assert host_module_names(None) == []
+
+
+def test_host_module_names_skips_empty_and_non_str():
+    host = {"kernel_modules": [{"module_name": ""}, {"module_name": "x"}, None]}
+    assert host_module_names(host) == ["x"]
+
+
+def test_host_param_map_from_dict_and_dataclass():
+    from schemas import HostInfoData, HostKernelParameter
+
+    host_dict = {
+        "kernel_parameters": [
+            {"parameter_name": "fs.suid_dumpable", "parameter_value": "0"},
+            {"parameter_name": "kernel.yama", "parameter_value": ""},
+        ]
+    }
+    host_data = HostInfoData(
+        kernel_parameters=[
+            HostKernelParameter(parameter_name="fs.suid_dumpable", parameter_value="0")
+        ]
+    )
+    assert host_param_map(host_dict) == {
+        "fs.suid_dumpable": "0",
+        "kernel.yama": "",
+    }
+    assert host_param_map(host_data) == {"fs.suid_dumpable": "0"}
+    assert host_param_map(None) == {}
+
+
+def test_host_param_map_skips_unnamed_params():
+    host = {
+        "kernel_parameters": [
+            {"parameter_name": "", "parameter_value": "0"},
+            {"parameter_value": "x"},
+        ]
+    }
+    assert host_param_map(host) == {}
+
+
+def test_host_selinux_map_from_dict_and_dataclass():
+    from schemas import HostInfoData, HostSELinuxBoolean
+
+    host_dict = {"selinux_booleans": [{"boolean_name": "a", "value": True}]}
+    host_data = HostInfoData(
+        selinux_booleans=[HostSELinuxBoolean(boolean_name="b", value=False)]
+    )
+    assert host_selinux_map(host_dict) == {"a": True}
+    assert host_selinux_map(host_data) == {"b": False}
+    assert host_selinux_map(None) == {}
+
+
+def test_host_selinux_map_skips_unnamed_booleans():
+    host = {"selinux_booleans": [{"boolean_name": ""}, {"value": True}]}
+    assert host_selinux_map(host) == {}
+
+
+def test_load_selinux_params_missing_file_returns_empty(tmp_path):
+    assert load_selinux_params(str(tmp_path / "missing.json")) == {}
+
+
+def test_load_selinux_params_invalid_json_returns_empty(tmp_path):
+    path = tmp_path / "bad.json"
+    path.write_text("not json")
+    assert load_selinux_params(str(path)) == {}
+
+
+def test_load_selinux_params_non_dict_json_returns_empty(tmp_path):
+    path = tmp_path / "list.json"
+    path.write_text("[1, 2, 3]")
+    assert load_selinux_params(str(path)) == {}
+
+
+def test_build_selinux_diff_skips_non_dict_sections():
+    rows = build_selinux_diff(None, {"s1": "not-a-dict", "s2": {"booleans": []}})
+    assert rows == []
+
+
+def test_build_selinux_diff_skips_missing_names():
+    params = {"s1": {"booleans": [{"state": "on"}, {"name": "", "state": "off"}]}}
+    rows = build_selinux_diff({}, params)
+    assert rows == []
+
+
+def test_build_selinux_diff_fail_when_expected_on_but_off():
+    params = {"s1": {"booleans": [{"name": "bool_x", "state": "on"}]}}
+    rows = {r["key"]: r for r in build_selinux_diff({}, params)}
+    assert rows["bool_x"]["status"] == "FAIL"
+    assert rows["bool_x"]["expected"] == "on"
+    assert rows["bool_x"]["actual"] == "off"
+
+
+def test_build_caps_diff_without_host_uses_records():
+    recs = [
+        {
+            "field_name": "KRNL-6000",
+            "expected_value": "0",
+            "actual_value": "2",
+            "status": "FAIL",
+            "description": "file caps",
+        },
+        {
+            "field_name": "KRNL-6001",
+            "expected_value": "0",
+            "actual_value": "1",
+            "status": "ok",
+            "description": "satisfied",
+        },
+    ]
+    rows = build_caps_diff(None, cap_recs=recs)
+    assert len(rows) == 1
+    assert rows[0]["key"] == "KRNL-6000"
+    assert rows[0]["status"] == "FAIL"
+
+
+def test_build_hardening_diff_filters_non_findings():
+    recs = [
+        {"status": "FAIL", "field_name": "a"},
+        {"status": "warning", "field_name": "b"},
+        {"status": "ok", "field_name": "c"},
+        {"status": "", "field_name": "d"},
+        {"status": "FAIL"},  # no key -> "?"
+    ]
+    rows = {r["key"]: r for r in build_hardening_diff(recs, "selinux")}
+    assert set(rows) == {"a", "b", "?"}
+    assert all(r["type"] == "selinux" for r in rows.values())
+    assert rows["?"]["expected"] == ""
+    assert rows["a"]["status"] == "FAIL"
+
+
+def test_build_capability_section_wrapper():
+    from report.diff import build_capability_section
+
+    rows = [{"actual": "cap_net_raw", "status": "warning", "key": "x", "detail": ""}]
+    section = build_capability_section(rows)
+    assert section["rows"][0]["key"] == "cap_net_raw"
+
+
+def test_build_capability_section_proc_without_name_key_skipped():
+    from report.diff import _build_capability_section
+
+    rows = [
+        {
+            "actual": "cap_net_raw",
+            "status": "warning",
+            "key": "/",  # rpartition produces empty name
+            "detail": "process capabilities (owner: root)",
+        }
+    ]
+    section = _build_capability_section(rows)
+    # the "/" key has an empty name -> holder dropped but group still present
+    assert len(section["rows"]) == 1
+    assert section["rows"][0]["count"] == 0
+
+
+def test_capability_group_fail_keeps_fail_when_mixed_statuses():
+    from report.diff import _build_capability_section
+
+    rows = [
+        {
+            "actual": "cap_sys_admin",
+            "status": "fail",
+            "key": "/usr/bin/thing",
+            "detail": "file capabilities (owner: root)",
+        },
+        {
+            "actual": "cap_sys_admin",
+            "status": "warning",
+            "key": "agent/42",
+            "detail": "process capabilities (owner: bob)",
+        },
+    ]
+    section = _build_capability_section(rows)
+    assert len(section["rows"]) == 1
+    assert section["rows"][0]["status"] == "fail"
+    assert section["rows"][0]["key"] == "cap_sys_admin"
+    assert "agent" in section["rows"][0]["detail"]
+    assert "/usr/bin/thing" in section["rows"][0]["detail"]
+
+
+def test_diff_columns_module_sandbox_only_group():
+    rows = build_module_diff({"btrfs"}, set())
+    sections = build_diff_columns(rows)
+    module = sections["module"]
+    assert len(module["groups"]) == 1
+    assert module["groups"][0]["title"].startswith("module loaded")
+    assert module["groups"][0]["items"] == ["btrfs"]
+
+
+def test_diff_columns_module_host_only_group():
+    rows = build_module_diff(set(), {"kvm"})
+    sections = build_diff_columns(rows)
+    module = sections["module"]
+    assert len(module["groups"]) == 1
+    assert module["groups"][0]["title"].startswith("module present")
+    assert module["groups"][0]["items"] == ["kvm"]
+
+
+def test_collect_sandbox_modules_from_vulnerability_runs():
+    data = {
+        "vulnerabilities": [
+            {"sandbox_runs": [{"modules": ["  "]}], "sandbox_runs2": []},
+            {"sandbox_runs": [{"modules": ["nft_chain_nat"]}]},
+        ]
+    }
+    assert collect_sandbox_modules(data) == {"nft_chain_nat"}

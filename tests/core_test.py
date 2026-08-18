@@ -1,11 +1,13 @@
 """Tests for core.py - only stdlib (unittest)."""
 
+import logging
 import tempfile
 import unittest
 from datetime import UTC, datetime
 from typing import ClassVar
 
 from core import (
+    _debug_mapping,
     assign_value_by_key_type,
     audit_priority,
     binary_output,
@@ -36,6 +38,7 @@ from core import (
     is_finding,
     is_ok_status,
     is_url,
+    log_sandbox_run,
     merge_dicts_by_key,
     norm_sysctl_value,
     parse_date_string,
@@ -141,6 +144,23 @@ class TestDateParsing(unittest.TestCase):
         )
         self.assertEqual(len(result), 1)
 
+    def test_filter_items_by_date_non_string_date_skipped(self):
+        min_ts = int(datetime(2024, 1, 1, tzinfo=UTC).timestamp())
+        items = [{"published": 1234567890}]
+        result = filter_items_by_date(items, min_timestamp=min_ts)
+        self.assertEqual(result, [])
+
+    def test_filter_items_by_date_unparseable_date_skipped(self):
+        min_ts = int(datetime(2024, 1, 1, tzinfo=UTC).timestamp())
+        items = [{"cve": {"published": "not-a-date"}}]
+        result = filter_items_by_date(items, min_timestamp=min_ts)
+        self.assertEqual(result, [])
+
+    def test_filter_items_by_date_non_dict_item_skipped(self):
+        min_ts = int(datetime(2024, 1, 1, tzinfo=UTC).timestamp())
+        result = filter_items_by_date(["just-a-string"], min_timestamp=min_ts)
+        self.assertEqual(result, [])
+
     def test_format_timestamp(self):
         ts = int(datetime(2024, 1, 15, 10, 30, tzinfo=UTC).timestamp())
         result = format_timestamp(ts)
@@ -149,6 +169,10 @@ class TestDateParsing(unittest.TestCase):
 
     def test_format_timestamp_none(self):
         result = format_timestamp(None)
+        self.assertIsNone(result)
+
+    def test_format_timestamp_out_of_range(self):
+        result = format_timestamp(10**15)
         self.assertIsNone(result)
 
 
@@ -203,6 +227,12 @@ class TestDictListProcessing(unittest.TestCase):
         self.assertEqual(result, {"a": 1, "b": 2})
         self.assertNotIn("c", result)
 
+    def test_merge_dicts_by_key_missing_key(self):
+        target = {"a": 1}
+        source = {"b": 2}
+        result = merge_dicts_by_key(target, source, keys=["zzz"])
+        self.assertEqual(result, {"a": 1})
+
     def test_safe_get_nested_single(self):
         data = {"a": 1}
         self.assertEqual(safe_get_nested(data, "a"), 1)
@@ -242,6 +272,18 @@ class TestTextParsing(unittest.TestCase):
     def test_extract_section_not_found(self):
         text = "No sections here"
         patterns = [r"requirements"]
+        result = extract_section_by_header(text, patterns)
+        self.assertIsNone(result)
+
+    def test_extract_section_too_short(self):
+        text = "## Requirements\n\nX\n\n## Other"
+        patterns = [r"(?:requirements?)[\s:]+([^\n#]+)"]
+        result = extract_section_by_header(text, patterns)
+        self.assertIsNone(result)
+
+    def test_extract_section_too_long(self):
+        text = f"## Requirements\n\n{'y' * 600}\n\n## Other"
+        patterns = [r"(?:requirements?)[\s:]+([^\n#]+)"]
         result = extract_section_by_header(text, patterns)
         self.assertIsNone(result)
 
@@ -292,6 +334,11 @@ class TestKeyValueParsing(unittest.TestCase):
         self.assertEqual(base, "key")
         self.assertEqual(inner, "name")
 
+    def test_parse_key_with_brackets_unmatched(self):
+        base, inner = parse_key_with_brackets("key[unclosed")
+        self.assertEqual(base, "key[unclosed")
+        self.assertIsNone(inner)
+
     def test_ensure_list_in_dict_new(self):
         container = {}
         ensure_list_in_dict(container, "key", "value")
@@ -326,6 +373,11 @@ class TestKeyValueParsing(unittest.TestCase):
         results = {"base": "scalar"}
         with self.assertRaises(ValueError):
             assign_value_by_key_type(results, "base", "name", "value")
+
+    def test_assign_value_scalar_existing_key(self):
+        results = {"key": "first"}
+        assign_value_by_key_type(results, "key", None, "second")
+        self.assertEqual(results, {"key": ["first", "second"]})
 
     def test_parse_key_value_pairs(self):
         blob = "key1:value1;key2:value2"
@@ -426,6 +478,15 @@ class TestPipelineUtilities(unittest.TestCase):
         data = {"a": 1}
         self.assertEqual(chain_get(data, "b", default="default"), "default")
 
+    def test_chain_get_list_index_out_of_range(self):
+        data = {"items": [1, 2, 3]}
+        self.assertEqual(chain_get(data, "items.9"), None)
+        self.assertEqual(chain_get(data, "items.9", default="d"), "d")
+
+    def test_chain_get_list_bad_index(self):
+        data = {"items": [1, 2, 3]}
+        self.assertEqual(chain_get(data, "items.xyz"), None)
+
     def test_filter_list_by_pred(self):
         items = [1, 2, 3, 4, 5]
         result = filter_list_by_pred(items, lambda x: x > 3)
@@ -450,6 +511,16 @@ class TestPipelineUtilities(unittest.TestCase):
         items = [{"status": "OK"}, {"status": "FAIL"}, {"status": "OK"}]
         result = count_by_key(items, "status")
         self.assertEqual(result, {"OK": 2, "FAIL": 1})
+
+    def test_group_by_key_none_values_skipped(self):
+        items = [{"category": "A"}, {"category": None}, {}]
+        result = group_by_key(items, "category")
+        self.assertEqual(result, {"A": [items[0]]})
+
+    def test_count_by_key_none_values_skipped(self):
+        items = [{"status": "OK"}, {"status": None}, {}]
+        result = count_by_key(items, "status")
+        self.assertEqual(result, {"OK": 1})
 
 
 class TestCVEHelpers(unittest.TestCase):
@@ -487,6 +558,14 @@ class TestCVEHelpers(unittest.TestCase):
         descriptions = ["junk", {"lang": "en", "value": "real"}]
         self.assertEqual(extract_english_description(descriptions), "real")
 
+    def test_extract_english_description_empty_value(self):
+        descriptions = [{"lang": "en", "value": ""}, {"lang": "en", "value": "real"}]
+        self.assertEqual(extract_english_description(descriptions), "real")
+
+    def test_extract_english_description_first_non_dict(self):
+        descriptions = ["junk"]
+        self.assertEqual(extract_english_description(descriptions), "")
+
 
 class TestExtractCvss(unittest.TestCase):
     """extract_cvss tests"""
@@ -515,6 +594,25 @@ class TestExtractCvss(unittest.TestCase):
         self.assertEqual(extract_cvss(None), (None, None, None))
         self.assertEqual(extract_cvss({}), (None, None, None))
         self.assertEqual(extract_cvss([]), (None, None, None))
+
+    def test_extract_cvss_dict_without_score_skips(self):
+        metrics = {
+            "cvssMetricV31": [
+                {"cvssData": {"baseSeverity": "CRITICAL", "vectorString": "X"}}
+            ],
+            "cvssMetricV2": [
+                {"cvssData": {"baseScore": 6.0, "baseSeverity": "MEDIUM"}}
+            ],
+        }
+        self.assertEqual(extract_cvss(metrics), (6.0, "MEDIUM", None))
+
+    def test_extract_cvss_list_metric_without_data(self):
+        metrics = [{"cvssV3_1": None}, {"cvssV3_1": {"baseScore": 4.0}}]
+        self.assertEqual(extract_cvss(metrics), (4.0, None, None))
+
+    def test_extract_cvss_list_metric_without_score(self):
+        metrics = [{"cvssV3_1": {"baseSeverity": "LOW"}}]
+        self.assertEqual(extract_cvss(metrics), (None, None, None))
 
 
 class TestNormSysctl(unittest.TestCase):
@@ -570,6 +668,16 @@ class TestReportHelpers(unittest.TestCase):
 
     def test_format_report_no_feeds(self):
         result = format_report({})
+        self.assertEqual(result["nist_count"], 0)
+        self.assertEqual(result["osv_count"], 0)
+
+    def test_format_report_other_sources_ignored(self):
+        data = {
+            "feeds": {
+                "findings": [{"source": "GitHub"}, {"source": None}, {}],
+            }
+        }
+        result = format_report(data)
         self.assertEqual(result["nist_count"], 0)
         self.assertEqual(result["osv_count"], 0)
         self.assertEqual(result["github_count"], 0)
@@ -796,6 +904,26 @@ class TestRecommendationText(unittest.TestCase):
     def test_rec_context_rows_other_source(self):
         self.assertEqual(rec_context_rows({"source": "other"}), [])
 
+    def test_rec_context_rows_selinux_missing_fields(self):
+        rec = {"source": "selinux", "raw_data": {"section": "s1"}}
+        self.assertEqual(rec_context_rows(rec), ["Section: s1"])
+
+    def test_rec_context_rows_proc_missing_fields(self):
+        rec = {"source": "getcap", "raw_data": {"owner_name": "root"}}
+        self.assertEqual(rec_context_rows(rec), ["User: root"])
+
+    def test_rec_context_rows_proc_pid_without_user(self):
+        rec = {"source": "proc", "raw_data": {"pid": 42}}
+        self.assertEqual(rec_context_rows(rec), ["PID: 42"])
+
+    def test_rec_context_rows_raw_not_dict(self):
+        rec = {"source": "selinux", "raw_data": "junk"}
+        self.assertEqual(rec_context_rows(rec), [])
+
+    def test_suggestion_raw_not_dict(self):
+        rec = {"raw_data": "junk", "description": "hint"}
+        self.assertEqual(suggestion_for(rec), "hint")
+
 
 class TestLinkExtraction(unittest.TestCase):
     """extract_links / dedupe_links tests"""
@@ -822,6 +950,10 @@ class TestLinkExtraction(unittest.TestCase):
 
     def test_extract_links_empty(self):
         self.assertEqual(extract_links({}), [])
+
+    def test_extract_links_raw_not_dict(self):
+        rec = {"raw_data": "junk", "link": "https://example.com/top"}
+        self.assertEqual(extract_links(rec), ["https://example.com/top"])
 
     def test_dedupe_links_across_recs(self):
         recs = [
@@ -1030,6 +1162,223 @@ class TestSandboxFormatting(unittest.TestCase):
         self.assertNotIn("command:", text)
         self.assertNotIn("STDOUT:", text)
         self.assertNotIn("kernel_info:", text)
+
+    def test_format_sandbox_detail_cpu_line(self):
+        data = {
+            "sandbox_platform": "qemu",
+            "resources": {"cpuinfo": "processor : 0\nmodel name : X"},
+        }
+        text = format_sandbox_detail(data)
+        self.assertIn("cpu:           processor : 0", text)
+
+    def test_format_execution_report_security_recommendations_stats(self):
+        report = {
+            "stats": {
+                "by_severity": {"CRITICAL": 1},
+                "security_recommendations": {"total": 3, "by_status": {"FAIL": 1}},
+            },
+            "entries": [],
+        }
+        text = format_execution_report(report)
+        self.assertIn("by_severity:", text)
+        self.assertIn("security_recommendations:", text)
+        self.assertIn("FAIL", text)
+
+    def test_format_execution_report_rec_stats_without_by_severity(self):
+        report = {
+            "stats": {
+                "security_recommendations": {"total": 1, "by_status": {"WARNING": 1}}
+            },
+            "entries": [],
+        }
+        text = format_execution_report(report)
+        self.assertIn("security_recommendations:", text)
+        self.assertIn("WARNING", text)
+
+    def test_format_execution_report_entry_no_pocs(self):
+        report = {"entries": [{"cve_id": "CVE-2026-0100", "pocs": []}]}
+        text = format_execution_report(report)
+        self.assertIn("CVE-2026-0100", text)
+        self.assertIn("PoCs:        none", text)
+
+    def test_format_execution_report_sandbox_not_dict_skipped(self):
+        report = {
+            "entries": [
+                {
+                    "cve_id": "CVE-2026-0101",
+                    "pocs": [{"url": "https://x", "sandbox": "not-a-dict"}],
+                }
+            ]
+        }
+        text = format_execution_report(report)
+        self.assertIn("CVE-2026-0101", text)
+
+    def test_format_execution_report_sandbox_without_logs(self):
+        report = {
+            "entries": [
+                {
+                    "cve_id": "CVE-2026-0102",
+                    "pocs": [
+                        {
+                            "url": "https://x",
+                            "sandbox": {
+                                "mode": "qemu",
+                                "returncode": 0,
+                                "success": True,
+                                "crashed": False,
+                                "logs": {},
+                            },
+                        }
+                    ],
+                }
+            ]
+        }
+        text = format_execution_report(report)
+        self.assertIn("mode=qemu returncode=0 success=True crashed=False", text)
+
+    def test_format_execution_report_sandbox_with_kernel_info_extra(self):
+        report = {
+            "entries": [
+                {
+                    "cve_id": "CVE-2026-0103",
+                    "pocs": [
+                        {
+                            "url": "https://x",
+                            "sandbox": {
+                                "kernel_info": {
+                                    "uname": "Linux 6.1",
+                                    "date": "d",
+                                    "dmesg": "boot log",
+                                },
+                                "logs": {"binary": "beef"},
+                            },
+                        }
+                    ],
+                }
+            ]
+        }
+        text = format_execution_report(report)
+        self.assertIn("kernel: Linux 6.1", text)
+        self.assertIn("dmesg", text)
+        self.assertIn("beef", text)
+
+    def test_format_execution_report_sandbox_resources_and_files(self):
+        report = {
+            "entries": [
+                {
+                    "cve_id": "CVE-2026-0104",
+                    "pocs": [
+                        {
+                            "url": "https://x",
+                            "sandbox": {
+                                "resources": {"meminfo": "MemTotal: 2"},
+                                "files": ["/etc/passwd"],
+                            },
+                        }
+                    ],
+                }
+            ]
+        }
+        text = format_execution_report(report)
+        self.assertIn("MemTotal: 2", text)
+        self.assertIn("/etc/passwd", text)
+
+    def test_format_execution_report_entry_without_description(self):
+        report = {"entries": [{"cve_id": "CVE-2026-0105", "description": ""}]}
+        text = format_execution_report(report)
+        self.assertIn("CVE-2026-0105", text)
+        self.assertNotIn("Description:", text)
+
+
+class TestDebugMapping(unittest.TestCase):
+    """_debug_mapping and log_sandbox_run tests"""
+
+    def test_debug_mapping_empty_dict(self):
+        self.assertEqual(_debug_mapping({}), "{}")
+
+    def test_debug_mapping_nested_dict(self):
+        result = _debug_mapping({"outer": {"inner": 1}, "plain": 2})
+        self.assertIn("outer:", result)
+        self.assertIn("inner: 1", result)
+        self.assertIn("plain: 2", result)
+
+    def test_debug_mapping_multiline_value(self):
+        result = _debug_mapping({"blob": "a\nb"})
+        self.assertIn("blob:", result)
+        self.assertIn("a", result)
+        self.assertIn("b", result)
+
+    def test_debug_mapping_empty_list(self):
+        self.assertEqual(_debug_mapping([]), "[]")
+
+    def test_debug_mapping_flat_list(self):
+        self.assertEqual(_debug_mapping([1, 2, 3]), "1, 2, 3")
+
+    def test_debug_mapping_list_of_dicts(self):
+        result = _debug_mapping([{"a": 1}, {"b": 2}])
+        self.assertIn("a: 1", result)
+        self.assertIn("b: 2", result)
+
+    def test_debug_mapping_scalar(self):
+        self.assertEqual(_debug_mapping(42), "42")
+
+    def test_log_sandbox_run_debug_logs_every_field(self):
+        logger = logging.getLogger(f"test_log_sandbox_{id(self)}")
+        logger.setLevel(logging.DEBUG)
+
+        class Handler(logging.Handler):
+            def __init__(self):
+                super().__init__()
+                self.records = []
+
+            def emit(self, record):
+                self.records.append(record)
+
+        handler = Handler()
+        logger.addHandler(handler)
+        try:
+            log_sandbox_run(
+                logger,
+                "CVE-2026-0106",
+                {
+                    "scalar": "value",
+                    "blob": "line1\nline2",
+                    "mapping": {"k": "v"},
+                    "empty_list": [],
+                    "nested": [{"a": 1}],
+                },
+            )
+        finally:
+            logger.removeHandler(handler)
+
+        texts = [r.getMessage() for r in handler.records]
+        self.assertTrue(any("CVE-2026-0106" in t for t in texts))
+        self.assertTrue(any("scalar: value" in t for t in texts))
+        self.assertTrue(any("line1" in t for t in texts))
+        self.assertTrue(any("k: v" in t for t in texts))
+        self.assertTrue(any("empty_list" in t for t in texts))
+        self.assertTrue(any("a: 1" in t for t in texts))
+
+    def test_log_sandbox_run_noop_when_not_debug(self):
+        logger = logging.getLogger(f"test_log_sandbox_noop_{id(self)}")
+        logger.setLevel(logging.INFO)
+
+        class Handler(logging.Handler):
+            def __init__(self):
+                super().__init__()
+                self.records = []
+
+            def emit(self, record):
+                self.records.append(record)
+
+        handler = Handler()
+        logger.addHandler(handler)
+        try:
+            log_sandbox_run(logger, "CVE-2026-0107", {"a": 1})
+        finally:
+            logger.removeHandler(handler)
+
+        self.assertEqual(handler.records, [])
 
 
 
