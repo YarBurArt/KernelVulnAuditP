@@ -10,12 +10,15 @@ dependencies = [
     "rich>=15.0.0",
     "textual>=8.2.8",
     "pyyaml>=6.0.0",
-    "ruff>=0.16.2",
+    "anyio==4.14.2",
 ]
 
 [project.optional-dependencies]
 streamlit = [
     "streamlit==1.61.1",
+]
+profiling = [
+    "scalene>=2.3.0",
 ]
 
 [tool.pytest.ini_options]
@@ -28,8 +31,7 @@ dev = [
     "pytest==9.1.1",
     "pylint>=4.0.7",
     "black>=26.5.1",
-    "ruff>=0.16.2",
-    "scalene>=2.3.0",
+    "ruff>=0.16.3",
     "types-pyyaml>=6.0.12.20260815",
 ]
 

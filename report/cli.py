@@ -12,6 +12,11 @@ from report.diff import (
 )
 
 
+def _arrow() -> str:
+    """Tree connector for diff/holder detail lines (ASCII on pure TTYs)."""
+    return term.unicode_glyph("↳", "->")
+
+
 class CLIReportRenderer:
     """Render report using plain text CLI output."""
 
@@ -317,7 +322,7 @@ class CLIReportRenderer:
             detail = str(r.get("detail", "") or "")
             status = str(r.get("status", "") or "")
             if detail and (self.verbose or not is_ok_status(status)):
-                out += f"  {'':<{key_w}}  {'':<{left_w}}  ↳ {detail}\n"
+                out += f"  {'':<{key_w}}  {'':<{left_w}}  {_arrow()} {detail}\n"
         return out
 
     def _build_hardening_diff_section(self, diff: list[dict[str, Any]]) -> str:
@@ -361,7 +366,7 @@ class CLIReportRenderer:
         out = ""
         for group in section.get("groups", []):
             out += (
-                f"    ↳ {group['title']} ({len(group['items'])}):\n"
+                f"    {_arrow()} {group['title']} ({len(group['items'])}):\n"
                 f"      {', '.join(group['items'])}\n"
             )
         return out
@@ -425,9 +430,9 @@ class CLIReportRenderer:
         result = []
         for l, r in zip(left, right):
             if r:
-                result.append(f"      ↳ {l:<{col}}   {r}")
+                result.append(f"      {_arrow()} {l:<{col}}   {r}")
             elif l:
-                result.append(f"      ↳ {l}")
+                result.append(f"      {_arrow()} {l}")
             else:
                 result.append("")
         return result

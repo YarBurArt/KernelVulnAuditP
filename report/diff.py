@@ -10,6 +10,7 @@ from typing import Any
 
 from core import is_finding, norm_sysctl_value, proc_module_name, safe_get_attr
 from recon.parse_recon_reports import HIGH_RISK_CAPS, ParseReports
+from term import unicode_glyph
 
 #: diff section type -> human-readable label (shared by the renderers)
 DIFF_SECTIONS: dict[str, str] = {
@@ -464,7 +465,7 @@ def _cap_documented(cap: str) -> bool:
     return str(cap or "").strip().lower() in HACKTRICKS_DOCUMENTED_CAPS
 
 
-def _cap_reference_rows(names: list[str]) -> list[dict[str, dict]]:
+def _cap_reference_rows(names: list[str]) -> list[dict[str, Any]]:
     """Per-capability reference rows {"what", "how", "why", "escalates"}"""
     rows = []
     for name in sorted({str(n).lower() for n in names or []}, reverse=True):
@@ -529,7 +530,7 @@ def _holder_lines_from_procs(procs: dict[str, list[str]]) -> list[str]:
         pids: list[str] = []
         for n in sorted(names):
             pids += procs[n]
-        label = f"{base}/…" if len(names) > 1 else names[0]
+        label = f"{base}/{unicode_glyph('…', '...')}" if len(names) > 1 else names[0]
         lines.append(_process_label(label, _sort_pids(pids)))
     return lines
 
@@ -575,8 +576,7 @@ def _build_capability_section(
 
     rows: list[dict[str, Any]] = []
     for caps, group in groups.items():
-        seen_files: set[str] = set()
-        unique_files = [f for f in group["files"] if not (f in seen_files or seen_files.add(f))]
+        unique_files = list(dict.fromkeys(group["files"]))
         holder_lines: list[str] = list(unique_files)
         holder_lines += _holder_lines_from_procs(group["procs"])
         holder_count = len(unique_files) + len(

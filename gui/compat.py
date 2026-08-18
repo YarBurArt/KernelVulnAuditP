@@ -54,8 +54,8 @@ def apply_glyph_compat() -> bool:
     Bar.HALF_BAR_LEFT = "<"
     Bar.HALF_BAR_RIGHT = ">"
 
-    ScrollBarRender.VERTICAL_BARS = ["|", "|", "|", "|", "|", "|", "|", " "]
-    ScrollBarRender.HORIZONTAL_BARS = ["-", "-", "-", "-", "-", "-", "-", " "]
+    ScrollBarRender.VERTICAL_BARS = ["#", "#", "#", "#", "#", "#", "#", " "]
+    ScrollBarRender.HORIZONTAL_BARS = ["=", "=", "=", "=", "=", "=", "=", " "]
 
     _APPLIED = True
     return True

@@ -75,6 +75,32 @@ def test_bracket_keys_cycle_tabs():
     anyio.run(main)
 
 
+def test_vim_h_l_keys_cycle_tabs():
+    async def main() -> None:
+        app = _TabApp()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            tabbed = app.screen.query_one(TabbedContent)
+            assert tabbed.active == "tab-audit"
+            await pilot.press("l")
+            await pilot.pause()
+            assert tabbed.active == "tab-selinux"
+            await pilot.press("l")
+            await pilot.pause()
+            assert tabbed.active == "tab-caps"
+            await pilot.press("h")
+            await pilot.pause()
+            assert tabbed.active == "tab-selinux"
+            await pilot.press("h")
+            await pilot.pause()
+            assert tabbed.active == "tab-audit"
+            await pilot.press("h")
+            await pilot.pause()
+            assert tabbed.active == "tab-engine"
+
+    anyio.run(main)
+
+
 def test_footer_is_composed_for_key_hints():
     async def main() -> None:
         from textual.widgets import Footer

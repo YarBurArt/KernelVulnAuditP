@@ -46,8 +46,11 @@ class ScanPage(BaseScreen):
             Binding(key, f"goto_tab('{pane_id}')", f"Tab: {label}", show=False)
             for pane_id, key, label in _TAB_KEYS
         ],
-        Binding("[", "previous_tab", "Previous tab"),
-        Binding("]", "next_tab", "Next tab"),
+        # vim-style navigation: h/l switch tabs, j/k (BaseScreen) scroll
+        Binding("h", "previous_tab", "Previous tab"),
+        Binding("l", "next_tab", "Next tab"),
+        Binding("[", "previous_tab", "Previous tab", show=False),
+        Binding("]", "next_tab", "Next tab", show=False),
     ]
 
     @staticmethod

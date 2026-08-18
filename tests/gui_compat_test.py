@@ -63,8 +63,8 @@ def test_ascii_borders_when_limited(monkeypatch):
     assert Bar.HALF_BAR_LEFT == "<"
     assert Bar.HALF_BAR_RIGHT == ">"
     # scrollbar thumbs
-    assert ScrollBarRender.VERTICAL_BARS[0] == "|"
-    assert ScrollBarRender.HORIZONTAL_BARS[0] == "-"
+    assert ScrollBarRender.VERTICAL_BARS[0] == "#"
+    assert ScrollBarRender.HORIZONTAL_BARS[0] == "="
     assert ScrollBarRender.VERTICAL_BARS[-1] == " "
 
 

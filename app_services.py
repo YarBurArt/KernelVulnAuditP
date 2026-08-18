@@ -45,6 +45,7 @@ from schemas import (
     SecurityRecommendationType,
 )
 from sqxpl import GitHubExploitSearcher
+from term import unicode_glyph
 
 logger = logging.getLogger(f"kernel_audit.{__name__}")
 
@@ -559,7 +560,7 @@ class AppServices:
             bits.append(f"{errors} errors")
         if mode:
             bits.append(mode)
-        return " · ".join(bits)
+        return unicode_glyph(" · ", " . ").join(bits)
 
     def _build_execution_report(
         self,

@@ -166,3 +166,42 @@ def test_main_cli_error_exits_nonzero(MockCLIApp):
     with pytest.raises(SystemExit) as exc:
         main_cli(db=mock.Mock())
     assert exc.value.code == 1
+
+
+def _param_diff() -> list:
+    from report import build_diff
+
+    return build_diff(
+        sandbox_modules=set(),
+        host_modules=set(),
+        kernel_recs=[
+            {
+                "field_name": "fs.suid_dumpable",
+                "expected_value": "0",
+                "actual_value": "2",
+                "description": "restrict core dumps",
+            }
+        ],
+        host_info=None,
+    )
+
+
+def test_report_diff_arrow_ascii_on_pure_tty(monkeypatch):
+    """On a pure TTY the tree connector must degrade to ASCII, never '?'."""
+    from report.cli import CLIReportRenderer
+
+    monkeypatch.setattr(term, "_unicode_supported", False)
+    renderer = CLIReportRenderer({}, verbose=False, color=False)
+    section = renderer._build_hardening_diff_section(_param_diff())
+    assert "-> " in section
+    assert "↳" not in section
+    assert all(c.isascii() for c in section)
+
+
+def test_report_diff_arrow_keeps_unicode(monkeypatch):
+    from report.cli import CLIReportRenderer
+
+    monkeypatch.setattr(term, "_unicode_supported", True)
+    renderer = CLIReportRenderer({}, verbose=False, color=False)
+    section = renderer._build_hardening_diff_section(_param_diff())
+    assert "↳" in section

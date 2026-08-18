@@ -1,5 +1,6 @@
 from datetime import UTC, datetime
 
+import term
 from report import (
     build_caps_diff,
     build_diff,
@@ -493,9 +494,10 @@ def test_base_proc_name_strips_numeric_thread_suffix():
     assert _base_proc_name("card1-crtc3") == "card1-crtc"
 
 
-def test_holder_lines_collapse_threads_by_base_name():
+def test_holder_lines_collapse_threads_by_base_name(monkeypatch):
     from report.diff import _holder_lines_from_procs
 
+    monkeypatch.setattr(term, "_unicode_supported", True)
     lines = _holder_lines_from_procs(
         {
             "cpuhp/0": ["22"],
@@ -506,6 +508,22 @@ def test_holder_lines_collapse_threads_by_base_name():
     )
     assert "cpuhp/… (pids: 22, 23, 77)" in lines
     assert "sshd (pid: 1697)" in lines
+
+
+def test_holder_lines_ascii_fallback_on_pure_tty(monkeypatch):
+    from report.diff import _holder_lines_from_procs
+
+    monkeypatch.setattr(term, "_unicode_supported", False)
+    lines = _holder_lines_from_procs(
+        {
+            "cpuhp/0": ["22"],
+            "cpuhp/1": ["23"],
+            "cpuhp/10": ["77"],
+            "sshd": ["1697"],
+        }
+    )
+    assert "cpuhp/... (pids: 22, 23, 77)" in lines
+    assert all(c.isascii() for c in "".join(lines))
 
 
 def test_diff_columns_param_preserves_link_and_detail():
