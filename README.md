@@ -10,6 +10,9 @@ The tool performs automated checks to verify the presence of public exploit code
 
 The output includes a comprehensive, machine-readable JSON report and a user-friendly HTML report with direct links to advisories, exploit sources, CVE pages, and CWE references, making it easy for administrators to assess real risk and plan remediation.
 
+![image](https://raw.githubusercontent.com/YarBurArt/KernelVulnAuditP/refs/heads/main/docs/img1.png)
+
+
 # Installation
 
 ## Nix
