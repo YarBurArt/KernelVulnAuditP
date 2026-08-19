@@ -254,6 +254,12 @@ def test_statistics_and_filters(db):
     assert len(critical) >= 1
 
 
+def test_get_session(db):
+    session = db.get_session()
+    assert session is not None
+    session.close()
+
+
 def test_context_manager():
     with ThreatIntelligenceORM("sqlite:///ti_test.db") as db:
         db.upsert_vulnerability(

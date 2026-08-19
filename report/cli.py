@@ -93,7 +93,7 @@ class CLIReportRenderer:
         """Build report header."""
         title = "KERNEL VULNERABILITY AUDIT REPORT"
         if self.color:
-            title = term.paint(title, bold=True)
+            title = self._c(title, term.INFO, bold=True)
         return (
             "\n"
             + "=" * 60

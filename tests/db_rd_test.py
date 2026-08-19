@@ -1,6 +1,10 @@
+from datetime import UTC, datetime
+
 import pytest
 
 from db.db_rd import InMemoryThreatDB
+from db.models import SecurityRecommendation
+from schemas import HostInfoData
 
 
 @pytest.fixture
@@ -246,3 +250,165 @@ def test_context_manager():
                 "cvss_v3_score": 5.0,
             }
         )
+
+
+def test_kev_known_ransomware_false(db):
+    db.upsert_vulnerability(_base_vuln())
+    db.add_cisa_kev("CVE-2024-1086", {"known_ransomware": False})
+
+    vuln = db.get_vulnerability("CVE-2024-1086")
+    assert vuln["in_cisa_kev"] is True
+    assert vuln.get("known_ransomware") is not True
+
+
+def test_details_missing_returns_none(db):
+    assert db.get_vulnerability_with_details("CVE-9999-9999") is None
+
+
+def test_exploitdb_reference_counts(db):
+    db.upsert_vulnerability(_base_vuln())
+    db.add_reference("CVE-2024-1086", "https://edb.com/1", ref_type="EXPLOIT_DB")
+
+    vuln = db.get_vulnerability("CVE-2024-1086")
+    assert vuln["exploitdb_refs"] == 1
+
+    db.add_reference("CVE-2024-1086", "https://gh.com/1", source="GitHub")
+    db.add_reference("CVE-2024-1086", "https://nvd.com/1", ref_type="ADVISORY")
+    assert db.get_vulnerability("CVE-2024-1086")["github_refs"] == 1
+
+
+def test_statistics_no_cvss(db):
+    db.upsert_vulnerability({"cve_id": "CVE-2024-2000"})
+    db.upsert_vulnerability(_base_vuln())
+
+    stats = db.get_statistics()
+
+    assert stats["avg_cvss"] > 0
+    assert stats["by_severity"]["CRITICAL"] == 1
+
+
+def test_statistics_empty(db):
+    stats = db.get_statistics()
+
+    assert stats["total"] == 0
+    assert stats["avg_cvss"] == 0
+    assert stats["by_severity"] == {}
+    assert stats["with_exploits"] == 0
+    assert stats["critical_count"] == 0
+
+
+def test_recommendation_crud(db):
+    rec = SecurityRecommendation(
+        test_id="KRNL-1000",
+        category="kernel",
+        severity="HIGH",
+        status="open",
+    )
+    rid = db.add_security_recommendation(rec)
+
+    assert rid == 1
+    recs = db.get_security_recommendations()
+    assert len(recs) == 1
+    assert recs[0]["test_id"] == "KRNL-1000"
+
+    db.add_security_recommendation(
+        SecurityRecommendation(
+            test_id="KRNL-2000",
+            category="selinux",
+            severity="LOW",
+            status="fixed",
+        )
+    )
+
+    assert len(db.get_security_recommendations(category="selinux")) == 1
+    assert len(db.get_security_recommendations(status="fixed")) == 1
+    assert len(db.get_security_recommendations(limit=1, offset=1)) == 1
+
+
+def test_recommendations_bulk_with_error(db):
+    good = SecurityRecommendation(
+        test_id="KRNL-3000", category="kernel", severity="MEDIUM", status="open"
+    )
+
+    class _Broken:
+        test_id = "KRNL-BAD"
+
+        def __setattr__(self, name, value):
+            if name == "id":
+                raise AttributeError("cannot set id")
+            super().__setattr__(name, value)
+
+    inserted = db.bulk_insert_recommendations([good, _Broken()])
+
+    assert inserted == 1
+
+
+def test_recommendations_stats(db):
+    db.add_security_recommendation(
+        SecurityRecommendation(
+            test_id="KRNL-1000", category="kernel", severity="HIGH", status="open"
+        )
+    )
+    db.add_security_recommendation(
+        SecurityRecommendation(
+            test_id="KRNL-2000", category=None, severity=None, status=None
+        )
+    )
+
+    stats = db.get_recommendations_stats()
+
+    assert stats["total"] == 2
+    assert stats["by_category"]["kernel"] == 1
+    assert stats["by_status"]["open"] == 1
+    assert stats["by_severity"]["HIGH"] == 1
+
+
+def test_host_add_sets_timestamps(db):
+    host = HostInfoData(hostname="h1", kernel_version="6.8.0", captured_at=None)
+    hid = db.add_host_info(host)
+
+    got = db.get_host_info(hid)
+
+    assert got is not None
+    assert got.captured_at is not None
+    assert got.created_at is not None
+    assert got.updated_at is not None
+
+
+def test_host_add_keeps_existing_timestamps(db):
+    when = datetime(2023, 5, 1, 8, 0, 0, tzinfo=UTC)
+    host = HostInfoData(
+        hostname="h1",
+        kernel_version="6.8.0",
+        captured_at=when,
+        created_at=when,
+    )
+    hid = db.add_host_info(host)
+
+    got = db.get_host_info(hid)
+
+    assert got is not None
+    assert got.captured_at == when
+    assert got.created_at == when
+
+
+def test_host_info_missing_with_entries(db):
+    db.add_host_info(HostInfoData(hostname="h1", kernel_version="6.8.0"))
+
+    assert db.get_host_info(424242) is None
+
+
+def test_latest_host_info_empty_returns_none(db):
+    assert db.get_latest_host_info() is None
+
+
+def test_bulk_insert_skips_bad_rows(db):
+    inserted = db.bulk_insert(
+        [
+            _base_vuln(),
+            {"cvss_v3_score": 7.0},
+            {"cve_id": "CVE-2024-0002", "cvss_v3_score": 6.0},
+        ]
+    )
+
+    assert inserted == 2

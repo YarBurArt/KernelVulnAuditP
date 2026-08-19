@@ -3,6 +3,7 @@ from datetime import UTC, datetime
 import pytest
 
 from db import get_db
+from db.db import ThreatIntelligenceORMAdapter
 from db.db_rd import InMemoryThreatDB
 from schemas import HostInfoData, HostUser
 
@@ -37,6 +38,152 @@ def test_get_db_returns_correct_backend():
 def test_unknown_backend_raises():
     with pytest.raises(ValueError):
         get_db("unknown")
+
+
+@pytest.fixture
+def orm_db(tmp_path):
+    database = ThreatIntelligenceORMAdapter(f"sqlite:///{tmp_path / 'adapter.db'}")
+    yield database
+    database.close()
+
+
+def test_get_db_orm_backend(tmp_path):
+    database = get_db("orm")
+    assert isinstance(database, ThreatIntelligenceORMAdapter)
+    database.close()
+
+
+def test_adapter_upsert_returns_int(orm_db):
+    vid = orm_db.upsert_vulnerability(
+        {
+            "cve_id": "CVE-2024-0001",
+            "description": "Adapter RCE",
+            "cvss_v3_score": 9.8,
+            "severity": "CRITICAL",
+        }
+    )
+    assert isinstance(vid, int)
+
+
+def test_adapter_get_vulnerability(orm_db):
+    orm_db.upsert_vulnerability(
+        {
+            "cve_id": "CVE-2024-0001",
+            "description": "Adapter RCE",
+            "cvss_v3_score": 9.8,
+            "severity": "CRITICAL",
+        }
+    )
+
+    vuln = orm_db.get_vulnerability("CVE-2024-0001")
+
+    assert vuln is not None
+    assert vuln["cve_id"] == "CVE-2024-0001"
+    assert orm_db.get_vulnerability("CVE-9999-9999") is None
+
+
+def test_adapter_add_reference_and_details(orm_db):
+    orm_db.upsert_vulnerability(
+        {
+            "cve_id": "CVE-2024-0001",
+            "cvss_v3_score": 9.8,
+            "severity": "CRITICAL",
+        }
+    )
+
+    orm_db.add_reference("CVE-2024-0001", "https://nvd.example.com", ref_type="ADVISORY")
+
+    details = orm_db.get_vulnerability_with_details("CVE-2024-0001")
+
+    assert details is not None
+    assert len(details["references"]) == 1
+
+
+def test_adapter_exploit_kev_sandbox(orm_db):
+    orm_db.upsert_vulnerability(
+        {
+            "cve_id": "CVE-2024-0001",
+            "cvss_v3_score": 9.8,
+            "severity": "CRITICAL",
+        }
+    )
+
+    orm_db.add_exploit("CVE-2024-0001", {"exploit_type": "POC"})
+    orm_db.add_cisa_kev("CVE-2024-0001", {"known_ransomware": True})
+    orm_db.add_sandbox_run("CVE-2024-0001", {"sandbox_platform": "qemu"})
+
+    assert len(orm_db.get_sandbox_runs("CVE-2024-0001")) == 1
+
+    kev_list = orm_db.get_cisa_kev_list()
+    with_exploits = orm_db.get_with_exploits()
+
+    assert len(kev_list) == 1
+    assert len(with_exploits) == 1
+
+
+def test_adapter_search_and_stats(orm_db):
+    orm_db.upsert_vulnerability(
+        {
+            "cve_id": "CVE-2024-0001",
+            "cvss_v3_score": 9.8,
+            "severity": "CRITICAL",
+        }
+    )
+
+    assert len(orm_db.search(severity="CRITICAL")) == 1
+    assert len(orm_db.get_critical()) == 1
+
+    stats = orm_db.get_statistics()
+    assert stats["total"] >= 1
+
+
+def test_adapter_recommendations_and_bulk(orm_db):
+    from db.models import SecurityRecommendation
+
+    rid = orm_db.add_security_recommendation(
+        SecurityRecommendation(
+            test_id="KRNL-1000", category="kernel", severity="HIGH", status="open"
+        )
+    )
+    assert rid == 1
+
+    orm_db.bulk_insert_recommendations(
+        [
+            SecurityRecommendation(
+                test_id="KRNL-2000", category="selinux", severity="LOW", status="fixed"
+            )
+        ]
+    )
+
+    recs = orm_db.get_security_recommendations(category="selinux")
+    assert len(recs) == 1
+
+    stats = orm_db.get_recommendations_stats()
+    assert stats["total"] == 2
+
+
+def test_adapter_host_and_bulk_insert(orm_db):
+    hid = orm_db.add_host_info(_sample_host("adapter-host"))
+
+    got = orm_db.get_host_info(hid)
+    assert got is not None
+    assert got.hostname == "adapter-host"
+
+    latest = orm_db.get_latest_host_info()
+    assert latest is not None
+    assert latest.hostname == "adapter-host"
+
+    headers = orm_db.get_host_infos()
+    assert len(headers) == 1
+    assert headers[0].users == []
+
+    inserted = orm_db.bulk_insert(
+        [
+            {"cve_id": "CVE-2024-0100", "cvss_v3_score": 7.0},
+            {"cve_id": "CVE-2024-0101", "cvss_v3_score": 6.0},
+        ]
+    )
+    assert inserted == 2
 
 
 def test_upsert_returns_int_id(db):
