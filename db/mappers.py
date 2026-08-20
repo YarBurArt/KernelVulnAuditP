@@ -1,8 +1,10 @@
+from dataclasses import MISSING, asdict, fields
 from typing import Any
 
 from sqlalchemy.orm import Session, selectinload
 
-import schemas
+from core import entities
+from core.entities import HostInfo
 from db.models import (
     HostBootParameter,
     HostCgroup,
@@ -11,7 +13,6 @@ from db.models import (
     HostFileCapabilities,
     HostGroup,
     HostGroupMember,
-    HostInfo,
     HostKernelHardening,
     HostKernelModule,
     HostKernelParameter,
@@ -21,11 +22,36 @@ from db.models import (
     HostSELinuxBoolean,
     HostUser,
 )
+from db.models import (
+    HostInfo as HostInfoRow,
+)
 
 
-def build_host_row(host_data: schemas.HostInfoData) -> HostInfo:
+def entity_write_dict(record: Any) -> dict[str, Any]:
+    """Flatten a core entity into the dict form the backends persist.
+
+    Fields left at their dataclass default are treated as "not provided" and
+    omitted, so a partial upsert never wipes previously stored columns.
+    """
+    out: dict[str, Any] = {}
+    for key, value in asdict(record).items():
+        info = record.__dataclass_fields__[key]
+        if info.default is not MISSING:
+            default = info.default
+        elif info.default_factory is not MISSING:
+            default = info.default_factory()
+        else:
+            # required field (no default) — always part of the write
+            out[key] = value
+            continue
+        if value != default:
+            out[key] = value
+    return out
+
+
+def build_host_row(host_data: HostInfo) -> HostInfoRow:
     """map scalar host fields to a HostInfo row."""
-    return HostInfo(
+    return HostInfoRow(
         captured_at=host_data.captured_at,
         hostname=host_data.hostname or None,
         kernel_version=host_data.kernel_version or None,
@@ -58,7 +84,7 @@ def build_host_row(host_data: schemas.HostInfoData) -> HostInfo:
 def add_environment_variables(
     session: Session,
     host_id: int,
-    items: list[schemas.HostEnvironmentVariable],
+    items: list[entities.HostEnvironmentVariable],
 ) -> None:
     session.add_all(
         HostEnvironmentVariable(host_info_id=host_id, name=v.name, value=v.value)
@@ -69,7 +95,7 @@ def add_environment_variables(
 def add_kernel_parameters(
     session: Session,
     host_id: int,
-    items: list[schemas.HostKernelParameter],
+    items: list[entities.HostKernelParameter],
 ) -> None:
     session.add_all(
         HostKernelParameter(
@@ -84,7 +110,7 @@ def add_kernel_parameters(
 def add_boot_parameters(
     session: Session,
     host_id: int,
-    items: list[schemas.HostBootParameter],
+    items: list[entities.HostBootParameter],
 ) -> None:
     session.add_all(
         HostBootParameter(
@@ -99,7 +125,7 @@ def add_boot_parameters(
 def add_kernel_modules(
     session: Session,
     host_id: int,
-    items: list[schemas.HostKernelModule],
+    items: list[entities.HostKernelModule],
 ) -> None:
     session.add_all(
         HostKernelModule(
@@ -118,7 +144,7 @@ def add_kernel_modules(
 def add_kernel_hardening(
     session: Session,
     host_id: int,
-    items: list[schemas.HostKernelHardening],
+    items: list[entities.HostKernelHardening],
 ) -> None:
     session.add_all(
         HostKernelHardening(
@@ -142,7 +168,7 @@ def add_kernel_hardening(
 def add_selinux_booleans(
     session: Session,
     host_id: int,
-    items: list[schemas.HostSELinuxBoolean],
+    items: list[entities.HostSELinuxBoolean],
 ) -> None:
     session.add_all(
         HostSELinuxBoolean(
@@ -157,7 +183,7 @@ def add_selinux_booleans(
 def add_users(
     session: Session,
     host_id: int,
-    items: list[schemas.HostUser],
+    items: list[entities.HostUser],
 ) -> None:
     session.add_all(
         HostUser(
@@ -178,7 +204,7 @@ def add_users(
 def add_groups(
     session: Session,
     host_id: int,
-    items: list[schemas.HostGroup],
+    items: list[entities.HostGroup],
 ) -> None:
     for group in items:
         grp = HostGroup(
@@ -195,7 +221,7 @@ def add_groups(
 def add_namespaces(
     session: Session,
     host_id: int,
-    items: list[schemas.HostNamespace],
+    items: list[entities.HostNamespace],
 ) -> None:
     session.add_all(
         HostNamespace(
@@ -212,7 +238,7 @@ def add_namespaces(
 def add_cgroups(
     session: Session,
     host_id: int,
-    items: list[schemas.HostCgroup],
+    items: list[entities.HostCgroup],
 ) -> None:
     session.add_all(
         HostCgroup(
@@ -231,7 +257,7 @@ def add_cgroups(
 def add_processes(
     session: Session,
     host_id: int,
-    items: list[schemas.HostProcess],
+    items: list[entities.HostProcess],
 ) -> None:
     session.add_all(
         HostProcess(
@@ -254,7 +280,7 @@ def add_processes(
 def add_files(
     session: Session,
     host_id: int,
-    items: list[schemas.HostFile],
+    items: list[entities.HostFile],
 ) -> None:
     session.add_all(
         HostFile(
@@ -285,7 +311,7 @@ def add_files(
 def add_file_capabilities(
     session: Session,
     host_id: int,
-    items: list[schemas.HostFileCapabilities],
+    items: list[entities.HostFileCapabilities],
 ) -> None:
     session.add_all(
         HostFileCapabilities(
@@ -305,7 +331,7 @@ def add_file_capabilities(
 def add_process_capabilities(
     session: Session,
     host_id: int,
-    items: list[schemas.HostProcessCapabilities],
+    items: list[entities.HostProcessCapabilities],
 ) -> None:
     session.add_all(
         HostProcessCapabilities(
@@ -328,7 +354,7 @@ def add_process_capabilities(
 def add_children(
     session: Session,
     host_id: int,
-    host_data: schemas.HostInfoData,
+    host_data: HostInfo,
 ) -> None:
     """persist every host data category as child rows under host_id."""
     add_environment_variables(session, host_id, host_data.environment_variables)
@@ -347,8 +373,9 @@ def add_children(
     add_process_capabilities(session, host_id, host_data.process_capabilities)
 
 
-def build_host_model(session: Session, host_data: schemas.HostInfoData) -> HostInfo:
-    """map a HostInfoData transfer type to a HostInfo row plus child rows."""
+def build_host_model(session: Session, host_data: HostInfo) -> HostInfoRow:
+    """map a HostInfo entity to a HostInfo row plus child rows."""
+    _check_child_types(host_data)
     host = build_host_row(host_data)
     session.add(host)
     session.flush()
@@ -356,28 +383,51 @@ def build_host_model(session: Session, host_data: schemas.HostInfoData) -> HostI
     return host
 
 
+def _check_child_types(host_data: HostInfo) -> None:
+    """fail fast with a clear error before any rows are written.
+
+    HostInfo children are typed collections of core entities; a stray
+    dict (or any other object) reaching the mapper would otherwise surface
+    as an opaque AttributeError deep inside a child builder.
+    """
+    from typing import get_args, get_origin
+
+    for field_info in fields(HostInfo):
+        value = getattr(host_data, field_info.name)
+        origin = get_origin(field_info.type)
+        if origin is not list or not value:
+            continue
+        expected = get_args(field_info.type)[0]
+        for item in value:
+            if not isinstance(item, expected):
+                raise TypeError(
+                    f"host_data.{field_info.name} must contain {expected.__name__} "
+                    f"items, got {type(item).__name__}"
+                )
+
+
 def query_host_with_children(session: Session) -> Any:
-    return session.query(HostInfo).options(
-        selectinload(HostInfo.environment_variables),
-        selectinload(HostInfo.kernel_parameters),
-        selectinload(HostInfo.boot_parameters),
-        selectinload(HostInfo.kernel_modules),
-        selectinload(HostInfo.kernel_hardening),
-        selectinload(HostInfo.selinux_booleans),
-        selectinload(HostInfo.users),
-        selectinload(HostInfo.groups).selectinload(HostGroup.members),
-        selectinload(HostInfo.namespaces),
-        selectinload(HostInfo.cgroups),
-        selectinload(HostInfo.processes),
-        selectinload(HostInfo.files),
-        selectinload(HostInfo.file_capabilities),
-        selectinload(HostInfo.process_capabilities),
+    return session.query(HostInfoRow).options(
+        selectinload(HostInfoRow.environment_variables),
+        selectinload(HostInfoRow.kernel_parameters),
+        selectinload(HostInfoRow.boot_parameters),
+        selectinload(HostInfoRow.kernel_modules),
+        selectinload(HostInfoRow.kernel_hardening),
+        selectinload(HostInfoRow.selinux_booleans),
+        selectinload(HostInfoRow.users),
+        selectinload(HostInfoRow.groups).selectinload(HostGroup.members),
+        selectinload(HostInfoRow.namespaces),
+        selectinload(HostInfoRow.cgroups),
+        selectinload(HostInfoRow.processes),
+        selectinload(HostInfoRow.files),
+        selectinload(HostInfoRow.file_capabilities),
+        selectinload(HostInfoRow.process_capabilities),
     )
 
 
-def host_header(host: HostInfo) -> schemas.HostInfoData:
+def host_header(host: HostInfoRow) -> HostInfo:
     """map scalar HostInfo fields only (no child rows)."""
-    return schemas.HostInfoData(
+    return HostInfo(
         id=host.id,
         captured_at=host.captured_at,
         created_at=host.created_at,
@@ -412,17 +462,17 @@ def host_header(host: HostInfo) -> schemas.HostInfoData:
 
 def environment_variables_to_data(
     rows: list[HostEnvironmentVariable],
-) -> list[schemas.HostEnvironmentVariable]:
+) -> list[entities.HostEnvironmentVariable]:
     return [
-        schemas.HostEnvironmentVariable(name=v.name, value=v.value or "") for v in rows
+        entities.HostEnvironmentVariable(name=v.name, value=v.value or "") for v in rows
     ]
 
 
 def kernel_parameters_to_data(
     rows: list[HostKernelParameter],
-) -> list[schemas.HostKernelParameter]:
+) -> list[entities.HostKernelParameter]:
     return [
-        schemas.HostKernelParameter(
+        entities.HostKernelParameter(
             parameter_name=p.parameter_name, parameter_value=p.parameter_value or ""
         )
         for p in rows
@@ -431,9 +481,9 @@ def kernel_parameters_to_data(
 
 def boot_parameters_to_data(
     rows: list[HostBootParameter],
-) -> list[schemas.HostBootParameter]:
+) -> list[entities.HostBootParameter]:
     return [
-        schemas.HostBootParameter(
+        entities.HostBootParameter(
             parameter_name=p.parameter_name, parameter_value=p.parameter_value or ""
         )
         for p in rows
@@ -442,9 +492,9 @@ def boot_parameters_to_data(
 
 def kernel_modules_to_data(
     rows: list[HostKernelModule],
-) -> list[schemas.HostKernelModule]:
+) -> list[entities.HostKernelModule]:
     return [
-        schemas.HostKernelModule(
+        entities.HostKernelModule(
             module_name=m.module_name,
             size=m.size,
             refcount=m.refcount,
@@ -458,9 +508,9 @@ def kernel_modules_to_data(
 
 def kernel_hardening_to_data(
     rows: list[HostKernelHardening],
-) -> list[schemas.HostKernelHardening]:
+) -> list[entities.HostKernelHardening]:
     return [
-        schemas.HostKernelHardening(
+        entities.HostKernelHardening(
             test_id=h.test_id,
             category=h.category or "",
             description=h.description or "",
@@ -479,16 +529,16 @@ def kernel_hardening_to_data(
 
 def selinux_booleans_to_data(
     rows: list[HostSELinuxBoolean],
-) -> list[schemas.HostSELinuxBoolean]:
+) -> list[entities.HostSELinuxBoolean]:
     return [
-        schemas.HostSELinuxBoolean(boolean_name=b.boolean_name, value=b.value)
+        entities.HostSELinuxBoolean(boolean_name=b.boolean_name, value=b.value)
         for b in rows
     ]
 
 
-def users_to_data(rows: list[HostUser]) -> list[schemas.HostUser]:
+def users_to_data(rows: list[HostUser]) -> list[entities.HostUser]:
     return [
-        schemas.HostUser(
+        entities.HostUser(
             username=u.username,
             uid=u.uid,
             gid=u.gid,
@@ -502,9 +552,9 @@ def users_to_data(rows: list[HostUser]) -> list[schemas.HostUser]:
     ]
 
 
-def groups_to_data(rows: list[HostGroup]) -> list[schemas.HostGroup]:
+def groups_to_data(rows: list[HostGroup]) -> list[entities.HostGroup]:
     return [
-        schemas.HostGroup(
+        entities.HostGroup(
             group_name=g.group_name,
             gid=g.gid,
             members=[m.username for m in g.members],
@@ -515,9 +565,9 @@ def groups_to_data(rows: list[HostGroup]) -> list[schemas.HostGroup]:
 
 def namespaces_to_data(
     rows: list[HostNamespace],
-) -> list[schemas.HostNamespace]:
+) -> list[entities.HostNamespace]:
     return [
-        schemas.HostNamespace(
+        entities.HostNamespace(
             pid=n.pid,
             process_name=n.process_name or "",
             namespace_type=n.namespace_type,
@@ -527,9 +577,9 @@ def namespaces_to_data(
     ]
 
 
-def cgroups_to_data(rows: list[HostCgroup]) -> list[schemas.HostCgroup]:
+def cgroups_to_data(rows: list[HostCgroup]) -> list[entities.HostCgroup]:
     return [
-        schemas.HostCgroup(
+        entities.HostCgroup(
             pid=c.pid,
             path=c.path,
             process_name=c.process_name or "",
@@ -541,9 +591,9 @@ def cgroups_to_data(rows: list[HostCgroup]) -> list[schemas.HostCgroup]:
     ]
 
 
-def processes_to_data(rows: list[HostProcess]) -> list[schemas.HostProcess]:
+def processes_to_data(rows: list[HostProcess]) -> list[entities.HostProcess]:
     return [
-        schemas.HostProcess(
+        entities.HostProcess(
             pid=p.pid,
             ppid=p.ppid,
             name=p.name or "",
@@ -559,9 +609,9 @@ def processes_to_data(rows: list[HostProcess]) -> list[schemas.HostProcess]:
     ]
 
 
-def files_to_data(rows: list[HostFile]) -> list[schemas.HostFile]:
+def files_to_data(rows: list[HostFile]) -> list[entities.HostFile]:
     return [
-        schemas.HostFile(
+        entities.HostFile(
             path=f.path,
             file_type=f.file_type,
             mode=f.mode,
@@ -587,9 +637,9 @@ def files_to_data(rows: list[HostFile]) -> list[schemas.HostFile]:
 
 def file_capabilities_to_data(
     rows: list[HostFileCapabilities],
-) -> list[schemas.HostFileCapabilities]:
+) -> list[entities.HostFileCapabilities]:
     return [
-        schemas.HostFileCapabilities(
+        entities.HostFileCapabilities(
             path=fc.path,
             owner_name=fc.owner_name,
             cap_effective=fc.cap_effective,
@@ -604,9 +654,9 @@ def file_capabilities_to_data(
 
 def process_capabilities_to_data(
     rows: list[HostProcessCapabilities],
-) -> list[schemas.HostProcessCapabilities]:
+) -> list[entities.HostProcessCapabilities]:
     return [
-        schemas.HostProcessCapabilities(
+        entities.HostProcessCapabilities(
             pid=pc.pid,
             process_name=pc.process_name or "",
             username=pc.username,
@@ -622,7 +672,7 @@ def process_capabilities_to_data(
     ]
 
 
-def to_data(host: HostInfo, include_children: bool = True) -> schemas.HostInfoData:
+def to_data(host: HostInfoRow, include_children: bool = True) -> HostInfo:
     data = host_header(host)
     if not include_children:
         return data

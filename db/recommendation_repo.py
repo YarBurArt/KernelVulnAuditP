@@ -1,5 +1,4 @@
 import logging
-from typing import Any
 
 from sqlalchemy import func
 from sqlalchemy.exc import SQLAlchemyError
@@ -8,9 +7,30 @@ from sqlalchemy.orm import (
     sessionmaker,
 )
 
-from db.models import SecurityRecommendation
+from core.entities import RecommendationStats, SecurityRecommendation
+from db.mappers import entity_write_dict
+from db.models import SecurityRecommendation as SecurityRecommendationRow
 
 logger = logging.getLogger(f"kernel_audit.{__name__}")
+
+_REC_COLUMNS = {c.name for c in SecurityRecommendationRow.__table__.columns}
+
+
+def _rec_entity(r: SecurityRecommendationRow) -> SecurityRecommendation:
+    return SecurityRecommendation(
+        id=r.id,
+        test_id=r.test_id,
+        category=r.category,
+        description=r.description,
+        field_name=r.field_name,
+        expected_value=r.expected_value,
+        actual_value=r.actual_value,
+        status=r.status,
+        severity=r.severity,
+        source=r.source,
+        raw_data=r.raw_data or {},
+        created_at=r.created_at,
+    )
 
 
 class RecommendationRepository:
@@ -26,11 +46,17 @@ class RecommendationRepository:
         """add security recommendation"""
         session = self.get_session()
         try:
-            session.add(rec_data)
+            write = {
+                k: v
+                for k, v in entity_write_dict(rec_data).items()
+                if k in _REC_COLUMNS and k != "id"
+            }
+            rec = SecurityRecommendationRow(**write)
+            session.add(rec)
             session.commit()
-            session.refresh(rec_data)
-            logger.debug(f"result data: {rec_data.to_dict()}")
-            return rec_data.id
+            session.refresh(rec)
+            logger.debug(f"result data: {rec.to_dict()}")
+            return rec.id
         except (SQLAlchemyError, ValueError, KeyError, TypeError) as e:
             session.rollback()
             logger.error(e)
@@ -57,72 +83,54 @@ class RecommendationRepository:
         status: str | None = None,
         limit: int = 100,
         offset: int = 0,
-    ) -> list[dict[str, Any]]:
+    ) -> list[SecurityRecommendation]:
         """get security recommendations with filters"""
         session = self.get_session()
         try:
-            query = session.query(SecurityRecommendation)
+            query = session.query(SecurityRecommendationRow)
             if category:
                 query = query.filter_by(category=category)
             if status:
                 query = query.filter_by(status=status)
             query = query.order_by(
-                SecurityRecommendation.severity.desc(),
-                SecurityRecommendation.test_id.asc(),
+                SecurityRecommendationRow.severity.desc(),
+                SecurityRecommendationRow.test_id.asc(),
             )
             results = query.limit(limit).offset(offset).all()
-            return [r.to_dict() for r in results]
+            return [_rec_entity(r) for r in results]
         finally:
             session.close()
 
-    def get_recommendations_stats(self) -> dict[str, Any]:
+    def get_recommendations_stats(self) -> RecommendationStats:
         """get security recommendations statistics"""
         session = self.get_session()
         try:
-            stats: dict[str, Any] = {
-                "total": session.query(SecurityRecommendation).count()
-            }
-            cat_q = (
-                session.query(
-                    SecurityRecommendation.category,
-                    func.count(SecurityRecommendation.id),
-                )
-                .filter(SecurityRecommendation.category.isnot(None))
-                .group_by(SecurityRecommendation.category)
-                .all()
-            )
-            parsed_category = {row[0]: row[1] for row in cat_q}
-            stats["by_category"] = parsed_category
-            logger.debug(f"Parsed recommendation category stats: {parsed_category}")
+            total = session.query(SecurityRecommendationRow).count()
 
-            stat_q = (
-                session.query(
-                    SecurityRecommendation.status,
-                    func.count(SecurityRecommendation.id),
+            def _counts(column) -> dict[str, int]:
+                rows = (
+                    session.query(column, func.count(SecurityRecommendationRow.id))
+                    .filter(column.isnot(None))
+                    .group_by(column)
+                    .all()
                 )
-                .filter(SecurityRecommendation.status.isnot(None))
-                .group_by(SecurityRecommendation.status)
-                .all()
-            )
-            parsed_status = {row[0]: row[1] for row in stat_q}
-            stats["by_status"] = parsed_status
-            logger.debug(f"Parsed recommendation status stats: {parsed_status}")
+                return {row[0]: row[1] for row in rows}
 
-            sev_q = (
-                session.query(
-                    SecurityRecommendation.severity,
-                    func.count(SecurityRecommendation.id),
-                )
-                .filter(SecurityRecommendation.severity.isnot(None))
-                .group_by(SecurityRecommendation.severity)
-                .all()
-            )
-            parsed_severity_rec = {row[0]: row[1] for row in sev_q}
-            stats["by_severity"] = parsed_severity_rec
+            by_category = _counts(SecurityRecommendationRow.category)
+            logger.debug(f"Parsed recommendation category stats: {by_category}")
+            by_status = _counts(SecurityRecommendationRow.status)
+            logger.debug(f"Parsed recommendation status stats: {by_status}")
+            by_severity = _counts(SecurityRecommendationRow.severity)
             logger.debug(
-                f"Parsed recommendation severity stats: {parsed_severity_rec}"
+                f"Parsed recommendation severity stats: {by_severity}"
             )
 
+            stats = RecommendationStats(
+                total=total,
+                by_category=by_category,
+                by_status=by_status,
+                by_severity=by_severity,
+            )
             logger.debug(f"recommendations / params stats: {stats}")
             return stats
         finally:

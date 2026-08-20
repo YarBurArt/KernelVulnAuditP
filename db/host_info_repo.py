@@ -6,9 +6,9 @@ from sqlalchemy.orm import (
     sessionmaker,
 )
 
-import schemas
+from core.entities import HostInfo
 from db.mappers import build_host_model, query_host_with_children, to_data
-from db.models import HostInfo
+from db.models import HostInfo as HostInfoRow
 
 logger = logging.getLogger(f"kernel_audit.{__name__}")
 
@@ -22,7 +22,7 @@ class HostInfoRepository:
     def get_session(self) -> Session:
         return self._session_factory()
 
-    def add_host_info(self, host_data: schemas.HostInfoData) -> HostInfo:
+    def add_host_info(self, host_data: HostInfo) -> HostInfoRow:
         session = self.get_session()
         try:
             host = build_host_model(session, host_data)
@@ -38,7 +38,7 @@ class HostInfoRepository:
         finally:
             session.close()
 
-    def get_host_info(self, host_info_id: int) -> schemas.HostInfoData | None:
+    def get_host_info(self, host_info_id: int) -> HostInfo | None:
         session = self.get_session()
         try:
             host = (
@@ -53,12 +53,12 @@ class HostInfoRepository:
         finally:
             session.close()
 
-    def get_latest_host_info(self) -> schemas.HostInfoData | None:
+    def get_latest_host_info(self) -> HostInfo | None:
         session = self.get_session()
         try:
             host = (
                 query_host_with_children(session)
-                .order_by(HostInfo.captured_at.desc(), HostInfo.id.desc())
+                .order_by(HostInfoRow.captured_at.desc(), HostInfoRow.id.desc())
                 .first()
             )
             if host is None:
@@ -70,12 +70,12 @@ class HostInfoRepository:
 
     def get_host_infos(
         self, limit: int = 100, offset: int = 0
-    ) -> list[schemas.HostInfoData]:
+    ) -> list[HostInfo]:
         session = self.get_session()
         try:
             hosts = (
-                session.query(HostInfo)
-                .order_by(HostInfo.captured_at.desc(), HostInfo.id.desc())
+                session.query(HostInfoRow)
+                .order_by(HostInfoRow.captured_at.desc(), HostInfoRow.id.desc())
                 .limit(limit)
                 .offset(offset)
                 .all()
