@@ -5,10 +5,13 @@ are switched with the numbered shortcuts and the [ ] cycling actions added
 on ScanPage.
 """
 
+from typing import cast
+
 import anyio
 from textual.app import App
 from textual.widgets import Static, TabbedContent
 
+from gui.pages.base_screen import BaseScreen
 from gui.pages.scan_page import _TAB_KEYS, ScanPage
 
 
@@ -129,7 +132,7 @@ def test_scroll_target_tracks_active_tab():
         app = _TabApp()
         async with app.run_test() as pilot:
             await pilot.pause()
-            screen = app.screen
+            screen = cast(BaseScreen, app.screen)
             audit = await _fill_scroll(screen, "audit_list")
             selinux = await _fill_scroll(screen, "selinux_list")
             await pilot.pause()
@@ -159,7 +162,7 @@ def test_scroll_target_prefers_console_on_engine_tab():
         app = _TabApp()
         async with app.run_test() as pilot:
             await pilot.pause()
-            screen = app.screen
+            screen = cast(BaseScreen, app.screen)
             await pilot.press("6")
             await pilot.pause()
             target = screen._scroll_target()
@@ -173,7 +176,7 @@ def test_rendered_skips_hidden_tab_panes():
         app = _TabApp()
         async with app.run_test() as pilot:
             await pilot.pause()
-            screen = app.screen
+            screen = cast(BaseScreen, app.screen)
             audit = screen.query_one("#audit_list")
             selinux = screen.query_one("#selinux_list")
             # both panes are hidden except the active one
