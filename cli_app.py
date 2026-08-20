@@ -7,49 +7,41 @@ from typing import Any
 import httpx
 from sqlalchemy.exc import SQLAlchemyError
 
-import term
 from app_services import AppServices
+from application.di import build_container
+from application.dto import ReconResult
+from application.services.settings_service import update_config_file
 from config import DB_BACKEND
-from core import (
+from core.entities import SandboxRun
+from db.db import ThreatDB
+from presentation.colors import BOLD, CYAN, DIM, sev_text_color
+from presentation.formatting import (
     format_run_timestamp,
     format_timestamp,
     rec_severity,
     short_hash,
-    update_config_file,
 )
-from db.db import ThreatDB
-from schemas import ReconResult
-
-_SEV_COLORS = {
-    "CRIT": term.CRIT,
-    "CRITICAL": term.CRIT,
-    "HIGH": term.CRIT,
-    "FAIL": term.CRIT,
-    "CRASH": term.CRIT,
-    "WARN": term.WARN,
-    "WARNING": term.WARN,
-    "MEDIUM": term.WARN,
-    "OK": term.OK,
-    "SUCCESS": term.OK,
-    "LOW": term.OK,
-    "INFO": term.INFO,
-    "N/A": term.GRAY,
-}
+from presentation.terminal import ProgressBar, is_interactive, paint
 
 
 def _paint_sev(severity: str) -> str:
     """Colorize a [severity] label (plain text when not a color TTY)."""
-    color = _SEV_COLORS.get(str(severity).upper())
-    return term.paint(f"[{severity}]", color or "")
+    return paint(f"[{severity}]", sev_text_color(severity))
 
 
 class CLIApp:
     """CLI entrypoints for kernel audit flows."""
 
-    def __init__(self, db: ThreatDB, verbose: bool = False, quiet: bool = False):
+    def __init__(
+        self,
+        db: ThreatDB,
+        services: AppServices | None = None,
+        verbose: bool = False,
+        quiet: bool = False,
+    ):
         self.db = db
-        self.services = AppServices(
-            db=db, progress=term.ProgressBar if not quiet else None
+        self.services = services or AppServices(
+            db=db, progress=ProgressBar if not quiet else None
         )
         self.verbose = verbose
         self.quiet = quiet
@@ -88,25 +80,25 @@ class CLIApp:
         report = self.services.run_execution_tests()
         if self.quiet:
             return
-        print(f"Kernel: {report['kernel']}")
-        if report.get("build_date"):
-            print(f"Build date: {report['build_date']}")
-        print(f"CVE hints processed: {report.get('cves_processed', 0)}")
+        print(f"Kernel: {report.kernel}")
+        if report.build_date:
+            print(f"Build date: {report.build_date}")
+        print(f"CVE hints processed: {report.cves_processed}")
 
-        stats = report.get("stats", {})
+        stats = report.stats
         print(
-            f"Stats: total={stats.get('total')}, "
-            f"exploits={stats.get('with_exploits')}, "
-            f"in CISA KEV={stats.get('in_cisa_kev')}"
+            f"Stats: total={stats.total}, "
+            f"exploits={stats.with_exploits}, "
+            f"in CISA KEV={stats.in_cisa_kev}"
         )
-        for entry in report.get("entries", []):
-            cve_id = entry.get("cve_id", "N/A")
-            print(f" - {cve_id}: {entry.get('description', '') or 'N/A'}")
-            for poc in entry.get("pocs", []):
-                sandbox = poc.get("sandbox") or {}
-                url = poc.get("url") or "N/A"
-                mode = sandbox.get("mode") or "?"
-                status = "OK" if sandbox.get("success") else "FAIL"
+        for entry in report.entries:
+            cve_id = entry.cve_id or "N/A"
+            print(f" - {cve_id}: {entry.description or 'N/A'}")
+            for poc in entry.pocs:
+                sandbox = poc.sandbox
+                url = poc.url or "N/A"
+                mode = sandbox.execution_mode if sandbox else "?"
+                status = "OK" if sandbox and sandbox.success else "FAIL"
                 print(f"     [{mode}] {_paint_sev(status)} {url}")
 
     def run_report(
@@ -141,11 +133,9 @@ class CLIApp:
         self._emit(f"Full scan complete, saved {saved} recommendation(s) to DB")
 
         exec_report = self.services.run_execution_tests()
-        pocs_run = sum(
-            len(entry.get("pocs", [])) for entry in exec_report.get("entries", [])
-        )
+        pocs_run = sum(len(entry.pocs) for entry in exec_report.entries)
         self._emit(
-            f"Execution tests complete: {exec_report.get('cves_processed', 0)} "
+            f"Execution tests complete: {exec_report.cves_processed} "
             f"CVEs, {pocs_run} PoC run(s)"
         )
         self.run_report(output=output, fmt=fmt)
@@ -156,10 +146,12 @@ class CLIApp:
         kev_entries = self.services.get_cisa_kev_entries(limit=50)
         print(f"\n=== CISA KEV Catalog ({len(kev_entries)} entries) ===\n")
         for idx, entry in enumerate(kev_entries[:20], 1):
-            cve_id = entry.get("cve_id", "N/A")
-            desc = entry.get("description", "")[:80]
-            date = entry.get("cisa_kev", {}).get("date_added", "N/A")
-            ransomware = entry.get("cisa_kev", {}).get("known_ransomware", False)
+            cve_id = entry.cve_id or "N/A"
+            desc = (entry.description or "")[:80]
+            details = self.db.get_vulnerability_with_details(cve_id)
+            kev = details.cisa_kev if details is not None else None
+            date = kev.date_added if kev is not None else None
+            ransomware = kev.known_ransomware if kev is not None else False
             print(f"  {idx}. {cve_id}")
             print(f"     {desc}...")
             print(f"     Added: {date} | Ransomware: {ransomware}")
@@ -174,7 +166,7 @@ class CLIApp:
         vulns = self.db.search(has_exploit=True, limit=200)
         total = 0
         for vuln in vulns:
-            cve_id: str | None = vuln.get("cve_id")
+            cve_id: str | None = vuln.cve_id
             if not cve_id:
                 continue
             for run in self.services.db.get_sandbox_runs(cve_id):
@@ -334,14 +326,14 @@ class CLIApp:
             print(f"    Ransomware related: {ransomware_count}")
 
     @staticmethod
-    def _print_sandbox_run(cve_id: str, run: dict[str, Any]):
-        execution_success = run.get("execution_success", False)
-        crashed = run.get("crashed", False)
-        exit_code = run.get("exit_code")
-        platform = run.get("sandbox_platform", "unknown")
-        hash_short = short_hash(run.get("exploit_file_hash"))
-        stdout = run.get("stdout", "")
-        stderr = run.get("stderr", "")
+    def _print_sandbox_run(cve_id: str, run: SandboxRun):
+        execution_success = run.execution_success
+        crashed = run.crashed
+        exit_code = run.exit_code
+        platform = run.sandbox_platform or "unknown"
+        hash_short = short_hash(run.exploit_file_hash)
+        stdout = run.stdout or ""
+        stderr = run.stderr or ""
 
         if crashed:
             severity = "CRASH"
@@ -350,25 +342,25 @@ class CLIApp:
         else:
             severity = "FAIL"
 
-        timestamp_str = format_run_timestamp(run.get("run_timestamp"))
+        timestamp_str = format_run_timestamp(run.run_timestamp)
 
         print(
             f"\n  {_paint_sev(severity)} {cve_id} [{platform}] exit:{exit_code} "
             f"hash:{hash_short} {timestamp_str} stdout:{len(stdout)} stderr:{len(stderr)}"
         )
 
-        kernel_info = run.get("kernel_info", {})
+        kernel_info = run.kernel_info or {}
         if kernel_info:
             print(f"    Kernel: {kernel_info.get('uname', kernel_info.get('date', 'N/A'))}")
-        modules = run.get("modules", [])
+        modules = run.modules or []
         if modules:
             print(f"    Modules: {', '.join(modules[:10])}"
                   + ("..." if len(modules) > 10 else ""))
-        processes = run.get("open_processes", [])
+        processes = run.open_processes or []
         if processes:
             print(f"    Processes: {', '.join(processes[:5])}"
                   + ("..." if len(processes) > 5 else ""))
-        files = run.get("open_files", [])
+        files = run.open_files or []
         if files:
             print(f"    Files: {', '.join(files[:5])}"
                   + ("..." if len(files) > 5 else ""))
@@ -391,8 +383,8 @@ _QUICK_START = r"""
 
 def _print_quick_help() -> None:
     """Compact, colorized command reference for the no-Textual CLI fallback."""
-    print(term.paint(_QUICK_START, term.CYAN))
-    print(term.paint("  CLI commands (Textual TUI is not installed):", term.DIM))
+    print(paint(_QUICK_START, CYAN))
+    print(paint("  CLI commands (Textual TUI is not installed):", DIM))
     print()
     rows = [
         ("--full-poc-tests", "full scan + sandbox PoCs + report in one shot"),
@@ -413,7 +405,7 @@ def _print_quick_help() -> None:
     ]
     width = max(len(flag) for flag, _ in rows)
     for flag, desc in rows:
-        print(f"    {term.paint(flag.ljust(width), term.BOLD)}  {desc}")
+        print(f"    {paint(flag.ljust(width), BOLD)}  {desc}")
     print()
     print("  Examples:")
     print("    python main.py --scan --save --db orm")
@@ -505,10 +497,21 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main_cli(db: ThreatDB):
+def main_cli(db: ThreatDB | None = None):
     args = build_parser().parse_args()
 
-    app = CLIApp(db=db, verbose=args.verbose, quiet=args.quiet)
+    container = build_container(
+        DB_BACKEND,
+        progress=ProgressBar if not args.quiet else None,
+        db=db,
+    )
+    resolved_db = container.get(ThreatDB)
+    app = CLIApp(
+        db=resolved_db,
+        services=container.get(AppServices),
+        verbose=args.verbose,
+        quiet=args.quiet,
+    )
 
     command_requested = any((
         args.set,
@@ -523,7 +526,7 @@ def main_cli(db: ThreatDB):
         args.report,
     ))
 
-    if not command_requested and term.is_interactive():
+    if not command_requested and is_interactive():
         _print_quick_help()
         return
 
