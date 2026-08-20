@@ -9,8 +9,7 @@ from typing import TYPE_CHECKING
 from textual.containers import VerticalScroll
 from textual.css.query import NoMatches
 
-from core import format_execution_report
-from gui.entities.sandbox_runs import SandboxRun
+from core.entities import ExecutionReport
 from gui.entities.scan_result import FeedsSnapshot, ScanSnapshot
 from gui.entities.services import Services
 from gui.shared.formatting import dedupe_links, rec_severity
@@ -18,8 +17,9 @@ from gui.widgets.audit_item import AuditItem, CapsItem
 from gui.widgets.cve_item import CveItem
 from gui.widgets.references_bar import ReferencesBar
 from gui.widgets.sandbox_item import SandboxItem
+from presentation.glyphs import unicode_glyph
+from presentation.sandbox import format_execution_report
 from report.diff import build_capability_section
-from term import unicode_glyph
 
 if TYPE_CHECKING:
     from gui.tui import KernelVulnTUI
@@ -284,11 +284,11 @@ class ScanController:
             self._app.hide_progress()
             self._finish_stage("feeds", summary)
 
-    def _on_exec_done(self, report: dict) -> None:
+    def _on_exec_done(self, report: ExecutionReport) -> None:
         summary = ""
         try:
-            entries = report.get("entries", [])
-            runs = sum(len(entry.get("pocs", [])) for entry in entries)
+            entries = report.entries
+            runs = sum(len(entry.pocs) for entry in entries)
             self._app.log_terminal(
                 f"Verification payload complete: {len(entries)} CVEs, {runs} PoC runs",
                 "OK",
@@ -299,12 +299,16 @@ class ScanController:
                 extra={"skip_console": True},
             )
             self._clear(SANDBOX)
-            sandbox_runs = SandboxRun.from_exec_report(report)
+            sandbox_runs = [
+                SandboxItem(entry.cve_id, poc)
+                for entry in entries
+                for poc in entry.pocs
+            ]
             sandbox_runs.sort(
-                key=lambda r: (str(r.cve_id or "").lower(), r.run_timestamp)
+                key=lambda r: str(r.cve_id or "").lower(),
             )
-            self._mount(SANDBOX, [SandboxItem(run) for run in sandbox_runs])
-            failed = sum(1 for run in sandbox_runs if not run.execution_success)
+            self._mount(SANDBOX, sandbox_runs)
+            failed = sum(1 for run in sandbox_runs if not run.success)
             self._app.set_metrics(runs=len(sandbox_runs))
             summary = f"{len(sandbox_runs)} PoC runs"
             if failed:

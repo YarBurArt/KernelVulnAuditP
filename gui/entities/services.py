@@ -6,6 +6,7 @@ from collections.abc import Callable
 from typing import Any
 
 from app_services import AppServices
+from core.entities import ExecutionReport
 from db.db import ThreatDB
 
 
@@ -25,7 +26,7 @@ class Services:
     def run_feeds_recon(self, store_kev: bool = True):
         return self._svc.run_feeds_recon(store_kev)
 
-    def run_execution_tests(self) -> dict[str, Any]:
+    def run_execution_tests(self) -> ExecutionReport:
         return self._svc.run_execution_tests()
 
 

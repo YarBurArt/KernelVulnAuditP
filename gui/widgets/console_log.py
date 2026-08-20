@@ -5,7 +5,7 @@ from __future__ import annotations
 from textual.widgets import RichLog
 
 from gui.shared.formatting import markup_escape
-from term import unicode_glyph
+from presentation.glyphs import unicode_glyph
 
 _LEVEL_STYLE = {
     "FAIL": "#ff5f5f",
@@ -23,7 +23,7 @@ _LEVEL_STYLE = {
 class ConsoleLog(RichLog):
     """RichLog-based terminal used by the Engine stdout tab.
 
-    ``highlight=True`` keeps the log legible; a per-line length cap keeps
+    highlight=True keeps the log legible; a per-line length cap keeps
     Textual safe even when DEBUG logs carry multi-kilobyte dict dumps (the
     full text is still written to logs/kernel_audit.log by the file handler).
     """

@@ -8,7 +8,7 @@ from textual.widgets import Collapsible, Static
 
 from gui.shared.colors import SEVERITY_COLORS
 from gui.shared.formatting import markup_escape, rec_severity
-from term import unicode_glyph
+from presentation.glyphs import unicode_glyph
 
 
 def _clip(text: str, width: int) -> str:
@@ -33,7 +33,7 @@ class AuditItem(Static):
         **kwargs,
     ) -> None:
         super().__init__(
-            *args, self._line(rec, field_width, exp_width, act_width), **kwargs
+            self._line(rec, field_width, exp_width, act_width), *args, **kwargs
         )
 
     @staticmethod

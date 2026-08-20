@@ -5,7 +5,7 @@ from __future__ import annotations
 from textual.widgets import Collapsible, Static
 
 from gui.shared.formatting import is_url, markup_escape
-from term import unicode_glyph
+from presentation.glyphs import unicode_glyph
 
 
 class CveItem(Collapsible):

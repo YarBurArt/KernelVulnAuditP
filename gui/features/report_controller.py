@@ -40,7 +40,7 @@ class ReportController:
             raise FileNotFoundError("report.py not found")
 
         try:
-            import streamlit  # noqa: F401
+            import streamlit  # type: ignore[import-not-found]  # noqa: F401
         except ImportError:
             return ["Streamlit not available, running CLI report...\n"] + [
                 self._run_cli_report_sync()

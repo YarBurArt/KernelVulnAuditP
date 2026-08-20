@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from term import supports_unicode
+from presentation.glyphs import supports_unicode
 
 #: per-glyph ASCII replacement for Textual box-drawing
 _BOX_GLYPHS = {

@@ -9,7 +9,7 @@ from textual.containers import VerticalScroll
 from textual.css.query import NoMatches
 from textual.widgets import Static
 
-from term import unicode_glyph
+from presentation.glyphs import unicode_glyph
 
 _STAGE_STYLE = {
     "idle": (" ", "#8b949e"),

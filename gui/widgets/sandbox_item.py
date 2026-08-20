@@ -7,176 +7,253 @@ STDOUT/STDERR of the PoC itself.
 
 from __future__ import annotations
 
+from dataclasses import asdict
 from typing import Any
 
 from textual.widgets import Collapsible, Static
 
-from gui.entities.sandbox_runs import SandboxRun
+from core.entities import PocExecution
 from gui.shared.colors import CRIT, OK, WARN
 from gui.shared.formatting import (
     binary_output,
     first_resource_line,
     format_kernel_line,
-    format_run_timestamp,
     is_url,
     markup_escape,
     short_hash,
 )
 from gui.widgets.colorized_list import ColorizedList
-from term import unicode_glyph
+from presentation.glyphs import unicode_glyph
 
 
 class SandboxItem(Collapsible):
     """A sandbox PoC execution: CVE + status row, then details + IO."""
 
-    def __init__(self, run: SandboxRun, *args, **kwargs) -> None:
-        self._run = run
-        children = self._body(run)
+    def __init__(self, cve_id: str, poc: PocExecution, *args, **kwargs) -> None:
+        self._cve_id = cve_id
+        self._poc = poc
+        children = self._body()
         super().__init__(
             *args,
             *children,
-            title=self._header(run),
+            title=self._header(),
             collapsed=True,
             collapsed_symbol=unicode_glyph("▶", ">"),
             expanded_symbol=unicode_glyph("▼", "v"),
             **kwargs,
         )
 
-    @staticmethod
-    def _status_text(run: SandboxRun) -> str:
-        if run.crashed:
+    @property
+    def _sandbox(self):
+        return self._poc.sandbox
+
+    @property
+    def cve_id(self) -> str:
+        return self._cve_id
+
+    @property
+    def success(self) -> bool:
+        return self._success
+
+    @property
+    def _error(self) -> str:
+        return self._poc.sandbox_error or "PoC produced no sandbox outcome"
+
+    @property
+    def _platform(self) -> str:
+        if self._sandbox is not None:
+            return self._sandbox.execution_mode
+        return "compile" if "compile" in self._error.lower() else "error"
+
+    @property
+    def _exit_code(self) -> int | None:
+        return self._sandbox.returncode if self._sandbox is not None else None
+
+    @property
+    def _success(self) -> bool:
+        return self._sandbox.success if self._sandbox is not None else False
+
+    @property
+    def _crashed(self) -> bool:
+        return self._sandbox.crashed if self._sandbox is not None else False
+
+    @property
+    def _stdout(self) -> str:
+        return self._sandbox.stdout if self._sandbox is not None else ""
+
+    @property
+    def _stderr(self) -> str:
+        if self._sandbox is not None:
+            return self._sandbox.stderr
+        return self._error
+
+    @property
+    def _command(self) -> str:
+        if self._sandbox is not None:
+            return self._sandbox.logs.command or ""
+        return self._poc.test_cmd or ""
+
+    @property
+    def _exploit_hash(self) -> str:
+        if self._sandbox is not None:
+            return self._sandbox.logs.binary or ""
+        return ""
+
+    @property
+    def _kernel_info(self) -> dict[str, Any]:
+        if self._sandbox is None:
+            return {}
+        return asdict(self._sandbox.kernel_info)
+
+    @property
+    def _resources(self) -> dict[str, Any]:
+        if self._sandbox is None:
+            return {}
+        return asdict(self._sandbox.resources)
+
+    @property
+    def _modules(self) -> list[str]:
+        return self._sandbox.modules if self._sandbox is not None else []
+
+    @property
+    def _processes(self) -> list[str]:
+        return self._sandbox.processes if self._sandbox is not None else []
+
+    @property
+    def _files(self) -> list[str]:
+        return self._sandbox.files if self._sandbox is not None else []
+
+    def _status_text(self) -> str:
+        if self._crashed:
             return "CRASH"
-        if run.execution_success:
-            return f"SUCCESS (exit: {run.exit_code})"
-        if run.exit_code == 0:
+        if self._success:
+            return f"SUCCESS (exit: {self._exit_code})"
+        if self._exit_code == 0:
             return "COMPLETED WITH WARNINGS"
-        if run.sandbox_platform in ("error", "compile"):
+        if self._platform in ("error", "compile"):
             return "FAILED"
-        if run.exit_code is not None:
-            return f"MAYBE (exit: {run.exit_code})"
+        if self._exit_code is not None:
+            return f"MAYBE (exit: {self._exit_code})"
         return "MAYBE"
 
-    @staticmethod
-    def _header(run: SandboxRun) -> str:
-        if run.crashed:
+    def _header(self) -> str:
+        if self._crashed:
             severity, color = "CRASH", CRIT
-        elif run.execution_success:
+        elif self._success:
             severity, color = "OK", OK
         else:
             severity, color = "FAIL", WARN
         sev = markup_escape(f"[{severity}]").ljust(7)
-        cve = markup_escape(f"[{run.cve_id}]").ljust(16)
-        platform = markup_escape(f"[{run.sandbox_platform}]").ljust(10)
-        ts = markup_escape(format_run_timestamp(run.run_timestamp)).ljust(8)
-        if run.sandbox_platform in ("error", "compile"):
-            reason = " ".join(str(run.stderr).split())
+        cve = markup_escape(f"[{self._cve_id}]").ljust(16)
+        platform = markup_escape(f"[{self._platform}]").ljust(10)
+        if self._platform in ("error", "compile"):
+            reason = " ".join(str(self._stderr).split())
             if len(reason) > 56:
                 reason = reason[:56] + unicode_glyph("…", "...")
             return (
                 f"[bold {color}]{sev}[/] "
                 f"[dim]{cve}[/] "
                 f"[dim]{platform}[/] "
-                f"[dim]{markup_escape(reason)}[/] "
-                f"{ts}"
+                f"[dim]{markup_escape(reason)}[/]"
             )
         exit_part = ""
-        if run.exit_code is not None:
-            exit_part = f"exit:{run.exit_code}".ljust(8)
+        if self._exit_code is not None:
+            exit_part = f"exit:{self._exit_code}".ljust(8)
         hash_part = ""
-        if run.exploit_file_hash and not is_url(run.exploit_file_hash):
-            hash_part = f"{markup_escape(short_hash(run.exploit_file_hash))} "
-        io = f"stdout:{len(run.stdout)} stderr:{len(run.stderr)}"
+        if self._exploit_hash and not is_url(self._exploit_hash):
+            hash_part = f"{markup_escape(short_hash(self._exploit_hash))} "
+        io = f"stdout:{len(self._stdout)} stderr:{len(self._stderr)}"
         return (
             f"[bold {color}]{sev}[/] "
             f"[dim]{cve}[/] "
             f"[dim]{platform}[/] "
             f"[dim]{exit_part}[/] "
             f"{hash_part}"
-            f"{ts} "
             f"{io}"
         )
 
-    @staticmethod
-    def _body(run: SandboxRun) -> list[Any]:
+    def _body(self) -> list[Any]:
         children: list[Any] = []
-        if run.sandbox_platform in ("error", "compile"):
+        if self._platform in ("error", "compile"):
             # a failure that never reached a VM (compile/build/sandbox error)
             children.append(
                 Static(
-                    f"Status: {SandboxItem._status_text(run)} "
+                    f"Status: {self._status_text()} "
                     f"{unicode_glyph('—', '-')} "
-                    f"{markup_escape(run.stderr)}",
+                    f"{markup_escape(self._stderr)}",
                     classes="mono terminal-fail",
                 )
             )
-            if run.url:
+            if self._poc.url:
                 children.append(
-                    Static(f"PoC: {markup_escape(run.url)}", classes="mono")
+                    Static(f"PoC: {markup_escape(self._poc.url)}", classes="mono")
                 )
-            if run.command:
+            if self._command:
                 children.append(
-                    Static(f"Command: {markup_escape(run.command)}", classes="mono")
+                    Static(f"Command: {markup_escape(self._command)}", classes="mono")
                 )
             return children
-        status = SandboxItem._status_text(run)
+        status = self._status_text()
         children.append(
             Static(
                 f"Status: {markup_escape(status)} | "
-                f"platform: {markup_escape(run.sandbox_platform)}",
+                f"platform: {markup_escape(self._platform)}",
                 classes="mono",
             )
         )
-        if run.command:
+        if self._command:
             children.append(
-                Static(f"Command: {markup_escape(run.command)}", classes="mono")
+                Static(f"Command: {markup_escape(self._command)}", classes="mono")
             )
-        if run.exploit_file_hash and not is_url(run.exploit_file_hash):
+        if self._exploit_hash and not is_url(self._exploit_hash):
             children.append(
                 Static(
-                    f"Exploit file: {markup_escape(run.exploit_file_hash)}",
+                    f"Exploit file: {markup_escape(self._exploit_hash)}",
                     classes="mono",
                 )
             )
-        if run.url:
-            children.append(Static(f"PoC: {markup_escape(run.url)}", classes="mono"))
-        if run.kernel_info:
+        if self._poc.url:
+            children.append(
+                Static(f"PoC: {markup_escape(self._poc.url)}", classes="mono")
+            )
+        if self._kernel_info:
             children.append(
                 Static(
-                    f"Kernel: {markup_escape(format_kernel_line(run.kernel_info))}",
+                    f"Kernel: {markup_escape(format_kernel_line(self._kernel_info))}",
                     classes="mono",
                 )
             )
-        if run.resources:
-            mem = first_resource_line(run.resources.get("meminfo"))
+        if self._resources:
+            mem = first_resource_line(self._resources.get("meminfo"))
             if mem:
                 children.append(Static(f"Memory: {markup_escape(mem)}", classes="mono"))
-            cpu = first_resource_line(run.resources.get("cpuinfo"))
+            cpu = first_resource_line(self._resources.get("cpuinfo"))
             if cpu:
                 children.append(Static(f"CPU: {markup_escape(cpu)}", classes="mono"))
-        if run.modules:
+        if self._modules:
             children.append(
                 Static("Modules", classes="mono-bold section-label")
             )
-            children.append(ColorizedList(run.modules, "modules"))
-        if run.open_processes:
+            children.append(ColorizedList(self._modules, "modules"))
+        if self._processes:
             children.append(
                 Static("Processes", classes="mono-bold section-label")
             )
-            children.append(ColorizedList(run.open_processes, "process"))
-        if run.open_files:
+            children.append(ColorizedList(self._processes, "process"))
+        if self._files:
             children.append(Static("Files", classes="mono-bold section-label"))
-            children.append(ColorizedList(run.open_files, "file"))
-        if run.stdout:
+            children.append(ColorizedList(self._files, "file"))
+        if self._stdout:
             children.append(
                 Static(
-                    f"STDOUT:\n{markup_escape(binary_output(run.stdout))}",
+                    f"STDOUT:\n{markup_escape(binary_output(self._stdout))}",
                     classes="mono terminal-view",
                 )
             )
-        if run.stderr:
+        if self._stderr:
             children.append(
                 Static(
-                    f"STDERR:\n{markup_escape(run.stderr)}",
+                    f"STDERR:\n{markup_escape(self._stderr)}",
                     classes="mono terminal-fail",
                 )
             )

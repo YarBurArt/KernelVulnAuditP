@@ -1,10 +1,9 @@
-"""TUI-only formatting helpers, other in core since same as report"""
+"""TUI-only formatting helpers, the shared rules live in presentation"""
 
 from typing import Any
 
-from core import (
+from presentation.formatting import (
     audit_priority,
-    binary_output,
     dedupe_links,
     extract_links,
     first_resource_line,
@@ -17,6 +16,7 @@ from core import (
     status_rank,
     suggestion_for,
 )
+from presentation.sandbox import binary_output
 
 __all__ = [
     "audit_priority",

@@ -4,15 +4,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from application.dto import FeedsReconResult, LesCVEItem, LocalReconResult
+from core.entities import CVEFinding, GitHubPoC, SecurityRecommendationType
 from gui.shared.formatting import audit_priority, status_rank
-from schemas import (
-    CVEFinding,
-    FeedsReconResult,
-    GitHubPoC,
-    LesCVEItem,
-    LocalReconResult,
-    SecurityRecommendationType,
-)
 
 
 @dataclass

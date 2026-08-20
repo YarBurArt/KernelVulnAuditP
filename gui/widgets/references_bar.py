@@ -7,7 +7,7 @@ from typing import Any
 from textual.widgets import Collapsible, Static
 
 from gui.shared.formatting import markup_escape
-from term import unicode_glyph
+from presentation.glyphs import unicode_glyph
 
 
 class ReferencesBar(Collapsible):

@@ -1,4 +1,6 @@
-"""Color palette and severity style helpers shared by the TUI widgets"""
+"""Color palette and severity style helpers shared by the TUI widgets."""
+
+from presentation.colors import CRIT_HEX, INFO_HEX, OK_HEX, WARN_HEX
 
 COLOR = {
     "name": "#7ee787",  # no warnings
@@ -10,12 +12,12 @@ COLOR = {
     "link": "#ffd7b3",  # link targets
 }
 
-CRIT = "#e01b24"
-WARN = "#ff7800"
+CRIT = CRIT_HEX
+WARN = WARN_HEX
 CVE = "#ff5f5f"
-RUNS = "#2ec27e"
-OK = "#2ec27e"
-INFO = "#8b949e"
+RUNS = OK_HEX
+OK = OK_HEX
+INFO = INFO_HEX
 
 SEVERITY_COLORS = {
     "CRIT": CRIT,
