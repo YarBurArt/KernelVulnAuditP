@@ -821,6 +821,7 @@ def test_build_execution_context():
 
 def test_process_single_cve():
     s = _bare_services()
+    s.rf.get_cve_details.return_value = {}
     s.poc_searcher.search_repositories.return_value = [{"url": "u"}]
     with mock.patch.object(GitHubExploitSearcher, "load_xpls", return_value=[]):
         import asyncio

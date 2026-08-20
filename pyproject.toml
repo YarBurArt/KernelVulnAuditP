@@ -23,6 +23,8 @@ profiling = [
 ]
 
 [tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
 markers = ["integration: real environment tests (qemu, virtme-ng, network)"]
 
 [dependency-groups]
