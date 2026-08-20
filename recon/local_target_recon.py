@@ -11,29 +11,25 @@ from typing import Any
 
 import httpx
 
+from application.dto import KernelLPE, LesCVEItem
 from config import (
     CH_API_URL,
     LES_PATH,
     LES_REPORT_PATH,
     LINPEAS_OUT_JSON,
     LINPEAS_REPORT_TXT,
-    LYNIS_BINARY,
-    LYNIS_LOG_FILE,
-    LYNIS_REPORT_FILE,
     PATH_LINPEAS,
+    RECON_TOOL_TIMEOUT_SEC,
 )
-from core import norm_sysctl_value
-from recon.parse_recon_reports import HIGH_RISK_CAPS, ParseReports
-from recon.remote_feeds_recon import logger
-from schemas import (
+from core.entities import (
     HostFileCapabilities,
     HostProcessCapabilities,
     HostSELinuxBoolean,
-    KernelAuditItem,
-    KernelLPE,
-    LesCVEItem,
     SecurityRecommendationType,
 )
+from core.parsing import norm_sysctl_value
+from recon.parse_recon_reports import HIGH_RISK_CAPS, ParseReports
+from recon.remote_feeds_recon import logger
 
 #: approximately date for current kernel, fetched once per full scan
 _BUILD_DATE_CACHE: dict[str, int] = {}
@@ -42,6 +38,15 @@ _BUILD_DATE_CACHE: dict[str, int] = {}
 #: syscall-bound; modest thread pool overlaps the I/O latency instead of
 #: serializing hundreds of tiny file reads
 _PROC_WORKERS = 16
+
+#: locations probed for a custom kernel-focused linpeas.sh, in order;
+#: install_tools.sh builds it into PATH_LINPEAS and nix develop puts it on PATH
+_LINPEAS_LOCATIONS = (
+    PATH_LINPEAS,
+    "/opt/linpeas/linpeas.sh",
+    "./linpeas.sh",
+    "linpeas.sh",
+)
 
 
 class LocalRecon:
@@ -129,11 +134,11 @@ class LocalRecon:
             return _BUILD_DATE_CACHE[version]
 
         result = 0
+        url = ""
         try:
             major = version.split(".")[0]
-            response = httpx.get(
-                CH_API_URL.format(major=major, version=version), timeout=10.0
-            )
+            url = CH_API_URL.format(major=major, version=version)
+            response = httpx.get(url, timeout=10.0)
             response.raise_for_status()
 
             for line in response.text.split("\n")[:10]:
@@ -157,49 +162,27 @@ class LocalRecon:
                     result = int(parsed.timestamp())
                     break
         except (httpx.HTTPError, ValueError) as e:
-            logger.warning("get_kernel_build_date error: %s", e)
+            logger.warning(
+                "kernel build date lookup failed for %s (%s): %s",
+                version,
+                url or CH_API_URL.format(major=version.split(".")[0], version=version),
+                e,
+            )
 
         if not result:
-            logger.warning("get kernel build date error")
+            logger.warning(
+                "no kernel build date found for %s (checked %s); CVE age and "
+                "KEV correlations will be limited",
+                version,
+                url or CH_API_URL.format(major=version.split(".")[0], version=version),
+            )
         _BUILD_DATE_CACHE[version] = result
         return result
 
     @staticmethod
-    def run_lynis_audit() -> bool:
-        """much more detailed scan"""
-        cmd = [
-            LYNIS_BINARY,
-            "audit",
-            "system",
-            "-Q",
-            "-q",
-            "--no-colors",  # minimal scan
-            "--report-file",
-            LYNIS_REPORT_FILE,
-            "--log-file",
-            LYNIS_LOG_FILE,
-        ]
-
-        try:
-            subprocess.run(
-                cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
-            )
-            return True
-        except (subprocess.CalledProcessError, OSError) as e:
-            logger.warning("lynis_audit error: %s", e)
-            return False
-
-    @staticmethod
     def _find_linpeas() -> str | None:
         """Find linpeas.sh custom script"""
-        if (path := PATH_LINPEAS) and os.path.isfile(path) and os.access(path, os.X_OK):
-            return path
-        # try common locations
-        for loc in [
-            "/opt/linpeas/linpeas.sh",
-            "./linpeas.sh",
-            "linpeas.sh",
-        ]:
+        for loc in _LINPEAS_LOCATIONS:
             if os.path.isfile(loc) and os.access(loc, os.X_OK):
                 return loc
         path_2stg: str | None = shutil.which("linpeas.sh")
@@ -216,26 +199,28 @@ class LocalRecon:
 
         try:
             with open(output_path, "w", encoding="utf-8") as f:
-                subprocess.run(cmd, stdout=f, stderr=subprocess.DEVNULL, check=True)
-        except subprocess.CalledProcessError as e:
-            logger.warning("linpeas execution failed: %s", e)
+                subprocess.run(
+                    cmd,
+                    stdout=f,
+                    stderr=subprocess.DEVNULL,
+                    check=True,
+                    timeout=RECON_TOOL_TIMEOUT_SEC,
+                )
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError) as e:
+            reason = (
+                f"timed out after {RECON_TOOL_TIMEOUT_SEC}s"
+                if isinstance(e, subprocess.TimeoutExpired)
+                else f"returncode {getattr(e, 'returncode', '?')}"
+            )
+            logger.warning(
+                "LinPEAS execution failed (cmd: %s, %s): %s",
+                " ".join(cmd),
+                reason,
+                e,
+            )
             return None
 
         return Path(output_path)
-
-    def get_lynis_scan_details(
-        self, report_path: str = LYNIS_REPORT_FILE
-    ) -> list[KernelAuditItem]:
-        """lynis facade and filter"""
-        try:
-            self.run_lynis_audit()
-            parsed: dict = self.parser.parse_lynis_dat_report(report_path)
-            return self.parser.extract_lynis_kernel_details(parsed)
-        except FileNotFoundError as e:
-            # lynis didn't produce a report; unexpected parse bugs propagate
-            # to the caller, which logs them at the worker boundary.
-            logger.warning("get_lynis_scan_details report missing: %s", e)
-            return []
 
     def get_linpeas_scan_details(
         self,
@@ -245,7 +230,11 @@ class LocalRecon:
         try:
             linpeas = self._find_linpeas()
             if not linpeas:
-                logger.warning("No linpeas found")
+                logger.warning(
+                    "Custom LinPEAS not found (searched: %s); install it with "
+                    "./install_tools.sh or 'nix develop'",
+                    ", ".join(_LINPEAS_LOCATIONS),
+                )
                 return None
 
             Path(output_path).unlink(missing_ok=True)
@@ -254,7 +243,9 @@ class LocalRecon:
             return self.parser.extract_useful_info_peas(data)
         except ValueError as e:
             # PEAS output was present but unparseable
-            logger.warning("get_linpeas_scan_details parse error: %s", e)
+            logger.warning(
+                "LinPEAS output at %s was unparseable: %s", output_path, e
+            )
             return None
 
     def get_les_scan_details(
@@ -268,19 +259,38 @@ class LocalRecon:
     @staticmethod
     def run_les(report_path: str | None = None) -> bool:
         """run Linux Exploit Suggester"""
-        cmd = [str(LES_PATH)]  # no additional flags
+        cmd = [str(LES_PATH)]
         if report_path:
             dest = Path(report_path)
         else:
-            logger.info("LES report not found: %s", report_path)
+            logger.warning(
+                "LES report path missing; pass a path (default: %s)",
+                LES_REPORT_PATH,
+            )
             return False
         try:
-            proc = subprocess.run(cmd, check=True, text=True, capture_output=True)
+            proc = subprocess.run(
+                cmd,
+                check=True,
+                text=True,
+                capture_output=True,
+                timeout=RECON_TOOL_TIMEOUT_SEC,
+            )
             dest.write_text(proc.stdout, encoding="utf-8")
             logger.info("LES scan completed and saved to: %s", dest)
             return True
-        except (subprocess.CalledProcessError, OSError) as e:
-            logger.warning("something wrong with LES: %s", e)
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError) as e:
+            reason = (
+                f"timed out after {RECON_TOOL_TIMEOUT_SEC}s"
+                if isinstance(e, subprocess.TimeoutExpired)
+                else str(e)
+            )
+            logger.warning(
+                "LES run failed (cmd: %s); install linux-exploit-suggester with "
+                "./install_tools.sh or 'nix develop': %s",
+                " ".join(cmd),
+                reason,
+            )
             return False
 
     @staticmethod
@@ -313,7 +323,9 @@ class LocalRecon:
         root = Path("/proc/sys")
         try:
             if not root.exists():
-                logger.warning("/proc/sys not found")
+                logger.warning(
+                    "/proc/sys not found; sysctl kernel-hardening checks skipped"
+                )
                 return values
 
             paths = [p for p in root.rglob("*") if p.is_file()]
@@ -343,7 +355,7 @@ class LocalRecon:
             logger.debug("loaded %d sysctl values", len(values))
             return values
         except OSError as e:
-            logger.warning("error loading sysctl values: %s", e)
+            logger.warning("error loading sysctl values under %s: %s", root, e)
             return {}
 
     def get_lynis_kernel_hardening_details(
@@ -397,7 +409,12 @@ class LocalRecon:
             return results
 
         except FileNotFoundError as e:
-            logger.warning("params.prf not found: %s", e)
+            logger.warning(
+                "lynis params.prf not found (%s); install lynis with "
+                "./install_tools.sh or 'nix develop' to get kernel hardening checks: %s",
+                params_path,
+                e,
+            )
             return []
 
     def get_host_selinux_bools(
@@ -405,7 +422,7 @@ class LocalRecon:
         params_path: str | Path = "recon/selinux_params.json",
     ) -> list[HostSELinuxBoolean]:
         """check hardened SELinux booleans (selinux_params.json) against the
-        current system values from `getsebool -a`"""
+        current system values from getsebool -a"""
         params = self.parser.load_selinux_params(params_path)
         current = self.parser.getsebool_values()
 
@@ -488,7 +505,9 @@ class LocalRecon:
         result: list[HostProcessCapabilities] = []
         proc_root = Path("/proc")
         if not proc_root.exists():
-            logger.warning("/proc not found, process caps check skipped")
+            logger.warning(
+                "/proc not found; process capability checks skipped (not a Linux procfs?)"
+            )
             return result
 
         try:
@@ -498,7 +517,7 @@ class LocalRecon:
                 if entry.name.isdigit()
             ]
         except OSError as e:
-            logger.warning("list /proc error: %s", e)
+            logger.warning("cannot list %s for process caps: %s", proc_root, e)
             return result
 
         # reading + parsing every /proc/<pid>/status is I/O bound;

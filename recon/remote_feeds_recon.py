@@ -16,12 +16,9 @@ from config import (
     NIST_CVE_DETAILS_API_URL,
     OSV_API_URL,
 )
-from core import filter_items_by_date
+from core.entities import CVEFinding, GitHubPoC
+from core.parsing import filter_items_by_date
 from recon.parse_recon_reports import ParseReports
-from schemas import (
-    CVEFinding,
-    GitHubPoC,
-)
 
 logger = logging.getLogger(f"kernel_audit.{__name__}")
 

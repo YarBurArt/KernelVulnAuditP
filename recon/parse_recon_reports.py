@@ -9,20 +9,17 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-from core import (
+from application.dto import KernelLPE, LesCVEItem
+from config import RECON_TOOL_TIMEOUT_SEC
+from core.entities import CVEFinding, GitHubPoC
+from core.parsing import (
     CVE_RE,
-    assign_value_by_key_type,
-    ensure_list_in_dict,
     extract_cve_ids,
     extract_cvss,
     extract_english_description,
     filter_items_by_date,
-    parse_key_value_pairs,
-    parse_key_with_brackets,
-    strip_ansi_sequences,
 )
 from lib_tools.peas2json import parse_peass
-from schemas import CVEFinding, GitHubPoC, KernelAuditItem, KernelLPE, LesCVEItem
 
 logger = logging.getLogger(f"kernel_audit.{__name__}")
 
@@ -90,99 +87,61 @@ HIGH_RISK_CAPS: frozenset[str] = frozenset(
 )
 
 
+def strip_ansi_sequences(text: str) -> str:
+    ansi_pattern = re.compile(r"\x1b\[[0-9;]*m")
+    return ansi_pattern.sub("", text)
+
+
+def parse_key_with_brackets(raw_key: str) -> tuple:
+    match = re.fullmatch(r"([^\[]+)(?:\[(.*?)])?", raw_key)
+    if not match:
+        return raw_key, None
+    return match.group(1), match.group(2)
+
+
+def ensure_list_in_dict(container: dict[str, Any], key: str, value: Any) -> None:
+    if key not in container:
+        container[key] = [value]
+    else:
+        if not isinstance(container[key], list):
+            container[key] = [container[key]]
+        container[key].append(value)
+
+
+def assign_value_by_key_type(
+    results: dict[str, Any], base: str, inner: str | None, value: str
+) -> None:
+    if inner is None:  # key=value
+        if base in results:
+            ensure_list_in_dict(results, base, value)
+        else:
+            results[base] = value
+    elif inner == "":  # key[]=value
+        ensure_list_in_dict(results, base, value)
+    else:  # key[name]=value
+        if base not in results:
+            results[base] = {}
+        if not isinstance(results[base], dict):
+            raise ValueError(f"Key '{base}' used as both scalar/list and dict")
+        results[base][inner] = value
+
+
+def parse_key_value_pairs(
+    blob: str, separator: str = ";", kv_delim: str = ":"
+) -> dict[str, str]:
+    result = {}
+    for pair in blob.split(separator):
+        if kv_delim in pair:
+            key, value = pair.split(kv_delim, 1)
+            result[key.strip()] = value.strip()
+    return result
+
+
 class ParseReports:
     """
-    parse security reports from audit tools
+    Normalize audit-tool output (linpeas JSON, LES text, getsebool, getcap,
+    /proc) into the typed entities the service layer consumes.
     """
-
-    @staticmethod
-    def _dat_parse_key(raw_key: str):
-        return parse_key_with_brackets(raw_key)
-
-    @staticmethod
-    def _dat_ensure_list(container, key, value):
-        ensure_list_in_dict(container, key, value)
-
-    @staticmethod
-    def _dat_assign_value(
-        results: dict, base: str, inner: str | None, value: str
-    ) -> None:
-        assign_value_by_key_type(results, base, inner, value)
-
-    def parse_lynis_dat_report(self, report_path) -> dict:
-        """
-        Parse Lynis .dat file (key=value per line or key[]=v1|v2)
-        Returns nested dict structure.
-        """
-        results: dict[str, Any] = {}
-        path = Path(report_path)
-
-        if not path.exists():
-            logger.warning("Lynis report file %s does not exist", report_path)
-            raise FileNotFoundError(f"Lynis report not found at {report_path}")
-
-        with path.open("r", encoding="utf-8", errors="ignore") as f:
-            for line in f:
-                line = line.strip()
-                if not line or line.startswith("#") or "=" not in line:
-                    continue
-                raw_key, value = line.split("=", 1)
-                raw_key = raw_key.strip()
-                value = value.strip()
-                base, inner = self._dat_parse_key(raw_key)
-
-                self._dat_assign_value(results, base, inner, value)
-
-        return results
-
-    @staticmethod
-    def _parse_lynis_datl_entry(
-        entry: str, category_prefix: str
-    ) -> KernelAuditItem | None:
-        parts = entry.split("|")
-        if len(parts) < 3:
-            logger.debug("lynis entry %s does not have 3 parts", entry)
-            return None
-
-        test_id, category, kv_blob = parts[0], parts[1], parts[2]
-        if not test_id.startswith(category_prefix + "-"):
-            logger.debug("lynis entry %s does not have category %s", entry, category)
-            return None
-
-        parsed = parse_key_value_pairs(kv_blob)
-        logger.debug("lynis entry parsed: %s", entry)
-        return KernelAuditItem(
-            test_id=test_id,
-            category=category,
-            desc=parsed.get("desc", ""),
-            field=parsed.get("field", ""),
-            prefval=parsed.get("prefval", ""),
-            value=parsed.get("value", ""),
-        )
-
-    def extract_lynis_kernel_details(
-        self,
-        parsed_data: dict,
-        category_prefix: str = "KRNL",  # TODO: parse more usefull
-        type_ent: str = "details",
-    ) -> list[KernelAuditItem]:
-        """
-        Parse dat entries by category and filters it
-        """
-        results: list[KernelAuditItem] = []
-        entries = parsed_data.get(type_ent, [])
-        if not isinstance(entries, list):
-            entries = [entries]
-
-        for entry in entries:
-            item: KernelAuditItem | None = self._parse_lynis_datl_entry(
-                entry, category_prefix
-            )
-            if item:
-                results.append(item)
-
-        logger.debug("extracted %d lynis entries: %s", len(results), results)
-        return results
 
     @staticmethod
     def convert_linpeas_to_dict(output_path: str, json_path: str = "") -> dict:
@@ -426,7 +385,7 @@ class ParseReports:
 
     @staticmethod
     def getsebool_values() -> dict[str, bool]:
-        """parse current SELinux boolean values from `getsebool -a`"""
+        """parse current SELinux boolean values from getsebool -a"""
         values: dict[str, bool] = {}
         getsebool = shutil.which("getsebool")
         if getsebool is None:
@@ -434,10 +393,20 @@ class ParseReports:
             return values
         try:
             proc = subprocess.run(
-                [getsebool, "-a"], check=True, text=True, capture_output=True
+                [getsebool, "-a"],
+                check=True,
+                text=True,
+                capture_output=True,
+                timeout=RECON_TOOL_TIMEOUT_SEC,
             )
         except subprocess.CalledProcessError as e:
             logger.warning("getsebool -a failed: %s", e)
+            return values
+        except subprocess.TimeoutExpired:
+            logger.warning(
+                "getsebool -a timed out after %ds, SELinux booleans skipped",
+                RECON_TOOL_TIMEOUT_SEC,
+            )
             return values
         except OSError as e:
             logger.warning("getsebool -a os error: %s", e)
@@ -520,10 +489,21 @@ class ParseReports:
             chunk = binaries[start : start + chunk_size]
             try:
                 proc = subprocess.run(
-                    [getcap] + chunk, check=True, text=True, capture_output=True
+                    [getcap] + chunk,
+                    check=True,
+                    text=True,
+                    capture_output=True,
+                    timeout=RECON_TOOL_TIMEOUT_SEC,
                 )
             except subprocess.CalledProcessError as e:
                 logger.warning("getcap failed: %s", e)
+                continue
+            except subprocess.TimeoutExpired:
+                logger.warning(
+                    "getcap timed out after %ds on a %d-file chunk, skipped",
+                    RECON_TOOL_TIMEOUT_SEC,
+                    len(chunk),
+                )
                 continue
             except OSError as e:
                 logger.warning("getcap os error: %s", e)
