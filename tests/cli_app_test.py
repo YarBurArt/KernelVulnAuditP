@@ -6,8 +6,9 @@ from unittest import mock
 
 import pytest
 
-import term
+import presentation.terminal as term
 from cli_app import CLIApp, build_parser, main_cli
+from core.entities import CveExecution, ExecutionReport, PocExecution
 
 
 def _sample_data() -> dict:
@@ -73,7 +74,7 @@ def test_progress_bar_step_accepts_note_kwarg():
     """AppServices calls bar.step(label=..., note=...); the CLI bar must
     accept it (the old signature raised TypeError, which aborted the async
     flow and left asyncio.to_thread coroutines never awaited)."""
-    with mock.patch.object(term, "_stream_tty", return_value=True):
+    with mock.patch.object(term, "stream_tty", return_value=True):
         bar = term.ProgressBar(total=5, label="Local recon", stream=io.StringIO())
         bar.step(label="lynis", note="147 checks")
         bar.step(label="linpeas", note="3 CVEs")
@@ -96,10 +97,14 @@ def test_run_full_poc_tests_flow(mock_emit, mock_build, MockServices):
     recon_result.local.security_recommendations = []
     services.run_full_recon.return_value = recon_result
     services.store_security_recommendations.return_value = 0
-    services.run_execution_tests.return_value = {
-        "cves_processed": 1,
-        "entries": [{"pocs": [{"url": "https://example.invalid/x"}]}],
-    }
+    services.run_execution_tests.return_value = ExecutionReport(
+        cves_processed=1,
+        entries=[
+            CveExecution(
+                pocs=[PocExecution(url="https://example.invalid/x")]
+            )
+        ],
+    )
 
     app = CLIApp(db=mock.Mock())
     app.run_full_poc_tests(output="audit", fmt="json")
@@ -190,7 +195,7 @@ def test_report_diff_arrow_ascii_on_pure_tty(monkeypatch):
     """On a pure TTY the tree connector must degrade to ASCII, never '?'."""
     from report.cli import CLIReportRenderer
 
-    monkeypatch.setattr(term, "_unicode_supported", False)
+    monkeypatch.setattr("presentation.glyphs._unicode_supported", False)
     renderer = CLIReportRenderer({}, verbose=False, color=False)
     section = renderer._build_hardening_diff_section(_param_diff())
     assert "-> " in section
@@ -201,7 +206,7 @@ def test_report_diff_arrow_ascii_on_pure_tty(monkeypatch):
 def test_report_diff_arrow_keeps_unicode(monkeypatch):
     from report.cli import CLIReportRenderer
 
-    monkeypatch.setattr(term, "_unicode_supported", True)
+    monkeypatch.setattr("presentation.glyphs._unicode_supported", True)
     renderer = CLIReportRenderer({}, verbose=False, color=False)
     section = renderer._build_hardening_diff_section(_param_diff())
     assert "↳" in section

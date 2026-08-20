@@ -1,6 +1,12 @@
 from datetime import UTC, datetime
 
-import term
+import presentation.glyphs as term
+from core.entities import (
+    HostInfo,
+    HostKernelModule,
+    HostKernelParameter,
+    HostSELinuxBoolean,
+)
 from report import (
     build_caps_diff,
     build_diff,
@@ -18,7 +24,6 @@ from report import (
     host_selinux_map,
     load_selinux_params,
 )
-from schemas import HostInfoData, HostKernelModule, HostKernelParameter
 
 
 def _proc_modules_line(name: str) -> str:
@@ -48,7 +53,7 @@ def test_host_module_map_from_dict_and_dataclass():
     host_dict = {
         "kernel_modules": [{"module_name": "ext4"}, {"module_name": "kvm"}]
     }
-    host_data = HostInfoData(
+    host_data = HostInfo(
         kernel_modules=[HostKernelModule(module_name="ext4")]
     )
     assert host_module_set(host_dict) == {"ext4", "kvm"}
@@ -344,7 +349,7 @@ def test_build_two_column_defaults_key_and_empty_actual():
 
 def test_host_info_data_to_dict_serializes_children_and_dates():
     now = datetime.now(UTC)
-    host = HostInfoData(
+    host = HostInfo(
         captured_at=now,
         kernel_modules=[HostKernelModule(module_name="ext4", size=4096)],
         kernel_parameters=[
@@ -563,7 +568,6 @@ def test_host_module_names_skips_empty_and_non_str():
 
 
 def test_host_param_map_from_dict_and_dataclass():
-    from schemas import HostInfoData, HostKernelParameter
 
     host_dict = {
         "kernel_parameters": [
@@ -571,7 +575,7 @@ def test_host_param_map_from_dict_and_dataclass():
             {"parameter_name": "kernel.yama", "parameter_value": ""},
         ]
     }
-    host_data = HostInfoData(
+    host_data = HostInfo(
         kernel_parameters=[
             HostKernelParameter(parameter_name="fs.suid_dumpable", parameter_value="0")
         ]
@@ -595,10 +599,9 @@ def test_host_param_map_skips_unnamed_params():
 
 
 def test_host_selinux_map_from_dict_and_dataclass():
-    from schemas import HostInfoData, HostSELinuxBoolean
 
     host_dict = {"selinux_booleans": [{"boolean_name": "a", "value": True}]}
-    host_data = HostInfoData(
+    host_data = HostInfo(
         selinux_booleans=[HostSELinuxBoolean(boolean_name="b", value=False)]
     )
     assert host_selinux_map(host_dict) == {"a": True}

@@ -1,6 +1,8 @@
-import pytest
 
-import term
+import presentation.terminal as term
+from presentation.colors import BOLD, CRIT, GRAY, INFO, OK, WARN
+from presentation.glyphs import unicode_glyph
+from presentation.terminal import paint
 from report.cli import CLIReportRenderer, _arrow
 
 
@@ -11,23 +13,23 @@ def _renderer(data=None, verbose=False, color=False):
 def test_sev_colorize_uses_palette(monkeypatch):
     monkeypatch.setattr(term, "supports_color", lambda: True)
     r = _renderer(color=True)
-    assert term.CRIT in r._sev("CRIT")
-    assert term.WARN in r._sev("WARN")
-    assert term.OK in r._sev("OK")
-    assert term.INFO in r._sev("INFO")
-    assert term.GRAY in r._sev("UNKNOWN")
+    assert CRIT in r._sev("CRIT")
+    assert WARN in r._sev("WARN")
+    assert OK in r._sev("OK")
+    assert INFO in r._sev("INFO")
+    assert GRAY in r._sev("UNKNOWN")
     assert r._sev("SOMETHING_ELSE") == "[SOMETHING_ELSE]"
 
 
 def test_color_disabled_returns_plain():
     r = _renderer()
-    assert r._c("text", term.CRIT, bold=True) == "text"
+    assert r._c("text", CRIT, bold=True) == "text"
 
 
 def test_color_enabled_paints(monkeypatch):
     monkeypatch.setattr(term, "supports_color", lambda: True)
     r = _renderer(color=True)
-    assert r._c("text", term.CRIT) == term.paint("text", term.CRIT)
+    assert r._c("text", CRIT) == paint("text", CRIT)
 
 
 def test_build_header_contains_fields():
@@ -51,7 +53,7 @@ def test_header_color_title_present(monkeypatch):
     r = _renderer(color=True)
     header = r._build_header()
     assert "KERNEL VULNERABILITY AUDIT REPORT" in header
-    assert term.BOLD in header
+    assert BOLD in header
 
 
 def test_kev_section_empty():
@@ -220,8 +222,8 @@ def test_vuln_section_builds_entries():
 
 
 def test_row_status_color_classification():
-    assert CLIReportRenderer._row_status_color("FAIL") == term.CRIT
-    assert CLIReportRenderer._row_status_color("ok") == term.OK
+    assert CLIReportRenderer._row_status_color("FAIL") == CRIT
+    assert CLIReportRenderer._row_status_color("ok") == OK
 
 
 def test_render_two_column_aligned_with_detail():
@@ -271,7 +273,7 @@ def test_render_two_column_color_changes_changed_right(monkeypatch):
             ],
         }
     )
-    assert term.WARN in out
+    assert WARN in out
 
 
 def test_hardening_section_empty():
@@ -425,11 +427,11 @@ def test_render_pages_output(monkeypatch):
     def fake_pager(text):
         captured["text"] = text
 
-    monkeypatch.setattr(term, "pager", fake_pager)
+    monkeypatch.setattr("report.cli.pager", fake_pager)
     r = CLIReportRenderer({"kev_data": [], "runs": []})
     r.render()
     assert "END OF REPORT" in captured["text"]
 
 
 def test_arrow_returns_glyph():
-    assert _arrow() == term.unicode_glyph("↳", "->")
+    assert _arrow() == unicode_glyph("↳", "->")
