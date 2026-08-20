@@ -11,7 +11,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-import term
+from presentation.terminal import pager, supports_color
 
 REPORT_FORMATS = ("txt", "json", "yaml")
 
@@ -106,8 +106,8 @@ def emit_report(
     fmt = _validate_format(fmt)
     path = save_report(data, output, fmt, verbose=verbose)
     if not quiet:
-        color = term.supports_color()
-        term.pager(render_report(data, fmt, verbose=verbose, color=color))
+        color = supports_color()
+        pager(render_report(data, fmt, verbose=verbose, color=color))
     return path
 
 

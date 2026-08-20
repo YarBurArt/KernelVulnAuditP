@@ -2,7 +2,12 @@
 
 from typing import Any, ClassVar
 
-from core import dedupe_links, dict_to_display_rows, is_finding, status_severity
+from presentation.formatting import (
+    dedupe_links,
+    dict_to_display_rows,
+    is_finding,
+    status_severity,
+)
 from report.diff import (
     DIFF_SECTIONS,
     build_diff_columns,

@@ -8,9 +8,10 @@ import json
 from pathlib import Path
 from typing import Any
 
-from core import is_finding, norm_sysctl_value, proc_module_name, safe_get_attr
+from core.parsing import norm_sysctl_value
+from presentation.formatting import is_finding, proc_module_name, safe_get_attr
+from presentation.glyphs import unicode_glyph
 from recon.parse_recon_reports import HIGH_RISK_CAPS, ParseReports
-from term import unicode_glyph
 
 #: diff section type -> human-readable label (shared by the renderers)
 DIFF_SECTIONS: dict[str, str] = {

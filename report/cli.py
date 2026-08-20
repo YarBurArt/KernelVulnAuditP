@@ -1,10 +1,12 @@
 """CLI renderer for kernel vulnerability reports, shown also in gui"""
 
 import textwrap
-from typing import Any, ClassVar
+from typing import Any
 
-import term
-from core import dedupe_links, is_ok_status, status_severity
+from presentation.colors import INFO, OK, WARN, sev_class_color, sev_text_color
+from presentation.formatting import dedupe_links, is_ok_status, status_severity
+from presentation.glyphs import unicode_glyph
+from presentation.terminal import pager, paint
 from report.diff import (
     DIFF_SECTIONS,
     build_diff_columns,
@@ -14,28 +16,11 @@ from report.diff import (
 
 def _arrow() -> str:
     """Tree connector for diff/holder detail lines (ASCII on pure TTYs)."""
-    return term.unicode_glyph("↳", "->")
+    return unicode_glyph("↳", "->")
 
 
 class CLIReportRenderer:
     """Render report using plain text CLI output."""
-
-    #: severity text -> ANSI color (used when color is enabled)
-    _SEV_COLORS: ClassVar[dict[str, str]] = {
-        "CRIT": term.CRIT,
-        "CRITICAL": term.CRIT,
-        "HIGH": term.CRIT,
-        "FAIL": term.CRIT,
-        "MAYBE": term.WARN,
-        "WARN": term.WARN,
-        "WARNING": term.WARN,
-        "MEDIUM": term.WARN,
-        "OK": term.OK,
-        "SUCCESS": term.OK,
-        "LOW": term.OK,
-        "INFO": term.INFO,
-        "UNKNOWN": term.GRAY,
-    }
 
     def __init__(
         self, data: dict[str, Any], verbose: bool = False, color: bool = False
@@ -48,16 +33,16 @@ class CLIReportRenderer:
         """Colorize text only when color output is requested."""
         if not self.color:
             return text
-        return term.paint(text, color, bold=bold)
+        return paint(text, color, bold=bold)
 
     def _sev(self, severity: str) -> str:
         """Colorize a [severity] label."""
-        color = self._SEV_COLORS.get(str(severity).upper())
-        return self._c(f"[{severity}]", color or "")
+        color = sev_text_color(severity)
+        return self._c(f"[{severity}]", color)
 
     def render(self) -> None:
         """Render full report, paging through less when on a TTY."""
-        term.pager(self.build_full_report())
+        pager(self.build_full_report())
 
     def build_full_report(self) -> str:
         """Build complete report string."""
@@ -93,7 +78,7 @@ class CLIReportRenderer:
         """Build report header."""
         title = "KERNEL VULNERABILITY AUDIT REPORT"
         if self.color:
-            title = self._c(title, term.INFO, bold=True)
+            title = self._c(title, INFO, bold=True)
         return (
             "\n"
             + "=" * 60
@@ -220,7 +205,7 @@ class CLIReportRenderer:
             else:
                 status = f"MAYBE (exit: {exit_code})"
 
-            status_color = term.OK if "SUCCESS" in status else term.WARN
+            status_color = OK if "SUCCESS" in status else WARN
             section += (
                 f"    {self._c(status, status_color)} | "
                 f"{run.get('sandbox_platform') or 'Unknown'}\n"
@@ -273,14 +258,6 @@ class CLIReportRenderer:
 
     _DIFF_SECTIONS = DIFF_SECTIONS
 
-    #: severity class -> ANSI color (from core.status_severity classification)
-    _SEV_CLASS_COLORS: ClassVar[dict[str, str]] = {
-        "CRIT": term.CRIT,
-        "WARN": term.WARN,
-        "OK": term.OK,
-        "INFO": term.GRAY,
-    }
-
     @staticmethod
     def _row_status_color(status: str) -> str:
         """CLI color for a two-column row based on its status.
@@ -288,7 +265,7 @@ class CLIReportRenderer:
         red = FAIL/mismatch/new, yellow = WARNING/missing/removed,
         green = ok/perfect for the current state of host
         """
-        return CLIReportRenderer._SEV_CLASS_COLORS[status_severity(status)]
+        return sev_class_color(status_severity(status))
 
     def _render_two_column(self, table: dict) -> str:
         """Render a two-column comparison table with aligned columns"""

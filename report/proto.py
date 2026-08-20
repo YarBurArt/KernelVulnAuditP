@@ -1,6 +1,6 @@
 import json
 
-from core import dict_to_display_rows
+from presentation.formatting import dict_to_display_rows
 
 try:
     import streamlit as st  # type: ignore[import-not-found]

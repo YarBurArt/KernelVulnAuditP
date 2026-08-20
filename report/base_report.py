@@ -2,14 +2,15 @@ import json
 import logging
 import re
 import sys
+from dataclasses import asdict
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from sqlalchemy.exc import SQLAlchemyError
 
-from core import format_timestamp
 from log_conf import LOG_FILE
+from presentation.formatting import format_timestamp
 from report.diff import (
     build_diff,
     collect_sandbox_modules,
@@ -30,6 +31,33 @@ except ImportError:
 from db import get_db
 from recon.local_target_recon import LocalRecon
 from report.streamlit_rep import StreamlitReportRenderer
+
+
+def format_report(data: dict) -> dict:
+    """Shrink raw scan/feed data down to the fields the report needs,
+    tallying finding sources (NIST vs OSV) so the header can show coverage."""
+    feeds = data.get("feeds", {}) or {}
+    findings = feeds.get("findings", [])
+    pocs = feeds.get("pocs", [])
+
+    nist_count = 0
+    osv_count = 0
+
+    for f in findings:
+        src = (f.get("source") or "").upper()
+        if src == "NIST":
+            nist_count += 1
+        elif src == "OSV":
+            osv_count += 1
+
+    return {
+        "kernel": data.get("kernel", ""),
+        "system": data.get("system", ""),
+        "build_date": data.get("build_date", 0),
+        "nist_count": nist_count,
+        "osv_count": osv_count,
+        "github_count": len(pocs),
+    }
 
 
 def save_report_json(data: dict[str, Any], filepath: str = "report_data.json") -> None:
@@ -58,9 +86,9 @@ def fetch_all_vulnerabilities(db) -> list[dict[str, Any]]:
         if not batch:
             break
         for vuln in batch:
-            full = db.get_vulnerability_with_details(vuln["cve_id"])
+            full = db.get_vulnerability_with_details(vuln.cve_id)
             if full:
-                all_vulns.append(full)
+                all_vulns.append(asdict(full))
         if len(batch) < chunk:
             break
         offset += chunk
@@ -74,11 +102,11 @@ def build_kev_data(db) -> list[dict[str, Any]]:
     for vuln in kev_list:
         kev_data.append(
             {
-                "cve_id": vuln.get("cve_id"),
-                "description": vuln.get("description", "")[:100],
-                "cvss_v3_score": vuln.get("cvss_v3_score"),
-                "severity": vuln.get("severity"),
-                "criticality_score": vuln.get("criticality_score"),
+                "cve_id": vuln.cve_id,
+                "description": (vuln.description or "")[:100],
+                "cvss_v3_score": vuln.cvss_v3_score,
+                "severity": vuln.severity,
+                "criticality_score": vuln.criticality_score,
             }
         )
     return kev_data
@@ -89,14 +117,16 @@ def build_sandbox_runs(db) -> list[dict[str, Any]]:
     runs = []
     critical_vulns = db.get_critical(limit=5)
     for idx, vuln in enumerate(critical_vulns, 1):
-        cve_id = vuln.get("cve_id")
+        cve_id = vuln.cve_id
         sandbox_runs = db.get_sandbox_runs(cve_id)
         for run in sandbox_runs:
             runs.append(
                 {
-                    **run,
+                    **asdict(run),
                     "id": idx,
-                    "status": ("SUCCESS" if run.get("execution_success") else "MAYBE"),
+                    "status": (
+                        "SUCCESS" if run.execution_success else "MAYBE"
+                    ),
                     "description": f"PoC test for {cve_id}",
                 }
             )
@@ -105,7 +135,7 @@ def build_sandbox_runs(db) -> list[dict[str, Any]]:
 
 def build_security_recommendations(db) -> list[dict[str, Any]]:
     """build security recommendations list from DB"""
-    return db.get_security_recommendations(limit=200)
+    return [asdict(r) for r in db.get_security_recommendations(limit=200)]
 
 
 _LOG_LINE_RE = re.compile(
@@ -259,7 +289,7 @@ def build_report_data(db=None) -> dict[str, Any]:
         "latest_version": kernel_info["latest_version"],
         "kev_data": build_kev_data(db),
         "runs": runs,
-        "statistics": db.get_statistics(),
+        "statistics": asdict(db.get_statistics()),
         "vulnerabilities": sorted_vulns,
         "security_recommendations": security_recs,
         "host_info": host_info_dict,
