@@ -11,6 +11,7 @@ dependencies = [
     "textual>=8.2.8",
     "pyyaml>=6.0.0",
     "anyio==4.14.2",
+    "dishka>=1.10.1",
 ]
 
 [project.optional-dependencies]
@@ -37,6 +38,7 @@ dev = [
 ]
 
 [tool.mypy]
-# report.py is a thin entry shim that deliberately shares the package name
-exclude = "^report\\.py$"
+# report.py is a thin entry shim that deliberately shares the package name;
+# lib_tools is vendored third-party tooling (peas2json) kept untyped.
+exclude = "^report\\.py$|^lib_tools/"
 

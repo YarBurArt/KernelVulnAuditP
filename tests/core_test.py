@@ -6,55 +6,65 @@ import unittest
 from datetime import UTC, datetime
 from typing import ClassVar
 
-from core import (
-    _debug_mapping,
-    assign_value_by_key_type,
-    audit_priority,
-    binary_output,
-    calculate_criticality_score,
-    chain_get,
-    clean_command_string,
-    count_by_key,
-    dedupe_links,
-    dict_to_display_rows,
-    ensure_list_in_dict,
-    extract_code_block_commands,
+from application.services.settings_service import update_config_file
+from core.entities import (
+    CveExecution,
+    ExecutionReport,
+    KernelInfo,
+    PocExecution,
+    RunLogs,
+    SandboxRunResult,
+    Statistics,
+    VmResources,
+)
+from core.parsing import (
     extract_cve_ids,
     extract_cvss,
     extract_english_description,
-    extract_links,
-    extract_section_by_header,
     filter_items_by_date,
-    filter_list_by_pred,
+    norm_sysctl_value,
+    parse_date_string,
+)
+from core.scoring import calculate_criticality_score
+from presentation.formatting import (
+    audit_priority,
+    dedupe_links,
+    dict_to_display_rows,
+    extract_links,
     first_resource_line,
-    flatten_dict_value,
-    format_execution_report,
     format_kernel_line,
-    format_report,
     format_run_timestamp,
-    format_sandbox_detail,
     format_timestamp,
-    group_by_key,
     is_finding,
     is_ok_status,
     is_url,
-    log_sandbox_run,
-    merge_dicts_by_key,
-    norm_sysctl_value,
-    parse_date_string,
-    parse_key_value_pairs,
-    parse_key_with_brackets,
     rec_context_rows,
     rec_severity,
     safe_get_attr,
-    safe_get_nested,
     short_hash,
     status_rank,
     status_severity,
-    strip_ansi_sequences,
     suggestion_for,
-    summarize_sandbox,
-    update_config_file,
+)
+from presentation.sandbox import (
+    _debug_mapping,
+    binary_output,
+    format_execution_report,
+    format_sandbox_detail,
+    log_sandbox_run,
+)
+from recon.parse_recon_reports import (
+    assign_value_by_key_type,
+    ensure_list_in_dict,
+    parse_key_value_pairs,
+    parse_key_with_brackets,
+    strip_ansi_sequences,
+)
+from report.base_report import format_report
+from sqxpl import (
+    clean_command_string,
+    extract_code_block_commands,
+    extract_section_by_header,
 )
 
 
@@ -188,66 +198,6 @@ class TestDictListProcessing(unittest.TestCase):
     def test_dict_to_display_rows_empty(self):
         result = dict_to_display_rows([])
         self.assertEqual(result, [])
-
-    def test_flatten_dict_value_dict(self):
-        value = {"key1": "val1", "key2": "val2"}
-        result = flatten_dict_value(value)
-        self.assertIn("key1: val1", result)
-
-    def test_flatten_dict_value_list_of_dicts(self):
-        value = [{"id": 1, "name": "A"}, {"id": 2, "name": "B"}]
-        result = flatten_dict_value(value)
-        self.assertIn("id: 1", result)
-
-    def test_flatten_dict_value_list(self):
-        value = [1, 2, 3]
-        result = flatten_dict_value(value)
-        self.assertEqual(result, "1, 2, 3")
-
-    def test_flatten_dict_value_primitive(self):
-        self.assertEqual(flatten_dict_value("hello"), "hello")
-        self.assertEqual(flatten_dict_value(42), "42")
-        self.assertEqual(flatten_dict_value(None), "")
-
-    def test_flatten_dict_value_max_length(self):
-        value = {"key": "x" * 1000}
-        result = flatten_dict_value(value, max_length=50)
-        self.assertLessEqual(len(result), 50)
-
-    def test_merge_dicts_by_key_all(self):
-        target = {"a": 1}
-        source = {"b": 2, "c": 3}
-        result = merge_dicts_by_key(target, source)
-        self.assertEqual(result, {"a": 1, "b": 2, "c": 3})
-
-    def test_merge_dicts_by_key_selected(self):
-        target = {"a": 1}
-        source = {"b": 2, "c": 3}
-        result = merge_dicts_by_key(target, source, keys=["b"])
-        self.assertEqual(result, {"a": 1, "b": 2})
-        self.assertNotIn("c", result)
-
-    def test_merge_dicts_by_key_missing_key(self):
-        target = {"a": 1}
-        source = {"b": 2}
-        result = merge_dicts_by_key(target, source, keys=["zzz"])
-        self.assertEqual(result, {"a": 1})
-
-    def test_safe_get_nested_single(self):
-        data = {"a": 1}
-        self.assertEqual(safe_get_nested(data, "a"), 1)
-
-    def test_safe_get_nested_deep(self):
-        data = {"a": {"b": {"c": 42}}}
-        self.assertEqual(safe_get_nested(data, "a", "b", "c"), 42)
-
-    def test_safe_get_nested_missing(self):
-        data = {"a": {"b": 1}}
-        self.assertEqual(safe_get_nested(data, "a", "c"), None)
-
-    def test_safe_get_nested_default(self):
-        data = {"a": 1}
-        self.assertEqual(safe_get_nested(data, "b", default="default"), "default")
 
 
 class TestTextParsing(unittest.TestCase):
@@ -455,74 +405,6 @@ class TestCriticalityScore(unittest.TestCase):
         self.assertEqual(score, 100)
 
 
-class TestPipelineUtilities(unittest.TestCase):
-    """pipeline utilities tests"""
-
-    def test_chain_get_simple(self):
-        data = {"a": 1}
-        self.assertEqual(chain_get(data, "a"), 1)
-
-    def test_chain_get_nested(self):
-        data = {"a": {"b": {"c": 42}}}
-        self.assertEqual(chain_get(data, "a.b.c"), 42)
-
-    def test_chain_get_list_index(self):
-        data = {"items": [{"name": "first"}]}
-        self.assertEqual(chain_get(data, "items.0.name"), "first")
-
-    def test_chain_get_missing(self):
-        data = {"a": 1}
-        self.assertEqual(chain_get(data, "b"), None)
-
-    def test_chain_get_default(self):
-        data = {"a": 1}
-        self.assertEqual(chain_get(data, "b", default="default"), "default")
-
-    def test_chain_get_list_index_out_of_range(self):
-        data = {"items": [1, 2, 3]}
-        self.assertEqual(chain_get(data, "items.9"), None)
-        self.assertEqual(chain_get(data, "items.9", default="d"), "d")
-
-    def test_chain_get_list_bad_index(self):
-        data = {"items": [1, 2, 3]}
-        self.assertEqual(chain_get(data, "items.xyz"), None)
-
-    def test_filter_list_by_pred(self):
-        items = [1, 2, 3, 4, 5]
-        result = filter_list_by_pred(items, lambda x: x > 3)
-        self.assertEqual(result, [4, 5])
-
-    def test_filter_list_by_pred_limit(self):
-        items = [1, 2, 3, 4, 5]
-        result = filter_list_by_pred(items, lambda x: x > 2, limit=2)
-        self.assertEqual(result, [3, 4])
-
-    def test_group_by_key(self):
-        items = [
-            {"category": "A", "value": 1},
-            {"category": "B", "value": 2},
-            {"category": "A", "value": 3},
-        ]
-        result = group_by_key(items, "category")
-        self.assertEqual(len(result), 2)
-        self.assertEqual(len(result["A"]), 2)
-
-    def test_count_by_key(self):
-        items = [{"status": "OK"}, {"status": "FAIL"}, {"status": "OK"}]
-        result = count_by_key(items, "status")
-        self.assertEqual(result, {"OK": 2, "FAIL": 1})
-
-    def test_group_by_key_none_values_skipped(self):
-        items = [{"category": "A"}, {"category": None}, {}]
-        result = group_by_key(items, "category")
-        self.assertEqual(result, {"A": [items[0]]})
-
-    def test_count_by_key_none_values_skipped(self):
-        items = [{"status": "OK"}, {"status": None}, {}]
-        result = count_by_key(items, "status")
-        self.assertEqual(result, {"OK": 1})
-
-
 class TestCVEHelpers(unittest.TestCase):
     """extract_cve_ids and extract_english_description tests"""
 
@@ -642,7 +524,7 @@ class TestNormSysctl(unittest.TestCase):
 
 
 class TestReportHelpers(unittest.TestCase):
-    """format_report and summarize_sandbox tests"""
+    """format_report tests"""
 
     def test_format_report_counts(self):
         data = {
@@ -682,34 +564,18 @@ class TestReportHelpers(unittest.TestCase):
         self.assertEqual(result["osv_count"], 0)
         self.assertEqual(result["github_count"], 0)
 
-    def test_summarize_sandbox(self):
-        class Result:
-            def __init__(self):
-                self.execution_mode = "run"
-                self.returncode = 0
-                self.crashed = False
-                self.stdout = "out"
-                self.stderr = ""
-                self.logs = {}
-                self.kernel_info = {}
-                self.resources = {}
-                self.modules = []
-                self.files = []
-                self.processes = []
-
-        summary = summarize_sandbox(Result())
-        self.assertEqual(summary["mode"], "run")
-        self.assertEqual(summary["returncode"], 0)
-        self.assertTrue(summary["success"])
-        self.assertFalse(summary["crashed"])
-        self.assertEqual(summary["stdout"], "out")
-
-    def test_summarize_sandbox_no_attrs(self):
-        summary = summarize_sandbox(object())
-        self.assertEqual(summary["mode"], "unknown")
-        self.assertIsNone(summary["returncode"])
-        self.assertFalse(summary["success"])
-        self.assertEqual(summary["stdout"], " ")
+    def test_sandbox_result_success_flag(self):
+        result = SandboxRunResult(
+            execution_mode="qemu",
+            returncode=0,
+            crashed=False,
+            stdout="out",
+            stderr="",
+            duration_ms=12.3,
+        )
+        self.assertTrue(result.success)
+        self.assertFalse(result.crashed)
+        self.assertEqual(result.stdout, "out")
 
 
 class TestUpdateConfigFile(unittest.TestCase):
@@ -1019,65 +885,65 @@ class TestSandboxFormatting(unittest.TestCase):
 
     # -- format_execution_report / format_sandbox_detail ------------------
 
-    _SAMPLE_REPORT: ClassVar[dict] = {
-        "kernel": "6.9.0",
-        "build_date": "2025-01-01 00:00:00 UTC",
-        "cves_processed": 1,
-        "stats": {
-            "total": 10,
-            "with_exploits": 3,
-            "in_cisa_kev": 2,
-            "ransomware_related": 1,
-            "critical_count": 4,
-            "avg_cvss": 7.5,
-            "by_severity": {"CRITICAL": 2, "HIGH": 1},
-        },
-        "entries": [
-            {
-                "cve_id": "CVE-2026-0001",
-                "description": "Bad exploit demo",
-                "cvss_v3_score": 9.8,
-                "severity": "CRITICAL",
-                "sources": ["LES"],
-                "pocs": [
-                    {
-                        "url": "https://github.com/x/y",
-                        "language": "C",
-                        "stars": 42,
-                        "compile_cmd": "gcc -o x x.c",
-                        "test_cmd": "./x",
-                        "sandbox": {
-                            "mode": "virtme-ng",
-                            "returncode": 1,
-                            "success": False,
-                            "crashed": True,
-                            "stdout": "line one\nline two",
-                            "stderr": "boom",
-                            "logs": {"exploit_hash": "abc123"},
-                            "kernel_info": {"uname": "Linux 6.9.0", "date": "d"},
-                            "resources": {"meminfo": "MemTotal: 512"},
-                            "modules": ["mod_a"],
-                            "processes": ["pid 1"],
-                            "files": ["/etc/passwd"],
-                        },
-                    }
+    _SAMPLE_REPORT: ClassVar[ExecutionReport] = ExecutionReport(
+        kernel="6.9.0",
+        build_date="2025-01-01 00:00:00 UTC",
+        cves_processed=1,
+        stats=Statistics(
+            total=10,
+            with_exploits=3,
+            in_cisa_kev=2,
+            ransomware_related=1,
+            critical_count=4,
+            avg_cvss=7.5,
+            by_severity={"CRITICAL": 2, "HIGH": 1},
+        ),
+        entries=[
+            CveExecution(
+                cve_id="CVE-2026-0001",
+                description="Bad exploit demo",
+                cvss_v3_score=9.8,
+                severity="CRITICAL",
+                sources=["LES"],
+                pocs=[
+                    PocExecution(
+                        url="https://github.com/x/y",
+                        language="C",
+                        stars=42,
+                        compile_cmd="gcc -o x x.c",
+                        test_cmd="./x",
+                        sandbox=SandboxRunResult(
+                            stdout="line one\nline two",
+                            stderr="boom",
+                            returncode=1,
+                            execution_mode="virtme-ng",
+                            duration_ms=0.0,
+                            crashed=True,
+                            logs=RunLogs(binary="abc123"),
+                            kernel_info=KernelInfo(uname="Linux 6.9.0", date="d"),
+                            resources=VmResources(meminfo="MemTotal: 512"),
+                            modules=["mod_a"],
+                            files=["/etc/passwd"],
+                            processes=["pid 1"],
+                        ),
+                    )
                 ],
-            },
-            {
-                "cve_id": "CVE-2026-0002",
-                "description": "no poc",
-                "sources": ["NIST"],
-                "pocs": [
-                    {
-                        "url": "https://g/r",
-                        "language": "rust",
-                        "stars": 1,
-                        "sandbox_error": "compile failed",
-                    }
+            ),
+            CveExecution(
+                cve_id="CVE-2026-0002",
+                description="no poc",
+                sources=["NIST"],
+                pocs=[
+                    PocExecution(
+                        url="https://g/r",
+                        language="rust",
+                        stars=1,
+                        sandbox_error="compile failed",
+                    )
                 ],
-            },
+            ),
         ],
-    }
+    )
 
     def test_format_execution_report_header_and_stats(self):
         text = format_execution_report(self._SAMPLE_REPORT)
@@ -1110,7 +976,7 @@ class TestSandboxFormatting(unittest.TestCase):
         self.assertIn("sandbox error: compile failed", text)
 
     def test_format_execution_report_empty(self):
-        text = format_execution_report({})
+        text = format_execution_report(ExecutionReport())
         self.assertIn("=== Execution Report ===", text)
         self.assertIn("Entries:  0", text)
 
@@ -1171,120 +1037,108 @@ class TestSandboxFormatting(unittest.TestCase):
         text = format_sandbox_detail(data)
         self.assertIn("cpu:           processor : 0", text)
 
-    def test_format_execution_report_security_recommendations_stats(self):
-        report = {
-            "stats": {
-                "by_severity": {"CRITICAL": 1},
-                "security_recommendations": {"total": 3, "by_status": {"FAIL": 1}},
-            },
-            "entries": [],
-        }
-        text = format_execution_report(report)
-        self.assertIn("by_severity:", text)
-        self.assertIn("security_recommendations:", text)
-        self.assertIn("FAIL", text)
-
-    def test_format_execution_report_rec_stats_without_by_severity(self):
-        report = {
-            "stats": {
-                "security_recommendations": {"total": 1, "by_status": {"WARNING": 1}}
-            },
-            "entries": [],
-        }
-        text = format_execution_report(report)
-        self.assertIn("security_recommendations:", text)
-        self.assertIn("WARNING", text)
-
     def test_format_execution_report_entry_no_pocs(self):
-        report = {"entries": [{"cve_id": "CVE-2026-0100", "pocs": []}]}
+        report = ExecutionReport(
+            entries=[CveExecution(cve_id="CVE-2026-0100", pocs=[])]
+        )
         text = format_execution_report(report)
         self.assertIn("CVE-2026-0100", text)
         self.assertIn("PoCs:        none", text)
 
-    def test_format_execution_report_sandbox_not_dict_skipped(self):
-        report = {
-            "entries": [
-                {
-                    "cve_id": "CVE-2026-0101",
-                    "pocs": [{"url": "https://x", "sandbox": "not-a-dict"}],
-                }
+    def test_format_execution_report_sandbox_error_no_outcome(self):
+        report = ExecutionReport(
+            entries=[
+                CveExecution(
+                    cve_id="CVE-2026-0101",
+                    pocs=[PocExecution(url="https://x")],
+                )
             ]
-        }
+        )
         text = format_execution_report(report)
         self.assertIn("CVE-2026-0101", text)
 
     def test_format_execution_report_sandbox_without_logs(self):
-        report = {
-            "entries": [
-                {
-                    "cve_id": "CVE-2026-0102",
-                    "pocs": [
-                        {
-                            "url": "https://x",
-                            "sandbox": {
-                                "mode": "qemu",
-                                "returncode": 0,
-                                "success": True,
-                                "crashed": False,
-                                "logs": {},
-                            },
-                        }
+        report = ExecutionReport(
+            entries=[
+                CveExecution(
+                    cve_id="CVE-2026-0102",
+                    pocs=[
+                        PocExecution(
+                            url="https://x",
+                            sandbox=SandboxRunResult(
+                                stdout="",
+                                stderr="",
+                                returncode=0,
+                                execution_mode="qemu",
+                                duration_ms=0.0,
+                            ),
+                        )
                     ],
-                }
+                )
             ]
-        }
+        )
         text = format_execution_report(report)
         self.assertIn("mode=qemu returncode=0 success=True crashed=False", text)
 
     def test_format_execution_report_sandbox_with_kernel_info_extra(self):
-        report = {
-            "entries": [
-                {
-                    "cve_id": "CVE-2026-0103",
-                    "pocs": [
-                        {
-                            "url": "https://x",
-                            "sandbox": {
-                                "kernel_info": {
-                                    "uname": "Linux 6.1",
-                                    "date": "d",
-                                    "dmesg": "boot log",
-                                },
-                                "logs": {"binary": "beef"},
-                            },
-                        }
+        report = ExecutionReport(
+            entries=[
+                CveExecution(
+                    cve_id="CVE-2026-0103",
+                    pocs=[
+                        PocExecution(
+                            url="https://x",
+                            sandbox=SandboxRunResult(
+                                stdout="",
+                                stderr="",
+                                returncode=0,
+                                execution_mode="qemu",
+                                duration_ms=0.0,
+                                logs=RunLogs(binary="beef"),
+                                kernel_info=KernelInfo(
+                                    uname="Linux 6.1", date="d", dmesg="boot log"
+                                ),
+                            ),
+                        )
                     ],
-                }
+                )
             ]
-        }
+        )
         text = format_execution_report(report)
         self.assertIn("kernel: Linux 6.1", text)
         self.assertIn("dmesg", text)
         self.assertIn("beef", text)
 
     def test_format_execution_report_sandbox_resources_and_files(self):
-        report = {
-            "entries": [
-                {
-                    "cve_id": "CVE-2026-0104",
-                    "pocs": [
-                        {
-                            "url": "https://x",
-                            "sandbox": {
-                                "resources": {"meminfo": "MemTotal: 2"},
-                                "files": ["/etc/passwd"],
-                            },
-                        }
+        report = ExecutionReport(
+            entries=[
+                CveExecution(
+                    cve_id="CVE-2026-0104",
+                    pocs=[
+                        PocExecution(
+                            url="https://x",
+                            sandbox=SandboxRunResult(
+                                stdout="",
+                                stderr="",
+                                returncode=0,
+                                execution_mode="qemu",
+                                duration_ms=0.0,
+                                resources=VmResources(meminfo="MemTotal: 2"),
+                                files=["/etc/passwd"],
+                            ),
+                        )
                     ],
-                }
+                )
             ]
-        }
+        )
         text = format_execution_report(report)
         self.assertIn("MemTotal: 2", text)
         self.assertIn("/etc/passwd", text)
 
     def test_format_execution_report_entry_without_description(self):
-        report = {"entries": [{"cve_id": "CVE-2026-0105", "description": ""}]}
+        report = ExecutionReport(
+            entries=[CveExecution(cve_id="CVE-2026-0105", description="")]
+        )
         text = format_execution_report(report)
         self.assertIn("CVE-2026-0105", text)
         self.assertNotIn("Description:", text)

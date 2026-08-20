@@ -2,11 +2,23 @@ from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest import mock
 
-import pytest
 from sqlalchemy.exc import IntegrityError
 
 from app_services import AppServices, _NoopProgress
-from schemas import LesCVEItem, SecurityRecommendationType
+from application.dto import LesCVEItem
+from core.entities import (
+    CisaKevEntry,
+    CveExecution,
+    ExecutionReport,
+    PocExecution,
+    RecommendationStats,
+    RunLogs,
+    SandboxRunResult,
+    SecurityRecommendationType,
+    Statistics,
+    Vulnerability,
+)
+from isolate.poc_runner import PocRunOutcome
 from sqxpl import GitHubExploitSearcher
 
 
@@ -17,6 +29,7 @@ def _bare_services(**overrides):
     services.rf = mock.AsyncMock()
     services.poc_searcher = mock.MagicMock()
     services.isolate = mock.MagicMock()
+    services.poc_runner = mock.MagicMock()
     services.progress = None
     for key, value in overrides.items():
         setattr(services, key, value)
@@ -47,7 +60,7 @@ def test_make_bar_returns_noop_when_no_progress():
 def test_make_bar_uses_progress_callable():
     factory = mock.MagicMock()
     s = _bare_services(progress=factory)
-    bar = s._make_bar(5, "label")
+    s._make_bar(5, "label")
     factory.assert_called_once_with(total=5, label="label")
 
 
@@ -87,9 +100,9 @@ def test_build_kev_records():
         }
     )
     assert cve_id == "CVE-2024-1"
-    assert kev_data["known_ransomware"] is True
-    assert kev_data["date_added"] == datetime(2024, 1, 15, tzinfo=UTC)
-    assert vuln_data["in_cisa_kev"] is True
+    assert kev_data.known_ransomware is True
+    assert kev_data.date_added == datetime(2024, 1, 15, tzinfo=UTC)
+    assert vuln_data.in_cisa_kev is True
 
 
 def test_build_kev_records_not_known_ransomware():
@@ -97,12 +110,17 @@ def test_build_kev_records_not_known_ransomware():
     _, kev_data, _ = s._build_kev_records(
         {"cveID": "CVE-2024-1", "knownRansomwareCampaignUse": "Unknown"}
     )
-    assert kev_data["known_ransomware"] is False
+    assert kev_data.known_ransomware is False
 
 
 def test_save_kev_entry_success():
     s = _bare_services()
-    assert s._save_kev_entry("CVE-2024-1", {}, {}) is True
+    assert (
+        s._save_kev_entry(
+            "CVE-2024-1", CisaKevEntry(), Vulnerability(cve_id="CVE-2024-1")
+        )
+        is True
+    )
     s.db.upsert_vulnerability.assert_called_once()
     s.db.add_cisa_kev.assert_called_once()
 
@@ -110,13 +128,23 @@ def test_save_kev_entry_success():
 def test_save_kev_entry_integrity_error_returns_false():
     s = _bare_services()
     s.db.add_cisa_kev.side_effect = IntegrityError("stmt", {}, Exception())
-    assert s._save_kev_entry("CVE-2024-1", {}, {}) is False
+    assert (
+        s._save_kev_entry(
+            "CVE-2024-1", CisaKevEntry(), Vulnerability(cve_id="CVE-2024-1")
+        )
+        is False
+    )
 
 
 def test_save_kev_entry_other_error_returns_false():
     s = _bare_services()
     s.db.upsert_vulnerability.side_effect = ValueError("bad")
-    assert s._save_kev_entry("CVE-2024-1", {}, {}) is False
+    assert (
+        s._save_kev_entry(
+            "CVE-2024-1", CisaKevEntry(), Vulnerability(cve_id="CVE-2024-1")
+        )
+        is False
+    )
 
 
 def test_normalize_source():
@@ -132,10 +160,10 @@ def test_build_vulnerability_with_context():
         {"description": "meta", "cvss_v3_score": 7.5, "raw": {"x": 1}},
         {"kernel_version": "6.8.0"},
     )
-    assert vuln["cve_id"] == "CVE-2024-1"
-    assert vuln["severity"] == "HIGH"
-    assert vuln["sources"] == ["LES"]
-    assert vuln["raw_data"]["context"]["kernel_version"] == "6.8.0"
+    assert vuln.cve_id == "CVE-2024-1"
+    assert vuln.severity == "HIGH"
+    assert vuln.sources == ["LES"]
+    assert vuln.raw_data["context"]["kernel_version"] == "6.8.0"
 
 
 def test_build_vulnerability_falls_back_to_metadata():
@@ -143,25 +171,38 @@ def test_build_vulnerability_falls_back_to_metadata():
     vuln = s._build_vulnerability(
         "CVE-2024-1", {"source": "linpeas"}, {"description": "m"}, None
     )
-    assert vuln["description"] == "m"
-    assert "context" not in vuln["raw_data"]
+    assert vuln.description == "m"
+    assert "context" not in vuln.raw_data
+
+
+def _execution(cve_id="CVE-1", pocs=None):
+    return CveExecution(cve_id=cve_id, pocs=pocs or [])
+
+
+def _poc(sandbox=None, error=None):
+    return PocExecution(sandbox=sandbox, sandbox_error=error)
 
 
 def test_cve_outcome_note_variants():
     assert AppServices._cve_outcome_note(None) == "no data"
-    assert AppServices._cve_outcome_note({}) == "no PoCs"
-    assert AppServices._cve_outcome_note({"pocs": []}) == "no PoCs"
+    assert AppServices._cve_outcome_note(_execution()) == "no PoCs"
 
 
 def test_cve_outcome_note_full_stats():
     note = AppServices._cve_outcome_note(
-        {
-            "pocs": [
-                {"sandbox": {"crashed": True, "success": False, "mode": "qemu"}},
-                {"sandbox": {"crashed": False, "success": True, "mode": "qemu"}},
-                {"sandbox": "not-a-dict"},
+        _execution(
+            pocs=[
+                _poc(SandboxRunResult(
+                    returncode=1, execution_mode="qemu", crashed=True,
+                    stdout="", stderr="", duration_ms=0.0,
+                )),
+                _poc(SandboxRunResult(
+                    returncode=0, execution_mode="qemu", crashed=False,
+                    stdout="", stderr="", duration_ms=0.0,
+                )),
+                _poc(error="boom"),
             ]
-        }
+        )
     )
     assert "3 PoCs" in note
     assert "ok" in note
@@ -171,7 +212,14 @@ def test_cve_outcome_note_full_stats():
 
 def test_cve_outcome_note_no_ok_no_crash():
     note = AppServices._cve_outcome_note(
-        {"pocs": [{"sandbox": {"success": False, "crashed": False}}]}
+        _execution(
+            pocs=[
+                _poc(SandboxRunResult(
+                    returncode=1, execution_mode="qemu", crashed=False,
+                    stdout="", stderr="", duration_ms=0.0,
+                ))
+            ]
+        )
     )
     assert "1 PoCs" in note
     assert "ok" not in note
@@ -180,32 +228,45 @@ def test_cve_outcome_note_no_ok_no_crash():
 
 def test_cve_outcome_note_crash_only():
     note = AppServices._cve_outcome_note(
-        {"pocs": [{"sandbox": {"success": False, "crashed": True}}]}
+        _execution(
+            pocs=[
+                _poc(SandboxRunResult(
+                    returncode=1, execution_mode="qemu", crashed=True,
+                    stdout="", stderr="", duration_ms=0.0,
+                ))
+            ]
+        )
     )
     assert "crashed" in note
 
 
 def test_cve_outcome_note_multiple_modes_no_mode():
     note = AppServices._cve_outcome_note(
-        {
-            "pocs": [
-                {"sandbox": {"success": True, "mode": "qemu"}},
-                {"sandbox": {"success": True, "mode": "host"}},
+        _execution(
+            pocs=[
+                _poc(SandboxRunResult(
+                    returncode=0, execution_mode="qemu", crashed=False,
+                    stdout="", stderr="", duration_ms=0.0,
+                )),
+                _poc(SandboxRunResult(
+                    returncode=0, execution_mode="host", crashed=False,
+                    stdout="", stderr="", duration_ms=0.0,
+                )),
             ]
-        }
+        )
     )
     assert "qemu" not in note
 
 
 def test_build_execution_report():
     s = _bare_services()
-    s.db.get_statistics.return_value = {"total": 1}
+    s.db.get_statistics.return_value = Statistics(total=1)
     report = s._build_execution_report(
         {"kernel_version": "6.8.0", "build_date": None}, []
     )
-    assert report["kernel"] == "6.8.0"
-    assert report["build_date"] is None
-    assert report["stats"] == {"total": 1}
+    assert report.kernel == "6.8.0"
+    assert report.build_date is None
+    assert report.stats.total == 1
 
 
 def test_register_poc():
@@ -226,196 +287,68 @@ def test_build_poc_summary():
     summary = AppServices._build_poc_summary(
         {"url": "u", "language": "C", "stars": 5, "compile_cmd": "gcc", "test_cmd": "./x"}
     )
-    assert summary["url"] == "u"
-    assert summary["language"] == "C"
+    assert summary.url == "u"
+    assert summary.language == "C"
+    assert summary.stars == 5
 
 
 def test_execute_poc_no_repo_returns_empty():
     s = _bare_services()
-    assert s._execute_poc("CVE-2024-1", {}) == {}
+    result = s._execute_poc("CVE-2024-1", {})
+    assert result.sandbox is None and result.sandbox_error is None
+    s.poc_runner.run.assert_not_called()
 
 
-def test_execute_poc_no_commands_returns_empty(tmp_path):
+def test_execute_poc_delegates_skipped_outcome(tmp_path):
     s = _bare_services()
-    assert s._execute_poc("CVE-2024-1", {"local_path": str(tmp_path)}) == {}
+    s.poc_runner.run.return_value = PocRunOutcome()
+    result = s._execute_poc("CVE-2024-1", {"local_path": str(tmp_path)})
+    assert result.sandbox is None and result.sandbox_error is None
+    s.poc_runner.run.assert_called_once()
 
 
-def test_execute_poc_compile_failure(tmp_path):
+def test_execute_poc_error_outcome(tmp_path):
     s = _bare_services()
-    with mock.patch.object(s, "_compile_poc", side_effect=RuntimeError("cc fail")):
-        result = s._execute_poc(
-            "CVE-2024-1",
-            {
-                "local_path": str(tmp_path),
-                "compile_cmd": "gcc x.c",
-                "test_cmd": "./x",
-            },
-        )
-    assert "compile failed" in result["sandbox_error"]
-
-
-def test_execute_poc_no_binary(tmp_path):
-    s = _bare_services()
-    with (
-        mock.patch.object(s, "_compile_poc"),
-        mock.patch.object(
-            AppServices, "_resolve_poc_binary", return_value=None
-        ),
-    ):
-        result = s._execute_poc(
-            "CVE-2024-1",
-            {"local_path": str(tmp_path), "compile_cmd": "gcc x.c"},
-        )
-    assert result["sandbox_error"] == "no executable produced by the PoC build"
-
-
-def test_execute_poc_sandbox_none_backend(tmp_path):
-    s = _bare_services()
-    s.isolate.run_binary.return_value = None
-    with (
-        mock.patch.object(s, "_compile_poc"),
-        mock.patch.object(
-            AppServices,
-            "_resolve_poc_binary",
-            return_value=tmp_path / "binary",
-        ),
-    ):
-        result = s._execute_poc(
-            "CVE-2024-1",
-            {"local_path": str(tmp_path), "test_cmd": "./binary"},
-        )
-    assert "no sandbox backend" in result["sandbox_error"]
+    s.poc_runner.run.return_value = PocRunOutcome(error="compile failed: cc fail")
+    result = s._execute_poc(
+        "CVE-2024-1",
+        {"local_path": str(tmp_path), "compile_cmd": "gcc x.c"},
+    )
+    assert result.sandbox_error == "compile failed: cc fail"
 
 
 def test_execute_poc_sandbox_success(tmp_path):
     s = _bare_services()
-    s.isolate.run_binary.return_value = SimpleNamespace(
+    run = SandboxRunResult(
         returncode=0,
         execution_mode="qemu",
-        logs={},
         crashed=False,
         stdout="out",
         stderr="err",
-        processes=[],
-        files=[],
-        modules=[],
-        kernel_info={},
-        resources={},
+        duration_ms=100.0,
     )
-    with (
-        mock.patch.object(s, "_compile_poc"),
-        mock.patch.object(
-            AppServices,
-            "_resolve_poc_binary",
-            return_value=tmp_path / "binary",
-        ),
-        mock.patch.object(s, "_store_sandbox_run"),
-    ):
+    s.poc_runner.run.return_value = PocRunOutcome(sandbox=run, command="./x")
+    with mock.patch.object(s, "_store_sandbox_run") as store:
         result = s._execute_poc(
             "CVE-2024-1",
-            {"local_path": str(tmp_path), "test_cmd": "./binary"},
+            {"local_path": str(tmp_path), "test_cmd": "./x"},
         )
-    assert "sandbox" in result
-
-
-def test_execute_poc_sandbox_raises(tmp_path):
-    s = _bare_services()
-    s.isolate.run_binary.side_effect = RuntimeError("vm crashed")
-    with (
-        mock.patch.object(s, "_compile_poc"),
-        mock.patch.object(
-            AppServices,
-            "_resolve_poc_binary",
-            return_value=tmp_path / "binary",
-        ),
-    ):
-        result = s._execute_poc(
-            "CVE-2024-1",
-            {"local_path": str(tmp_path), "test_cmd": "./binary"},
-        )
-    assert "vm crashed" in result["sandbox_error"]
-
-
-def test_resolve_poc_binary_from_test_cmd(tmp_path):
-    binary = tmp_path / "prog"
-    binary.write_text("#!/bin/sh\n")
-    binary.chmod(0o755)
-    resolved = AppServices._resolve_poc_binary(tmp_path, "./prog", "gcc a.c")
-    assert resolved == binary.resolve()
-
-
-def test_resolve_poc_binary_from_compile_o(tmp_path):
-    binary = tmp_path / "out"
-    binary.write_text("x")
-    binary.chmod(0o755)
-    resolved = AppServices._resolve_poc_binary(tmp_path, None, "gcc a.c -o out")
-    assert resolved == binary.resolve()
-
-
-def test_resolve_poc_binary_compile_cmd_no_o(tmp_path):
-    (tmp_path / "src.c").write_text("x")
-    resolved = AppServices._resolve_poc_binary(tmp_path, None, "gcc a.c -O2")
-    assert resolved is None
-
-
-def test_resolve_poc_binary_test_cmd_no_slash(tmp_path):
-    (tmp_path / "src.c").write_text("x")
-    resolved = AppServices._resolve_poc_binary(tmp_path, "python x.py", "gcc a.c -o out")
-    assert resolved is None
-
-
-def test_resolve_poc_binary_gcc_aout(tmp_path):
-    binary = tmp_path / "a.out"
-    binary.write_text("x")
-    binary.chmod(0o755)
-    resolved = AppServices._resolve_poc_binary(tmp_path, None, "gcc a.c")
-    assert resolved == binary.resolve()
-
-
-def test_resolve_poc_binary_falls_back_newest_executable(tmp_path):
-    (tmp_path / "gen.c").write_text("x")
-    newest = tmp_path / "newbin"
-    newest.write_text("x")
-    newest.chmod(0o755)
-    resolved = AppServices._resolve_poc_binary(tmp_path, None, None)
-    assert resolved == newest.resolve()
-
-
-def test_resolve_poc_binary_no_executable(tmp_path):
-    (tmp_path / "src.c").write_text("x")
-    assert AppServices._resolve_poc_binary(tmp_path, None, None) is None
-
-
-def test_resolve_poc_binary_name_not_executable(tmp_path):
-    named = tmp_path / "prog"
-    named.write_text("not executable")
-    named.chmod(0o644)
-    fallback = tmp_path / "fallback"
-    fallback.write_text("x")
-    fallback.chmod(0o755)
-    resolved = AppServices._resolve_poc_binary(tmp_path, "./prog", None)
-    assert resolved == fallback.resolve()
-
-
-def test_resolve_poc_binary_oserror_on_iterdir(tmp_path):
-    somefile = tmp_path / "f"
-    somefile.write_text("x")
-    resolved = AppServices._resolve_poc_binary(somefile, None, None)
-    assert resolved is None
+    assert result.sandbox is run
+    assert result.sandbox_error is None
+    store.assert_called_once_with("CVE-2024-1", run, "./x")
 
 
 def test_generate_report():
     s = _bare_services()
     import app_services
-    from schemas import ReconResult
+    from application.dto import ReconResult
 
     with mock.patch.object(
         s, "run_full_recon", return_value=ReconResult(local=None, feeds=None)
-    ):
-        with mock.patch.object(
-            app_services, "format_report", return_value="<report>"
-        ) as fmt_mock:
-            assert s.generate_report() == "<report>"
+    ), mock.patch.object(
+        app_services, "format_report", return_value="<report>"
+    ) as fmt_mock:
+        assert s.generate_report() == "<report>"
     fmt_mock.assert_called_once()
 
 
@@ -456,9 +389,26 @@ def test_process_single_cve_gathers_pocs():
 
     with (
         mock.patch.object(
-            s, "_persist_cve_hint", new=mock.AsyncMock(return_value={"pocs": []})
+            s,
+            "_persist_cve_hint",
+            new=mock.AsyncMock(
+                return_value={
+                    "cve_id": "CVE-1",
+                    "description": "d",
+                    "cvss_v3_score": 9.8,
+                    "severity": "CRITICAL",
+                    "sources": ["LES"],
+                }
+            ),
         ),
-        mock.patch.object(s, "_record_poc_for_cve", return_value={"sandbox": "ok"}),
+        mock.patch.object(
+            s,
+            "_record_poc_for_cve",
+            return_value=PocExecution(sandbox=SandboxRunResult(
+                returncode=0, execution_mode="qemu", crashed=False,
+                stdout="", stderr="", duration_ms=0.0,
+            )),
+        ),
         mock.patch.object(GitHubExploitSearcher, "load_xpls", side_effect=fake_load),
     ):
         import asyncio
@@ -466,7 +416,8 @@ def test_process_single_cve_gathers_pocs():
         entry = asyncio.run(
             s._process_single_cve("CVE-1", {"source": "les"}, {})
         )
-    assert entry["pocs"] == [{"sandbox": "ok"}]
+    assert entry.cve_id == "CVE-1"
+    assert len(entry.pocs) == 1 and entry.pocs[0].sandbox is not None
 
 
 def test_init_builds_dependencies():
@@ -505,37 +456,35 @@ def test_run_execution_tests_skips_none_entry():
 
 def test_store_sandbox_run():
     s = _bare_services()
-    result = SimpleNamespace(
+    result = SandboxRunResult(
         returncode=0,
         execution_mode="qemu",
-        logs={"exploit_hash": "aabbcc", "command": "cmd"},
-        crashed=False,
         stdout="out",
         stderr="err",
-        processes=["sh"],
-        files=["/etc/passwd"],
-        modules=[],
-        kernel_info={},
-        resources={},
+        duration_ms=1.0,
+        crashed=False,
+        logs=RunLogs(binary="aabbcc", command="cmd"),
     )
     s._store_sandbox_run("CVE-2024-1", result, "./x")
     s.db.add_sandbox_run.assert_called_once()
     sandbox_data = s.db.add_sandbox_run.call_args[0][1]
-    assert sandbox_data["execution_success"] is True
-    assert sandbox_data["exploit_file_hash"] == "aabbcc"
+    assert sandbox_data.execution_success is True
+    assert sandbox_data.exploit_file_hash == "aabbcc"
 
 
 def test_save_recon_results():
+    from core.entities import CveExecution, ExecutionReport
+
     s = _bare_services()
     saved = s.save_recon_results(
-        {
-            "kernel": "6.8.0",
-            "build_date": "2024",
-            "entries": [
-                {"cve_id": "CVE-2024-1", "description": "d"},
-                {"description": "no cve id"},
+        ExecutionReport(
+            kernel="6.8.0",
+            build_date="2024",
+            entries=[
+                CveExecution(cve_id="CVE-2024-1", description="d"),
+                CveExecution(description="no cve id"),
             ],
-        }
+        )
     )
     assert saved == 1
     s.db.upsert_vulnerability.assert_called_once()
@@ -544,7 +493,12 @@ def test_save_recon_results():
 def test_get_cached_recon_returns_matching():
     s = _bare_services()
     s.db.search.side_effect = [
-        [{"cve_id": "CVE-1", "raw_data": {"context": {"kernel_version": "6.8.0"}}}],
+        [
+            Vulnerability(
+                cve_id="CVE-1",
+                raw_data={"context": {"kernel_version": "6.8.0"}},
+            )
+        ],
         [],
     ]
     results = s.get_cached_recon("6.8.0")
@@ -553,7 +507,7 @@ def test_get_cached_recon_returns_matching():
 
 def test_get_cached_recon_stops_at_small_batch():
     s = _bare_services()
-    s.db.search.return_value = [{"cve_id": "CVE-1", "raw_data": {}}]
+    s.db.search.return_value = [Vulnerability(cve_id="CVE-1")]
     results = s.get_cached_recon("6.8.0")
     assert results == []
 
@@ -566,8 +520,19 @@ def test_get_cached_recon_empty_batch():
 
 def test_get_cached_recon_pages_through_chunks():
     s = _bare_services()
-    full_page = [{"cve_id": f"CVE-{i}", "raw_data": {"context": {"kernel_version": "6.8.0"}}} for i in range(100)]
-    empty = [{"cve_id": "CVE-x", "raw_data": {"context": {"kernel_version": "other"}}}]
+    full_page = [
+        Vulnerability(
+            cve_id=f"CVE-{i}",
+            raw_data={"context": {"kernel_version": "6.8.0"}},
+        )
+        for i in range(100)
+    ]
+    empty = [
+        Vulnerability(
+            cve_id="CVE-x",
+            raw_data={"context": {"kernel_version": "other"}},
+        )
+    ]
     s.db.search.side_effect = [full_page, empty]
     results = s.get_cached_recon("6.8.0")
     assert len(results) == 100
@@ -575,9 +540,10 @@ def test_get_cached_recon_pages_through_chunks():
 
 def test_get_statistics_merges_recommendations():
     s = _bare_services()
-    s.db.get_statistics.return_value = {"total": 1}
-    s.db.get_recommendations_stats.return_value = {"total": 2}
+    s.db.get_statistics.return_value = Statistics(total=1)
+    s.db.get_recommendations_stats.return_value = RecommendationStats(total=2)
     stats = s.get_statistics()
+    assert stats["total"] == 1
     assert stats["security_recommendations"]["total"] == 2
 
 
@@ -593,67 +559,6 @@ def test_get_cisa_kev_entries_passthrough():
     s = _bare_services()
     s.get_cisa_kev_entries(limit=5)
     s.db.get_cisa_kev_list.assert_called_once_with(limit=5)
-
-
-def test_compile_poc_success(tmp_path, monkeypatch):
-    from app_services import run_cmd
-
-    proc = SimpleNamespace(returncode=0, stdout="", stderr="")
-    with mock.patch.object(__import__("app_services"), "run_cmd", return_value=proc):
-        AppServices._compile_poc(tmp_path, "gcc x.c")
-
-
-def test_compile_poc_musl_gcc_non_direct_cmd(tmp_path):
-    import shutil
-
-    proc = SimpleNamespace(returncode=0, stdout="", stderr="")
-    with (
-        mock.patch.object(shutil, "which", side_effect=lambda n: "/usr/bin/musl-gcc" if n == "musl-gcc" else "/usr/bin/gcc"),
-        mock.patch.object(__import__("app_services"), "run_cmd", return_value=proc),
-    ):
-        AppServices._compile_poc(tmp_path, "make all")
-
-
-def test_compile_poc_musl_gcc_no_real_gcc(tmp_path):
-    import shutil
-
-    proc = SimpleNamespace(returncode=0, stdout="", stderr="")
-    with (
-        mock.patch.object(shutil, "which", side_effect=lambda n: "/usr/bin/musl-gcc" if n == "musl-gcc" else None),
-        mock.patch.object(__import__("app_services"), "run_cmd", return_value=proc),
-    ):
-        AppServices._compile_poc(tmp_path, "gcc x.c")
-
-
-def test_compile_poc_no_musl_gcc(tmp_path):
-    import shutil
-
-    proc = SimpleNamespace(returncode=0, stdout="", stderr="")
-    with (
-        mock.patch.object(shutil, "which", return_value=None),
-        mock.patch.object(__import__("app_services"), "run_cmd", return_value=proc),
-    ):
-        AppServices._compile_poc(tmp_path, "make all")
-
-
-def test_compile_poc_failure_raises(tmp_path):
-    proc = SimpleNamespace(returncode=1, stdout="", stderr="boom")
-    with mock.patch.object(__import__("app_services"), "run_cmd", return_value=proc):
-        with pytest.raises(RuntimeError, match="boom"):
-            AppServices._compile_poc(tmp_path, "gcc x.c")
-
-
-def test_compile_poc_timeout_raises(tmp_path):
-    import subprocess
-
-    from app_services import _timeout_text
-
-    exc = subprocess.TimeoutExpired("gcc x.c", 60)
-    with mock.patch.object(
-        __import__("app_services"), "run_cmd", side_effect=exc
-    ):
-        with pytest.raises(RuntimeError, match="timed out"):
-            AppServices._compile_poc(tmp_path, "gcc x.c")
 
 
 def test_collect_kernel_cves_from_linpeas_and_les():
@@ -798,6 +703,8 @@ def test_run_full_recon_wrapper():
 
 
 def test_run_execution_tests():
+    from core.entities import CveExecution
+
     s = _bare_services()
     with (
         mock.patch.object(
@@ -809,17 +716,14 @@ def test_run_execution_tests():
         mock.patch.object(
             s,
             "_process_single_cve",
-            new=mock.AsyncMock(
-                return_value={
-                    "cve_id": "CVE-1",
-                    "pocs": [{"sandbox": {"success": True, "crashed": False}}],
-                }
-            ),
+            new=mock.AsyncMock(return_value=CveExecution(cve_id="CVE-1")),
         ),
-        mock.patch.object(s, "_build_execution_report", return_value={"entries": 1}),
+        mock.patch.object(
+            s, "_build_execution_report", return_value=ExecutionReport(entries=1)
+        ),
     ):
         result = s.run_execution_tests()
-    assert result == {"entries": 1}
+    assert result.entries == 1
 
 
 def test_load_and_store_kev_success():
@@ -927,25 +831,22 @@ def test_process_single_cve():
             )
         )
     assert entry is not None
-    assert entry["pocs"] == []
+    assert entry.pocs == []
 
 
 def test_record_poc_for_cve():
     s = _bare_services()
     with (
         mock.patch.object(s, "_register_poc"),
-        mock.patch.object(s, "_execute_poc", return_value={"sandbox": "ok"}),
+        mock.patch.object(
+            s,
+            "_execute_poc",
+            return_value=PocExecution(sandbox=SandboxRunResult(
+                returncode=0, execution_mode="qemu", crashed=False,
+                stdout="", stderr="", duration_ms=0.0,
+            )),
+        ),
     ):
         summary = s._record_poc_for_cve("CVE-2024-1", {"url": "u"})
-    assert summary["url"] == "u"
-    assert summary["sandbox"] == "ok"
-
-
-def test_get_cached_recon_returns_matching():
-    s = _bare_services()
-    s.db.search.side_effect = [
-        [{"cve_id": "CVE-1", "raw_data": {"context": {"kernel_version": "6.8.0"}}}],
-        [],
-    ]
-    results = s.get_cached_recon("6.8.0")
-    assert len(results) == 1
+    assert summary.url == "u"
+    assert summary.sandbox is not None
