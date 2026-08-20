@@ -1,11 +1,11 @@
 from datetime import UTC, datetime
 
 import pytest
-from sqlalchemy import create_engine
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import sessionmaker
 
+from core.entities import SecurityRecommendation
 from db.db_orm import ThreatIntelligenceORM
-from db.models import Base, SecurityRecommendation
 from db.recommendation_repo import RecommendationRepository
 
 
@@ -13,7 +13,7 @@ from db.recommendation_repo import RecommendationRepository
 def repo(tmp_path):
     db_path = tmp_path / "ti_test.db"
     database = ThreatIntelligenceORM(db_url=f"sqlite:///{db_path}")
-    yield database.recommendations
+    yield database
     database.close()
 
 
@@ -55,19 +55,19 @@ def test_add_roundtrip_preserves_fields(repo):
     rows = repo.get_security_recommendations()
     assert len(rows) == 1
     row = rows[0]
-    assert row["id"] == rid
-    assert row["description"] == "restrict core dumps"
-    assert row["field_name"] == "fs.suid_dumpable"
-    assert row["expected_value"] == "0"
-    assert row["actual_value"] == "2"
-    assert row["source"] == "lynis"
-    assert row["raw_data"] == {"solution": "https://kernel.org/doc"}
+    assert row.id == rid
+    assert row.description == "restrict core dumps"
+    assert row.field_name == "fs.suid_dumpable"
+    assert row.expected_value == "0"
+    assert row.actual_value == "2"
+    assert row.source == "lynis"
+    assert row.raw_data == {"solution": "https://kernel.org/doc"}
 
 
 def test_add_missing_test_id_rolls_back_and_raises(repo):
     rec = SecurityRecommendation(description="no test id")
 
-    with pytest.raises(Exception):
+    with pytest.raises(SQLAlchemyError):
         repo.add_security_recommendation(rec)
 
     assert repo.get_security_recommendations() == []
@@ -125,10 +125,10 @@ def test_get_recommendations_pagination_and_order(repo):
 
     # ordered by severity desc: alphabetical on the string column
     page = repo.get_security_recommendations(limit=2, offset=0)
-    assert [r["test_id"] for r in page] == ["KRNL-6001", "KRNL-6002"]
+    assert [r.test_id for r in page] == ["KRNL-6001", "KRNL-6002"]
 
     next_page = repo.get_security_recommendations(limit=2, offset=2)
-    assert [r["test_id"] for r in next_page] == ["KRNL-6003"]
+    assert [r.test_id for r in next_page] == ["KRNL-6003"]
 
 
 def test_get_recommendations_empty_db(repo):
@@ -147,19 +147,19 @@ def test_get_recommendations_stats(repo):
 
     stats = repo.get_recommendations_stats()
 
-    assert stats["total"] == 4
-    assert stats["by_category"] == {"kernel": 2, "selinux": 1}
-    assert stats["by_status"] == {"FAIL": 2, "WARNING": 1}
-    assert stats["by_severity"] == {"HIGH": 2, "MEDIUM": 1}
+    assert stats.total == 4
+    assert stats.by_category == {"kernel": 2, "selinux": 1}
+    assert stats.by_status == {"FAIL": 2, "WARNING": 1}
+    assert stats.by_severity == {"HIGH": 2, "MEDIUM": 1}
 
 
 def test_get_recommendations_stats_empty(repo):
     stats = repo.get_recommendations_stats()
 
-    assert stats["total"] == 0
-    assert stats["by_category"] == {}
-    assert stats["by_status"] == {}
-    assert stats["by_severity"] == {}
+    assert stats.total == 0
+    assert stats.by_category == {}
+    assert stats.by_status == {}
+    assert stats.by_severity == {}
 
 
 def test_repo_requires_session_factory():
@@ -168,12 +168,13 @@ def test_repo_requires_session_factory():
 
 def test_created_at_defaults_to_now(repo):
     now = datetime.now(UTC).timestamp()
-    rid = repo.add_security_recommendation(_rec())
+    repo.add_security_recommendation(_rec())
     row = repo.get_security_recommendations()[0]
 
-    assert row["created_at"] is not None
-    created = datetime.fromisoformat(str(row["created_at"]))
-    created = created.replace(tzinfo=UTC)
+    assert row.created_at is not None
+    created = row.created_at
+    if created.tzinfo is None:
+        created = created.replace(tzinfo=UTC)
     assert abs(now - created.timestamp()) < 60
 
 
@@ -182,5 +183,5 @@ def test_orm_facade_delegates_to_repo(tmp_path):
     with ThreatIntelligenceORM(db_url=f"sqlite:///{db_path}") as db:
         rid = db.add_security_recommendation(_rec("KRNL-9999"))
 
-        assert db.get_security_recommendations(category="kernel")[0]["id"] == rid
-        assert db.get_recommendations_stats()["total"] == 1
+        assert db.get_security_recommendations(category="kernel")[0].id == rid
+        assert db.get_recommendations_stats().total == 1

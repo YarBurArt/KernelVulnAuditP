@@ -2,10 +2,18 @@ from datetime import UTC, datetime
 
 import pytest
 
+from core.entities import (
+    CisaKevEntry,
+    Exploit,
+    HostInfo,
+    HostUser,
+    SandboxRun,
+    SecurityRecommendation,
+    Vulnerability,
+)
 from db import get_db
-from db.db import ThreatIntelligenceORMAdapter
+from db.db_orm import ThreatIntelligenceORM
 from db.db_rd import InMemoryThreatDB
-from schemas import HostInfoData, HostUser
 
 
 @pytest.fixture
@@ -16,7 +24,7 @@ def db():
 
 
 def _sample_host(hostname: str = "memsample", captured_at: datetime | None = None):
-    return HostInfoData(
+    return HostInfo(
         hostname=hostname,
         kernel_version="6.8.0",
         captured_at=captured_at,
@@ -42,53 +50,53 @@ def test_unknown_backend_raises():
 
 @pytest.fixture
 def orm_db(tmp_path):
-    database = ThreatIntelligenceORMAdapter(f"sqlite:///{tmp_path / 'adapter.db'}")
+    database = ThreatIntelligenceORM(f"sqlite:///{tmp_path / 'adapter.db'}")
     yield database
     database.close()
 
 
 def test_get_db_orm_backend(tmp_path):
     database = get_db("orm")
-    assert isinstance(database, ThreatIntelligenceORMAdapter)
+    assert isinstance(database, ThreatIntelligenceORM)
     database.close()
 
 
 def test_adapter_upsert_returns_int(orm_db):
     vid = orm_db.upsert_vulnerability(
-        {
-            "cve_id": "CVE-2024-0001",
-            "description": "Adapter RCE",
-            "cvss_v3_score": 9.8,
-            "severity": "CRITICAL",
-        }
+        Vulnerability(
+            cve_id="CVE-2024-0001",
+            description="Adapter RCE",
+            cvss_v3_score=9.8,
+            severity="CRITICAL",
+        )
     )
     assert isinstance(vid, int)
 
 
 def test_adapter_get_vulnerability(orm_db):
     orm_db.upsert_vulnerability(
-        {
-            "cve_id": "CVE-2024-0001",
-            "description": "Adapter RCE",
-            "cvss_v3_score": 9.8,
-            "severity": "CRITICAL",
-        }
+        Vulnerability(
+            cve_id="CVE-2024-0001",
+            description="Adapter RCE",
+            cvss_v3_score=9.8,
+            severity="CRITICAL",
+        )
     )
 
     vuln = orm_db.get_vulnerability("CVE-2024-0001")
 
     assert vuln is not None
-    assert vuln["cve_id"] == "CVE-2024-0001"
+    assert vuln.cve_id == "CVE-2024-0001"
     assert orm_db.get_vulnerability("CVE-9999-9999") is None
 
 
 def test_adapter_add_reference_and_details(orm_db):
     orm_db.upsert_vulnerability(
-        {
-            "cve_id": "CVE-2024-0001",
-            "cvss_v3_score": 9.8,
-            "severity": "CRITICAL",
-        }
+        Vulnerability(
+            cve_id="CVE-2024-0001",
+            cvss_v3_score=9.8,
+            severity="CRITICAL",
+        )
     )
 
     orm_db.add_reference("CVE-2024-0001", "https://nvd.example.com", ref_type="ADVISORY")
@@ -96,21 +104,23 @@ def test_adapter_add_reference_and_details(orm_db):
     details = orm_db.get_vulnerability_with_details("CVE-2024-0001")
 
     assert details is not None
-    assert len(details["references"]) == 1
+    assert len(details.references) == 1
 
 
 def test_adapter_exploit_kev_sandbox(orm_db):
     orm_db.upsert_vulnerability(
-        {
-            "cve_id": "CVE-2024-0001",
-            "cvss_v3_score": 9.8,
-            "severity": "CRITICAL",
-        }
+        Vulnerability(
+            cve_id="CVE-2024-0001",
+            cvss_v3_score=9.8,
+            severity="CRITICAL",
+        )
     )
 
-    orm_db.add_exploit("CVE-2024-0001", {"exploit_type": "POC"})
-    orm_db.add_cisa_kev("CVE-2024-0001", {"known_ransomware": True})
-    orm_db.add_sandbox_run("CVE-2024-0001", {"sandbox_platform": "qemu"})
+    orm_db.add_exploit("CVE-2024-0001", Exploit(exploit_type="POC"))
+    orm_db.add_cisa_kev("CVE-2024-0001", CisaKevEntry(known_ransomware=True))
+    orm_db.add_sandbox_run(
+        "CVE-2024-0001", SandboxRun(sandbox_platform="qemu")
+    )
 
     assert len(orm_db.get_sandbox_runs("CVE-2024-0001")) == 1
 
@@ -123,23 +133,21 @@ def test_adapter_exploit_kev_sandbox(orm_db):
 
 def test_adapter_search_and_stats(orm_db):
     orm_db.upsert_vulnerability(
-        {
-            "cve_id": "CVE-2024-0001",
-            "cvss_v3_score": 9.8,
-            "severity": "CRITICAL",
-        }
+        Vulnerability(
+            cve_id="CVE-2024-0001",
+            cvss_v3_score=9.8,
+            severity="CRITICAL",
+        )
     )
 
     assert len(orm_db.search(severity="CRITICAL")) == 1
     assert len(orm_db.get_critical()) == 1
 
     stats = orm_db.get_statistics()
-    assert stats["total"] >= 1
+    assert stats.total >= 1
 
 
 def test_adapter_recommendations_and_bulk(orm_db):
-    from db.models import SecurityRecommendation
-
     rid = orm_db.add_security_recommendation(
         SecurityRecommendation(
             test_id="KRNL-1000", category="kernel", severity="HIGH", status="open"
@@ -159,7 +167,7 @@ def test_adapter_recommendations_and_bulk(orm_db):
     assert len(recs) == 1
 
     stats = orm_db.get_recommendations_stats()
-    assert stats["total"] == 2
+    assert stats.total == 2
 
 
 def test_adapter_host_and_bulk_insert(orm_db):
@@ -179,8 +187,8 @@ def test_adapter_host_and_bulk_insert(orm_db):
 
     inserted = orm_db.bulk_insert(
         [
-            {"cve_id": "CVE-2024-0100", "cvss_v3_score": 7.0},
-            {"cve_id": "CVE-2024-0101", "cvss_v3_score": 6.0},
+            Vulnerability(cve_id="CVE-2024-0100", cvss_v3_score=7.0),
+            Vulnerability(cve_id="CVE-2024-0101", cvss_v3_score=6.0),
         ]
     )
     assert inserted == 2
@@ -188,13 +196,13 @@ def test_adapter_host_and_bulk_insert(orm_db):
 
 def test_upsert_returns_int_id(db):
     vid = db.upsert_vulnerability(
-        {
-            "cve_id": "CVE-2024-0001",
-            "description": "Test RCE",
-            "cvss_v3_score": 9.8,
-            "severity": "CRITICAL",
-            "sources": ["NIST_NVD"],
-        }
+        Vulnerability(
+            cve_id="CVE-2024-0001",
+            description="Test RCE",
+            cvss_v3_score=9.8,
+            severity="CRITICAL",
+            sources=["NIST_NVD"],
+        )
     )
 
     assert isinstance(vid, int)
@@ -202,21 +210,21 @@ def test_upsert_returns_int_id(db):
 
 def test_upsert_update_keeps_same_id(db):
     vid1 = db.upsert_vulnerability(
-        {
-            "cve_id": "CVE-2024-0001",
-            "description": "Initial",
-            "cvss_v3_score": 9.8,
-            "severity": "CRITICAL",
-        }
+        Vulnerability(
+            cve_id="CVE-2024-0001",
+            description="Initial",
+            cvss_v3_score=9.8,
+            severity="CRITICAL",
+        )
     )
 
     vid2 = db.upsert_vulnerability(
-        {
-            "cve_id": "CVE-2024-0001",
-            "description": "Updated description",
-            "cvss_v3_score": 9.8,
-            "severity": "CRITICAL",
-        }
+        Vulnerability(
+            cve_id="CVE-2024-0001",
+            description="Updated description",
+            cvss_v3_score=9.8,
+            severity="CRITICAL",
+        )
     )
 
     assert vid1 == vid2
@@ -224,19 +232,19 @@ def test_upsert_update_keeps_same_id(db):
 
 def test_get_vulnerability_roundtrip(db):
     db.upsert_vulnerability(
-        {
-            "cve_id": "CVE-2024-0001",
-            "description": "Updated description",
-            "cvss_v3_score": 9.8,
-            "severity": "CRITICAL",
-        }
+        Vulnerability(
+            cve_id="CVE-2024-0001",
+            description="Updated description",
+            cvss_v3_score=9.8,
+            severity="CRITICAL",
+        )
     )
 
     vuln = db.get_vulnerability("CVE-2024-0001")
 
     assert vuln is not None
-    assert vuln["cve_id"] == "CVE-2024-0001"
-    assert vuln["description"] == "Updated description"
+    assert vuln.cve_id == "CVE-2024-0001"
+    assert vuln.description == "Updated description"
 
 
 def test_get_vulnerability_missing_returns_none(db):
@@ -245,162 +253,162 @@ def test_get_vulnerability_missing_returns_none(db):
 
 def test_add_exploit_updates_flags(db):
     db.upsert_vulnerability(
-        {
-            "cve_id": "CVE-2024-0001",
-            "cvss_v3_score": 9.8,
-            "severity": "CRITICAL",
-        }
+        Vulnerability(
+            cve_id="CVE-2024-0001",
+            cvss_v3_score=9.8,
+            severity="CRITICAL",
+        )
     )
 
     db.add_exploit(
         "CVE-2024-0001",
-        {
-            "exploit_type": "POC",
-            "source": "GitHub",
-            "url": "https://github.com/user/poc",
-            "verified": True,
-        },
+        Exploit(
+            exploit_type="POC",
+            source="GitHub",
+            url="https://github.com/user/poc",
+            verified=True,
+        ),
     )
 
     vuln = db.get_vulnerability("CVE-2024-0001")
 
-    assert vuln["has_exploit"] is True
-    assert vuln["exploit_count"] == 1
+    assert vuln.has_exploit is True
+    assert vuln.exploit_count == 1
 
 
 def test_add_cisa_kev_updates_flags_and_score(db):
     db.upsert_vulnerability(
-        {
-            "cve_id": "CVE-2024-0001",
-            "cvss_v3_score": 9.8,
-            "severity": "CRITICAL",
-        }
+        Vulnerability(
+            cve_id="CVE-2024-0001",
+            cvss_v3_score=9.8,
+            severity="CRITICAL",
+        )
     )
 
     db.add_exploit(
         "CVE-2024-0001",
-        {
-            "exploit_type": "POC",
-            "source": "GitHub",
-        },
+        Exploit(
+            exploit_type="POC",
+            source="GitHub",
+        ),
     )
 
     db.add_cisa_kev(
         "CVE-2024-0001",
-        {
-            "date_added": "2024-01-20",
-            "required_action": "Patch now",
-            "known_ransomware": True,
-        },
+        CisaKevEntry(
+            date_added=datetime(2024, 1, 20, tzinfo=UTC),
+            required_action="Patch now",
+            known_ransomware=True,
+        ),
     )
 
     vuln = db.get_vulnerability("CVE-2024-0001")
 
-    assert vuln["in_cisa_kev"] is True
-    assert vuln["criticality_score"] > 60
+    assert vuln.in_cisa_kev is True
+    assert vuln.criticality_score > 60
 
 
 def test_sandbox_run_roundtrip(db):
     db.upsert_vulnerability(
-        {
-            "cve_id": "CVE-2024-0001",
-            "cvss_v3_score": 9.8,
-            "severity": "CRITICAL",
-        }
+        Vulnerability(
+            cve_id="CVE-2024-0001",
+            cvss_v3_score=9.8,
+            severity="CRITICAL",
+        )
     )
 
     db.add_sandbox_run(
         "CVE-2024-0001",
-        {
-            "run_timestamp": "2024-01-21T10:30:00",
-            "sandbox_platform": "virtme-ng",
-            "exploit_file_hash": "aabbcc",
-            "execution_success": True,
-            "exit_code": 0,
-            "stdout": "Got shell\n",
-            "stderr": "",
-            "stdin": "./xpl\n",
-            "open_processes": ["/bin/sh"],
-            "open_files": ["/etc/passwd"],
-            "notes": "LPE confirmed",
-        },
+        SandboxRun(
+            run_timestamp=datetime(2024, 1, 21, 10, 30, tzinfo=UTC),
+            sandbox_platform="virtme-ng",
+            exploit_file_hash="aabbcc",
+            execution_success=True,
+            exit_code=0,
+            stdout="Got shell\n",
+            stderr="",
+            stdin="./xpl\n",
+            open_processes=["/bin/sh"],
+            open_files=["/etc/passwd"],
+            notes="LPE confirmed",
+        ),
     )
 
     runs = db.get_sandbox_runs("CVE-2024-0001")
 
     assert len(runs) == 1
-    assert runs[0]["sandbox_platform"] == "virtme-ng"
+    assert runs[0].sandbox_platform == "virtme-ng"
 
 
 def test_get_vulnerability_with_details(db):
     db.upsert_vulnerability(
-        {
-            "cve_id": "CVE-2024-0001",
-            "cvss_v3_score": 9.8,
-            "severity": "CRITICAL",
-        }
+        Vulnerability(
+            cve_id="CVE-2024-0001",
+            cvss_v3_score=9.8,
+            severity="CRITICAL",
+        )
     )
 
     db.add_exploit(
         "CVE-2024-0001",
-        {
-            "exploit_type": "POC",
-            "source": "GitHub",
-        },
+        Exploit(
+            exploit_type="POC",
+            source="GitHub",
+        ),
     )
 
     db.add_cisa_kev(
         "CVE-2024-0001",
-        {
-            "date_added": "2024-01-20",
-        },
+        CisaKevEntry(
+            date_added=datetime(2024, 1, 20, tzinfo=UTC),
+        ),
     )
 
     db.add_sandbox_run(
         "CVE-2024-0001",
-        {
-            "sandbox_platform": "virtme-ng",
-        },
+        SandboxRun(
+            sandbox_platform="virtme-ng",
+        ),
     )
 
     full = db.get_vulnerability_with_details("CVE-2024-0001")
 
-    assert len(full["exploits"]) == 1
-    assert full["cisa_kev"] is not None
-    assert len(full["sandbox_runs"]) == 1
+    assert len(full.exploits) == 1
+    assert full.cisa_kev is not None
+    assert len(full.sandbox_runs) == 1
 
 
 def test_search_and_filters(db):
     db.upsert_vulnerability(
-        {
-            "cve_id": "CVE-2024-0001",
-            "cvss_v3_score": 9.8,
-            "severity": "CRITICAL",
-        }
+        Vulnerability(
+            cve_id="CVE-2024-0001",
+            cvss_v3_score=9.8,
+            severity="CRITICAL",
+        )
     )
 
     db.add_exploit(
         "CVE-2024-0001",
-        {
-            "exploit_type": "POC",
-        },
+        Exploit(
+            exploit_type="POC",
+        ),
     )
 
     db.add_cisa_kev(
         "CVE-2024-0001",
-        {
-            "known_ransomware": True,
-        },
+        CisaKevEntry(
+            known_ransomware=True,
+        ),
     )
 
     db.upsert_vulnerability(
-        {
-            "cve_id": "CVE-2024-0002",
-            "description": "Low severity info leak",
-            "cvss_v3_score": 3.1,
-            "severity": "LOW",
-            "sources": ["OSV"],
-        }
+        Vulnerability(
+            cve_id="CVE-2024-0002",
+            description="Low severity info leak",
+            cvss_v3_score=3.1,
+            severity="LOW",
+            sources=["OSV"],
+        )
     )
 
     assert len(db.search(severity="CRITICAL")) == 1
@@ -413,16 +421,16 @@ def test_search_and_filters(db):
 def test_bulk_insert_returns_count(db):
     inserted = db.bulk_insert(
         [
-            {
-                "cve_id": "CVE-2024-0010",
-                "cvss_v3_score": 7.5,
-                "severity": "HIGH",
-            },
-            {
-                "cve_id": "CVE-2024-0011",
-                "cvss_v3_score": 6.0,
-                "severity": "MEDIUM",
-            },
+            Vulnerability(
+                cve_id="CVE-2024-0010",
+                cvss_v3_score=7.5,
+                severity="HIGH",
+            ),
+            Vulnerability(
+                cve_id="CVE-2024-0011",
+                cvss_v3_score=6.0,
+                severity="MEDIUM",
+            ),
         ]
     )
 
@@ -431,63 +439,63 @@ def test_bulk_insert_returns_count(db):
 
 def test_statistics(db):
     db.upsert_vulnerability(
-        {
-            "cve_id": "CVE-2024-0001",
-            "cvss_v3_score": 9.8,
-            "severity": "CRITICAL",
-        }
+        Vulnerability(
+            cve_id="CVE-2024-0001",
+            cvss_v3_score=9.8,
+            severity="CRITICAL",
+        )
     )
 
     db.add_exploit(
         "CVE-2024-0001",
-        {
-            "exploit_type": "POC",
-        },
+        Exploit(
+            exploit_type="POC",
+        ),
     )
 
     db.add_cisa_kev(
         "CVE-2024-0001",
-        {
-            "known_ransomware": True,
-        },
+        CisaKevEntry(
+            known_ransomware=True,
+        ),
     )
 
     db.bulk_insert(
         [
-            {
-                "cve_id": "CVE-2024-0010",
-                "cvss_v3_score": 7.5,
-                "severity": "HIGH",
-            },
-            {
-                "cve_id": "CVE-2024-0011",
-                "cvss_v3_score": 6.0,
-                "severity": "MEDIUM",
-            },
-            {
-                "cve_id": "CVE-2024-0012",
-                "cvss_v3_score": 3.0,
-                "severity": "LOW",
-            },
+            Vulnerability(
+                cve_id="CVE-2024-0010",
+                cvss_v3_score=7.5,
+                severity="HIGH",
+            ),
+            Vulnerability(
+                cve_id="CVE-2024-0011",
+                cvss_v3_score=6.0,
+                severity="MEDIUM",
+            ),
+            Vulnerability(
+                cve_id="CVE-2024-0012",
+                cvss_v3_score=3.0,
+                severity="LOW",
+            ),
         ]
     )
 
     stats = db.get_statistics()
 
-    assert stats["total"] == 4
-    assert stats["with_exploits"] == 1
-    assert stats["in_cisa_kev"] == 1
-    assert stats["ransomware_related"] == 1
-    assert stats["avg_cvss"] > 0
+    assert stats.total == 4
+    assert stats.with_exploits == 1
+    assert stats.in_cisa_kev == 1
+    assert stats.ransomware_related == 1
+    assert stats.avg_cvss > 0
 
 
 def test_context_manager():
     with get_db("memory") as db:
         db.upsert_vulnerability(
-            {
-                "cve_id": "CVE-2024-9999",
-                "cvss_v3_score": 5.0,
-            }
+            Vulnerability(
+                cve_id="CVE-2024-9999",
+                cvss_v3_score=5.0,
+            )
         )
 
 

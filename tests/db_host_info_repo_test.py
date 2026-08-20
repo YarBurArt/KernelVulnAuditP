@@ -1,9 +1,10 @@
 from datetime import UTC, datetime
 
 import pytest
+from sqlalchemy.exc import SQLAlchemyError
 
+from core.entities import HostInfo, HostUser
 from db.db_orm import ThreatIntelligenceORM
-from schemas import HostInfoData
 
 
 @pytest.fixture
@@ -14,7 +15,7 @@ def db(tmp_path):
 
 
 def _sample_host(hostname: str = "host1"):
-    return HostInfoData(
+    return HostInfo(
         hostname=hostname,
         kernel_version="6.8.0",
         captured_at=datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC),
@@ -26,9 +27,9 @@ def test_get_latest_host_info_empty_returns_none(db):
 
 
 def test_add_host_info_invalid_data_raises_and_rolls_back(db):
-    with pytest.raises(Exception):
-        db.host_info.add_host_info(
-            HostInfoData(
+    with pytest.raises(TypeError, match="must contain HostUser items"):
+        db.add_host_info(
+            HostInfo(
                 hostname="bad",
                 kernel_version="6.8.0",
                 users=[{"username": "not-a-user-object"}],
@@ -39,11 +40,9 @@ def test_add_host_info_invalid_data_raises_and_rolls_back(db):
 
 
 def test_add_host_info_duplicate_user_raises_sqlalchemy_error_and_rolls_back(db):
-    from schemas import HostUser
-
-    with pytest.raises(Exception):
-        db.host_info.add_host_info(
-            HostInfoData(
+    with pytest.raises(SQLAlchemyError):
+        db.add_host_info(
+            HostInfo(
                 hostname="dup",
                 kernel_version="6.8.0",
                 users=[
@@ -61,8 +60,8 @@ def test_get_host_info_missing_returns_none(db):
 
 
 def test_add_and_get_roundtrip(db):
-    host = db.add_host_info(_sample_host())
-    got = db.get_host_info(host.id)
+    hid = db.add_host_info(_sample_host())
+    got = db.get_host_info(hid)
 
     assert got is not None
     assert got.hostname == "host1"
@@ -71,10 +70,10 @@ def test_add_and_get_roundtrip(db):
 
 def test_get_latest_host_info_returns_most_recent(db):
     db.add_host_info(_sample_host("older"))
-    newest = db.add_host_info(_sample_host("newest"))
+    newest_id = db.add_host_info(_sample_host("newest"))
 
     latest = db.get_latest_host_info()
 
     assert latest is not None
     assert latest.hostname == "newest"
-    assert latest.id == newest.id
+    assert latest.id == newest_id
