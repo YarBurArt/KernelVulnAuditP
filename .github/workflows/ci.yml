@@ -63,3 +63,21 @@ jobs:
             | sed -E 's/.*rated at (-?[0-9]+(\.[0-9]+)?).*/\1/')
           echo "Rating is $RATING"
           awk -v r="$RATING" 'BEGIN { exit (r < 6.0) }'
+  
+  pytest:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.1.0
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install
+
+      - name: Run pytest
+        run: |
+          uv run --frozen pytest tests -m "not integration" -q
