@@ -595,7 +595,7 @@ def test_save_host_recon(tmp_path):
         "node": "host1",
         "platform": "linux",
         "distribution": "Debian",
-        "current_directory": "/tmp",
+        "current_directory": str(tmp_path),
         "username": "user",
         "home_dir": "/home/user",
         "system": "Linux",
