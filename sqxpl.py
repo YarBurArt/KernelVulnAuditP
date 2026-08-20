@@ -25,18 +25,80 @@ import subprocess
 import threading
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, NotRequired, TypedDict
 
 import httpx
 
 from config import POCS_BASE_PATH, REQUIREMENTS_RE, VERSIONS_RE
-from core import (
-    clean_command_string,
-    extract_code_block_commands,
-    extract_section_by_header,
-)
 
 logger = logging.getLogger(f"kernel_audit.{__name__}")
+
+
+class PocInfo(TypedDict):
+    """one PoC candidate and its run instructions, as discovered on GitHub.
+
+    url and cve_id are always present on records produced by the searcher;
+    local_path is added by load_xpls once a checkout exists. compile_cmd /
+    test_cmd are None when the README carries no build/run instructions.
+    """
+
+    url: str
+    cve_id: str
+    local_path: NotRequired[str]
+    language: str | None
+    description: str | None
+    stars: int | None
+    compile_cmd: str | None
+    test_cmd: str | None
+    requirements: str | None
+    notes: str | None
+
+
+def extract_section_by_header(
+    text: str, header_patterns: list[str], max_length: int = 500
+) -> str | None:
+    """Grab a readable excerpt for the description where the whole README
+    would be too noisy; shortens long match runs so a CVE row stays dense."""
+    for pattern in header_patterns:
+        matches = re.findall(pattern, text, re.IGNORECASE | re.MULTILINE)
+        if matches:
+            extracted = matches[0].strip()
+            extracted = re.sub(r"\[.*?]\(.*?\)", "", extracted)
+            extracted = extracted.replace("*", "").replace("`", "")
+            extracted = " ".join(extracted.split())
+
+            if 10 < len(extracted) < max_length:
+                return extracted
+
+    return None
+
+
+def extract_code_block_commands(
+    text: str, command_patterns: list[str], languages: list[str] | Any = None
+) -> list[str]:
+    """Pull the runnable lines out of Markdown code fences: PoC READMEs
+    embed build/run instructions as fenced blocks, and we only execute the
+    commands that actually carry a recognized tool keyword."""
+    commands = []
+
+    lang_pattern = r"(?:" + "|".join(languages) + r")?" if languages else r""
+    block_pattern = rf"`({lang_pattern})?\n(.*?)`"
+
+    for block in re.findall(block_pattern, text, re.DOTALL):
+        content = block[1] if isinstance(block, tuple) else block
+        for pattern in command_patterns:
+            matches = re.findall(pattern, content, re.IGNORECASE)
+            commands.extend(matches)
+
+    return commands
+
+
+def clean_command_string(cmd: str) -> str:
+    """Drop Markdown backtick wrappers and stray newlines so a copied
+    command can be run verbatim by the shell."""
+    cmd = cmd.replace("`", "").replace("`", "")
+    cmd = cmd.split("\n")[0]
+    return cmd.strip()
 
 #: GitHub search API rate limits unauthenticated clients to 10 req/min; keep a
 #: small safety margin so a batch of CVEs does not 403 out silently.
@@ -101,7 +163,7 @@ class GitHubExploitSearcher:
 
     def search_repositories(
         self, cve_id: str, max_results: int = 10
-    ) -> list[dict[str, Any]]:
+    ) -> list[PocInfo]:
         """search by id like CVE-2024-1086"""
         # check template first
         template = self.get_template(cve_id)
@@ -109,7 +171,7 @@ class GitHubExploitSearcher:
             # print(f"template for {cve_id}")
             return template.get("github_repos", [])
 
-        # Fetch a larger pool than `max_results`: _extract_repo_info drops
+        # Fetch a larger pool than max_results: _extract_repo_info drops
         # top-ranked repos (e.g. Shell PoCs outranking C ones), so the
         # interesting results are not necessarily the first N by stars.
         pool_size = min(max(max_results * 3, 10), 30)
@@ -172,7 +234,7 @@ class GitHubExploitSearcher:
 
     def _extract_repo_info(
         self, repo: dict[str, Any], cve_id: str
-    ) -> dict[str, Any] | None:
+    ) -> PocInfo | None:
         """extract relevant info from repository"""
         html_url = repo.get("html_url", "")
         language = repo.get("language", "")
@@ -181,20 +243,20 @@ class GitHubExploitSearcher:
             return None
 
         readme_content = self._get_readme(repo)
-        res_ins = self._parse_instructions(readme_content, language)
-        compile_cmd, test_cmd, requirements = res_ins
-        # TODO: typing results objects
-        return {
-            "url": html_url,
-            "language": language,
-            "description": description,
-            "stars": repo.get("stargazers_count", 0),
-            "compile_cmd": compile_cmd,
-            "test_cmd": test_cmd,
-            "requirements": requirements,
-            "notes": self._extract_notes(readme_content),
-            "cve_id": cve_id,
-        }
+        compile_cmd, test_cmd, requirements = self._parse_instructions(
+            readme_content, language
+        )
+        return PocInfo(
+            url=html_url,
+            language=language,
+            description=description,
+            stars=repo.get("stargazers_count", 0),
+            compile_cmd=compile_cmd,
+            test_cmd=test_cmd,
+            requirements=requirements,
+            notes=self._extract_notes(readme_content),
+            cve_id=cve_id,
+        )
 
     def _get_readme(self, repo: dict[str, Any]) -> str:
         """fetch README content from repository
@@ -337,7 +399,7 @@ class GitHubExploitSearcher:
         cve_id: str,
         name: str,
         description: str,
-        repos: list[dict[str, Any]],
+        repos: list[PocInfo],
         in_cisa_kev: bool = False,
         compile_cmd: str = "cc main.c",
         test_cmd: str = "./a.out",
@@ -369,11 +431,11 @@ class GitHubExploitSearcher:
             return result
 
     @staticmethod
-    def load_xpls(expls: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def load_xpls(expls: list[PocInfo]) -> list[PocInfo]:
         """download PoCs into <POCS_BASE_PATH>/CVE-id/username_repo"""
         base_dir = Path(POCS_BASE_PATH)
         base_dir.mkdir(parents=True, exist_ok=True)
-        downloaded_l: list[dict] = []
+        downloaded_l: list[PocInfo] = []
 
         for xpl in expls:
             url: str | None = xpl.get("url", None)
@@ -407,7 +469,7 @@ class GitHubExploitSearcher:
         return downloaded_l
 
 
-def _fix_stale_compile_cmd(xpl: dict[str, Any], target_dir: Path) -> None:
+def _fix_stale_compile_cmd(xpl: PocInfo, target_dir: Path) -> None:
     """Rewrite a compile_cmd whose source file is missing from the cloned
     repo (stale README instructions) to reference the actual single C
     source file present at the repo root."""
@@ -426,16 +488,3 @@ def _fix_stale_compile_cmd(xpl: dict[str, Any], target_dir: Path) -> None:
         str(compile_cmd),
     )
 
-
-def main():
-    """just for test"""
-    searcher = GitHubExploitSearcher()
-    templ: list[dict] = searcher.templates.get("templates", [])
-    print("saved templates: ", json.dumps(templ, indent=2))
-    repos: list[dict] = searcher.search_repositories("CVE-2024-1086", max_results=100)
-    print("found cve repos: ", json.dumps(repos, indent=2))
-    # pocs_downloaded = searcher.load_xpls(repos)
-
-
-if __name__ == "__main__":
-    main()
