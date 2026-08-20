@@ -58,6 +58,11 @@ DB_BACKEND = "orm"
 # full VM boot + PoC run needs more than a few seconds; the VMs also shut
 # down cleanly before the guest exits, so the budget is generous.
 ISOLATION_TIMEOUT_SEC = 60
+
+# recon subprocess audits (linpeas, les, getsebool, getcap) run unbounded
+# filesystem/process walks and can stall for minutes; cap each so the scan
+# cannot hang. Raise via --set RECON_TOOL_TIMEOUT_SEC=300 if needed.
+RECON_TOOL_TIMEOUT_SEC = 60
 # per-step budget for host-side PoC compiles (make/gcc can be slow)
 COMPILE_TIMEOUT_SEC = 60
 ALLOW_HOST_EXECUTION = False

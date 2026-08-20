@@ -190,6 +190,7 @@ class TestParsePeass(unittest.TestCase):
             f.flush()
             result = peas2json.parse_peass(f.name)
         self.assertIsNotNone(result)
+        assert result is not None
         return result
 
     def test_empty_file_returns_empty_dict(self) -> None:
