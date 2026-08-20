@@ -90,7 +90,7 @@ def test_virtme_ng_guest_markers_and_exit_code(tmp_path):
     assert result.execution_mode == "virtme-ng"
     assert result.crashed is False
     assert result.returncode == 42
-    assert result.logs["exit_code"] == "42"
+    assert result.logs.exit_code == "42"
     assert "========== BINARY OUTPUT START ==========" in result.stdout
     assert "========== BINARY OUTPUT END ==========" in result.stdout
     start = result.stdout.index("========== BINARY OUTPUT START ==========")
@@ -103,8 +103,10 @@ def test_execute_poc_compile_failure_reports_sandbox_error(tmp_path):
     """A failing PoC compile is a legitimate outcome: it must surface as a
     sandbox_error row, not vanish from the report (the old TUI bug)."""
     from app_services import AppServices
+    from isolate import Isolate, PoCRunner
 
     svc = AppServices.__new__(AppServices)
+    svc.poc_runner = PoCRunner(Isolate())
     poc = {
         "local_path": str(tmp_path),
         "compile_cmd": "false",
@@ -113,9 +115,9 @@ def test_execute_poc_compile_failure_reports_sandbox_error(tmp_path):
     }
     out = svc._execute_poc("CVE-2099-0001", poc)
 
-    assert "sandbox" not in out
-    assert "sandbox_error" in out
-    assert "compile" in out["sandbox_error"]
+    assert out.sandbox is None
+    assert out.sandbox_error is not None
+    assert "compile" in out.sandbox_error
 
 
 @pytest.mark.integration
@@ -123,6 +125,7 @@ def test_execute_poc_sandbox_error_when_no_backend(tmp_path):
     """When the compile succeeds but no sandbox backend is available the
     outcome is a sandbox_error, so the TUI shows a failure row."""
     from app_services import AppServices
+    from isolate import PoCRunner
 
     class _FakeIsolate:
         def run_binary(self, binary):
@@ -133,7 +136,7 @@ def test_execute_poc_sandbox_error_when_no_backend(tmp_path):
     poc_binary.chmod(0o755)
 
     svc = AppServices.__new__(AppServices)
-    svc.isolate = _FakeIsolate()
+    svc.poc_runner = PoCRunner(_FakeIsolate())
     poc = {
         "local_path": str(tmp_path),
         "compile_cmd": "true",
@@ -142,58 +145,60 @@ def test_execute_poc_sandbox_error_when_no_backend(tmp_path):
     }
     out = svc._execute_poc("CVE-2099-0002", poc)
 
-    assert "sandbox" not in out
-    assert "sandbox_error" in out
-    assert "no sandbox backend" in out["sandbox_error"]
+    assert out.sandbox is None
+    assert out.sandbox_error is not None
+    assert "no sandbox backend" in out.sandbox_error
 
 
 @pytest.mark.integration
-def test_from_exec_report_keeps_compile_and_sandbox_failures():
-    """SandboxRun.from_exec_report must produce rows for PoCs that failed
-    before or inside the sandbox, not only for successful VM runs."""
-    from gui.entities.sandbox_runs import SandboxRun
+def test_execution_report_keeps_compile_and_sandbox_failures():
+    """ExecutionReport must keep rows for PoCs that failed before or inside
+    the sandbox, not only for successful VM runs."""
+    from core.entities import (
+        CveExecution,
+        ExecutionReport,
+        PocExecution,
+        RunLogs,
+        SandboxRunResult,
+    )
 
-    report = {
-        "entries": [
-            {
-                "cve_id": "CVE-2099-0001",
-                "pocs": [
-                    {
-                        "url": "https://example.com/a",
-                        "sandbox_error": "compile failed: rc=1",
-                    },
-                    {
-                        "url": "https://example.com/b",
-                        "sandbox_error": "no sandbox backend available",
-                    },
-                    {
-                        "url": "https://example.com/c",
-                        "sandbox": {
-                            "success": True,
-                            "crashed": False,
-                            "returncode": 0,
-                            "mode": "virtme-ng",
-                            "stdout": "POC_OK",
-                            "stderr": "",
-                            "logs": {"binary": "hash-x"},
-                        },
-                    },
+    report = ExecutionReport(
+        entries=[
+            CveExecution(
+                cve_id="CVE-2099-0001",
+                pocs=[
+                    PocExecution(
+                        url="https://example.com/a",
+                        sandbox_error="compile failed: rc=1",
+                    ),
+                    PocExecution(
+                        url="https://example.com/b",
+                        sandbox_error="no sandbox backend available",
+                    ),
+                    PocExecution(
+                        url="https://example.com/c",
+                        sandbox=SandboxRunResult(
+                            stdout="POC_OK",
+                            stderr="",
+                            returncode=0,
+                            execution_mode="virtme-ng",
+                            duration_ms=0.0,
+                            logs=RunLogs(binary="hash-x"),
+                        ),
+                    ),
                 ],
-            }
+            )
         ]
-    }
+    )
 
-    runs = SandboxRun.from_exec_report(report)
-
-    assert len(runs) == 3
-    ok = [r for r in runs if r.execution_success]
-    failed = [r for r in runs if not r.execution_success]
-    assert len(ok) == 1 and ok[0].stdout == "POC_OK"
+    pocs = report.entries[0].pocs
+    assert len(pocs) == 3
+    ok = [p for p in pocs if p.sandbox and p.sandbox.success]
+    failed = [p for p in pocs if p.sandbox_error]
+    assert len(ok) == 1 and ok[0].sandbox.stdout == "POC_OK"
     assert len(failed) == 2
-    platforms = {r.sandbox_platform for r in failed}
-    assert "compile" in platforms
-    assert "error" in platforms
-    assert all(r.stderr for r in failed)
+    assert "compile" in failed[0].sandbox_error
+    assert "sandbox backend" in failed[1].sandbox_error
 
 
 @pytest.mark.integration
@@ -254,23 +259,24 @@ def test_console_log_survives_multi_kilobyte_line():
 def test_sandbox_error_row_header_has_no_exit_none_or_url_hash():
     """An error/compile row must not show 'exit:None' nor a truncated URL in
     the hash slot; the error reason, PoC URL and command belong in the body."""
-    from gui.entities.sandbox_runs import SandboxRun
+    from core.entities import PocExecution
     from gui.widgets.sandbox_item import SandboxItem
 
-    run = SandboxRun(
-        cve_id="CVE-2021-22555",
-        sandbox_platform="compile",
-        stderr="compile failed: rc=1 gcc not found",
-        url="https://github.com/org/CVE-2021-22555",
-        command="gcc exploit.c",
+    item = SandboxItem(
+        "CVE-2021-22555",
+        PocExecution(
+            url="https://github.com/org/CVE-2021-22555",
+            test_cmd="gcc exploit.c",
+            sandbox_error="compile failed: rc=1 gcc not found",
+        ),
     )
 
-    header = SandboxItem._header(run)
+    header = item._header()
     assert "exit:None" not in header
     assert "https://gith" not in header
     assert "compile failed: rc=1" in header
 
-    body = [str(c.render()) for c in SandboxItem._body(run)]
+    body = [str(c.render()) for c in item._body()]
     assert any("compile failed: rc=1" in line for line in body)
     assert any("https://github.com/org/CVE-2021-22555" in line for line in body)
     assert any("gcc exploit.c" in line for line in body)
@@ -280,28 +286,32 @@ def test_sandbox_error_row_header_has_no_exit_none_or_url_hash():
 def test_sandbox_vm_row_shows_status_command_and_hash():
     """A successful VM run renders report-level detail: status text, platform,
     the real run command and the exploit file (not the URL)."""
-    from gui.entities.sandbox_runs import SandboxRun
+    from core.entities import PocExecution, RunLogs, SandboxRunResult
     from gui.widgets.sandbox_item import SandboxItem
 
-    run = SandboxRun(
-        cve_id="CVE-2022-2586",
-        execution_success=True,
-        exit_code=0,
-        sandbox_platform="virtme-ng",
-        exploit_file_hash="abc123def456",
-        url="https://github.com/org/CVE-2022-2586",
-        command="./exploit",
-        stdout="POC_OK",
-        stderr="",
+    item = SandboxItem(
+        "CVE-2022-2586",
+        PocExecution(
+            url="https://github.com/org/CVE-2022-2586",
+            test_cmd="./exploit",
+            sandbox=SandboxRunResult(
+                stdout="POC_OK",
+                stderr="",
+                returncode=0,
+                execution_mode="virtme-ng",
+                duration_ms=0.0,
+                logs=RunLogs(binary="abc123def456", command="./exploit"),
+            ),
+        ),
     )
 
-    header = SandboxItem._header(run)
+    header = item._header()
     assert "exit:0" in header
     assert "abc123def456" in header
     assert "stdout:6" in header
     assert "https://gith" not in header
 
-    body = [str(c.render()) for c in SandboxItem._body(run)]
+    body = [str(c.render()) for c in item._body()]
     assert any("SUCCESS (exit: 0)" in line for line in body)
     assert any("platform: virtme-ng" in line for line in body)
     assert any("Command: ./exploit" in line for line in body)

@@ -5,7 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from isolate import CCompiler, ExecutionResult, HostEnvironment, Isolate
+from core.entities import RunLogs, SandboxRunResult
+from isolate import CCompiler, HostEnvironment, Isolate
 from isolate.parse_vm_internal_results import QEMU_CRASH_PATTERNS, ParseVmResults
 from isolate.qemu_vm import QemuEnvironment
 from isolate.virtme_ng_vm import VirtmeNGEnvironment
@@ -23,12 +24,12 @@ class FakeTempDir:
 
 
 def test_execution_result_to_json():
-    result = ExecutionResult(
+    result = SandboxRunResult(
         stdout="out",
         stderr="err",
         returncode=0,
         execution_mode="qemu",
-        logs={"a": "b"},
+        logs=RunLogs(binary="b"),
         duration_ms=1.5,
         crashed=False,
     )
@@ -40,6 +41,7 @@ def test_execution_result_to_json():
     assert data["returncode"] == 0
     assert data["execution_mode"] == "qemu"
     assert data["crashed"] is False
+    assert data["logs"]["binary"] == "b"
 
 
 def test_parse_guest_output_sections():
@@ -138,7 +140,7 @@ processor : 0
 MemTotal: 512
 """
 
-    kernel_info, resources, modules, files, processes = parser.parse_guest_output(
+    kernel_info, resources, _modules, _files, _processes = parser.parse_guest_output(
         output
     )
 
@@ -155,7 +157,7 @@ def test_parse_guest_output_modules_fallback_from_dmesg():
 [    2.0] kvm loaded
 """
 
-    kernel_info, resources, modules, files, processes = parser.parse_guest_output(
+    _kernel_info, _resources, modules, _files, _processes = parser.parse_guest_output(
         output
     )
 
@@ -169,7 +171,7 @@ def test_parse_guest_output_resources_single_line():
 0.00 0.01 0.02 1/123 456
 """
 
-    kernel_info, resources, modules, files, processes = parser.parse_guest_output(
+    _kernel_info, resources, _modules, _files, _processes = parser.parse_guest_output(
         output
     )
 
@@ -212,10 +214,10 @@ def test_virtme_execute_success(monkeypatch, tmp_path):
     assert result.crashed is False
     assert result.execution_mode == "virtme-ng"
     assert "POC_OK" in result.stdout
-    assert result.logs["exit_code"] == "0"
-    assert result.logs["virtme_returncode"] == "0"
-    assert result.logs["stage"] == "vm_finished"
-    assert result.kernel_info["uname"] == "Linux virtme-ng 6.1.0-virtme x86_64"
+    assert result.logs.exit_code == "0"
+    assert result.logs.virtme_returncode == "0"
+    assert result.logs.stage == "vm_finished"
+    assert result.kernel_info.uname == "Linux virtme-ng 6.1.0-virtme x86_64"
     assert result.modules == ["mod1"]
     assert result.processes == ["PID USER"]
 
@@ -236,7 +238,7 @@ def test_virtme_execute_timeout(monkeypatch, tmp_path):
     assert result.returncode == -1
     assert result.crashed is True
     assert "Execution timeout" in result.stderr
-    assert result.logs["error"]
+    assert result.logs.error
 
 
 def test_virtme_execute_raises_when_unavailable(monkeypatch, tmp_path):
@@ -272,8 +274,8 @@ def test_qemu_execute_success(monkeypatch, tmp_path):
     assert result.stdout == "noise\nEXIT_CODE=42\n"
     assert result.crashed is False
     assert result.execution_mode == "qemu"
-    assert result.logs["exit_code"] == "42"
-    assert result.logs["stage"] == "vm_finished"
+    assert result.logs.exit_code == "42"
+    assert result.logs.stage == "vm_finished"
 
 
 def test_qemu_execute_timeout(monkeypatch, tmp_path):
@@ -297,8 +299,8 @@ def test_qemu_execute_timeout(monkeypatch, tmp_path):
     assert result.returncode == -1
     assert result.crashed is True
     assert "execution timeout" in result.stderr
-    assert result.logs["stdout_size"] == "0"
-    assert result.logs["stderr_size"] == "7"
+    assert result.logs.stdout_size == "0"
+    assert result.logs.stderr_size == "7"
 
 
 def test_qemu_execute_timeout_no_partial_stderr(monkeypatch, tmp_path):
@@ -321,7 +323,7 @@ def test_qemu_execute_timeout_no_partial_stderr(monkeypatch, tmp_path):
 
     assert result.returncode == -1
     assert result.crashed is True
-    assert result.logs["stderr_size"] == "0"
+    assert result.logs.stderr_size == "0"
 
 
 def test_host_execute_success(monkeypatch, tmp_path):
@@ -373,7 +375,7 @@ def test_host_execute_signal(monkeypatch, tmp_path):
     result = env.execute()
 
     assert result.crashed is True
-    assert result.logs["signal"] == "11"
+    assert result.logs.signal == "11"
 
 
 def test_host_execute_timeout(monkeypatch, tmp_path):
@@ -480,12 +482,11 @@ def test_compile_and_run(monkeypatch, tmp_path):
         lambda self, flags=None: fake_binary,
     )
 
-    expected = ExecutionResult(
+    expected = SandboxRunResult(
         stdout="ok",
         stderr="",
         returncode=0,
         execution_mode="host",
-        logs={},
         duration_ms=1.0,
         crashed=False,
     )
@@ -543,12 +544,11 @@ def test_run_binary_host_allowed(monkeypatch, tmp_path):
         lambda self: False,
     )
 
-    fake_result = ExecutionResult(
+    fake_result = SandboxRunResult(
         stdout="ok",
         stderr="",
         returncode=0,
         execution_mode="host",
-        logs={},
         duration_ms=1.0,
         crashed=False,
     )
@@ -585,12 +585,11 @@ def test_run_binary_backend_host(monkeypatch, tmp_path):
 
     isolate = Isolate(backend="host")
 
-    fake_result = ExecutionResult(
+    fake_result = SandboxRunResult(
         stdout="ok",
         stderr="",
         returncode=0,
         execution_mode="host",
-        logs={},
         duration_ms=1.0,
         crashed=False,
     )
@@ -608,12 +607,11 @@ def test_run_binary_backend_forced_virtme(monkeypatch, tmp_path):
 
     isolate = Isolate(backend="virtme-ng")
 
-    fake_result = ExecutionResult(
+    fake_result = SandboxRunResult(
         stdout="ok",
         stderr="",
         returncode=0,
         execution_mode="virtme-ng",
-        logs={},
         duration_ms=1.0,
         crashed=False,
     )
@@ -636,12 +634,11 @@ def test_run_binary_backend_forced_qemu(monkeypatch, tmp_path):
 
     isolate = Isolate(backend="qemu")
 
-    fake_result = ExecutionResult(
+    fake_result = SandboxRunResult(
         stdout="ok",
         stderr="",
         returncode=0,
         execution_mode="qemu",
-        logs={},
         duration_ms=1.0,
         crashed=False,
     )
@@ -692,12 +689,11 @@ def test_run_binary_auto_skips_failed_backend(monkeypatch, tmp_path):
     def failing_execute(self):
         raise RuntimeError("virtme-ng exploded")
 
-    fake_qemu = ExecutionResult(
+    fake_qemu = SandboxRunResult(
         stdout="ok",
         stderr="",
         returncode=0,
         execution_mode="qemu",
-        logs={},
         duration_ms=1.0,
         crashed=False,
     )
@@ -777,7 +773,7 @@ def test_qemu_execute_nonzero_exit_code(monkeypatch, tmp_path):
     # the guest's EXIT_CODE is the meaningful outcome, not qemu's own rc
     assert result.returncode == 13
     assert result.crashed is False
-    assert result.logs["exit_code"] == "13"
+    assert result.logs.exit_code == "13"
 
 
 def test_qemu_execute_preserves_qemu_stderr(monkeypatch, tmp_path):
