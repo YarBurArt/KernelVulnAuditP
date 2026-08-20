@@ -4,15 +4,11 @@ import tempfile
 import time
 from pathlib import Path
 
-from isolate.isolate import (
-    ExecutionResult,
-    IsolationEnvironment,
-    _timeout_text,
-    run_cmd,
-)
+from core.entities import KernelInfo, RunLogs, SandboxRunResult, VmResources
+from isolate.isolate import IsolationEnvironment, _as_typed, run_cmd, timeout_text
 from isolate.parse_vm_internal_results import VIRTME_CRASH_PATTERNS, ParseVmResults
 
-# guest script run via `vng --run --exec`, emits the same section markers that
+# guest script run via vng --run --exec; emits the same section markers
 # qemu's guest script produces so ParseVmResults can extract the same data;
 # virtme-ng shares the host filesystem copy-on-write, so no initrd is needed
 VIRTME_GUEST_INIT = """#!/bin/bash
@@ -48,7 +44,7 @@ class VirtmeNGEnvironment(IsolationEnvironment):
     host kernel over a copy-on-write snapshot of the live filesystem,
     see docs https://github.com/arighi/virtme-ng
 
-    `--run` boots the host kernel and `--exec` runs a command then exits,
+    --run boots the host kernel and --exec runs a command then exits,
     propagating the guest command exit code back to the host.
     """
 
@@ -62,7 +58,7 @@ class VirtmeNGEnvironment(IsolationEnvironment):
     def is_available(self) -> bool:
         return shutil.which("virtme-ng") is not None
 
-    def execute(self) -> ExecutionResult:
+    def execute(self) -> SandboxRunResult:
         start = time.perf_counter()
         self._log("stage", "virtme_execute_start")
         self._log("binary", str(self.binary_path))
@@ -126,21 +122,21 @@ class VirtmeNGEnvironment(IsolationEnvironment):
                 crashed = ParseVmResults.detect_crash(
                     stdout + stderr, VIRTME_CRASH_PATTERNS
                 )
-                # virtme-ng propagates the guest `exit $EXITCODE`, but trust the
+                # virtme-ng propagates the guest exit $EXITCODE, but trust the
                 # guest's own echo over the host-side rc (mirrors qemu)
                 returncode = (
                     exit_code if proc.returncode == 0 else proc.returncode
                 )
-                return ExecutionResult(
+                return SandboxRunResult(
                     stdout=stdout,
                     stderr=stderr,
                     returncode=returncode,
                     execution_mode="virtme-ng",
                     duration_ms=duration,
                     crashed=crashed,
-                    logs=self.logs,
-                    kernel_info=kernel_info,
-                    resources=resources,
+                    logs=_as_typed(RunLogs, self.logs),
+                    kernel_info=_as_typed(KernelInfo, kernel_info),
+                    resources=_as_typed(VmResources, resources),
                     modules=modules,
                     files=files,
                     processes=processes,
@@ -151,10 +147,10 @@ class VirtmeNGEnvironment(IsolationEnvironment):
                 stderr = stderr_log.read_text(errors="replace") if stderr_log.exists() else ""
                 self._log("stdout_size", str(len(stdout)))
                 self._log("stderr_size", str(len(stderr)))
-                out_text, err_text = _timeout_text(exc)
+                out_text, err_text = timeout_text(exc)
                 partial = (err_text or out_text).strip()[:400]
                 self._log("error", f"Timeout after {self.timeout}s")
-                return ExecutionResult(
+                return SandboxRunResult(
                     stdout=stdout,
                     stderr=(
                         f"Execution timeout ({self.timeout}s)\n"
@@ -164,5 +160,5 @@ class VirtmeNGEnvironment(IsolationEnvironment):
                     execution_mode="virtme-ng",
                     duration_ms=duration,
                     crashed=True,
-                    logs=self.logs,
+                    logs=_as_typed(RunLogs, self.logs),
                 )

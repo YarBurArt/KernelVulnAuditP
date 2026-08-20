@@ -1,10 +1,5 @@
 import asyncio
 import logging
-import os
-import re
-import shutil
-import subprocess
-import tempfile
 from collections.abc import Callable
 from dataclasses import asdict
 from datetime import UTC, datetime
@@ -14,38 +9,43 @@ from typing import Any
 import httpx
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
+from application.dto import (
+    FeedsReconResult,
+    LesCVEItem,
+    LocalReconResult,
+    ReconResult,
+)
 from config import (
     ALLOW_HOST_EXECUTION,
-    COMPILE_TIMEOUT_SEC,
     ISOLATION_TIMEOUT_SEC,
 )
-from core import (
-    format_report,
-    format_sandbox_detail,
-    format_timestamp,
-    summarize_sandbox,
-)
-from db.db import ThreatDB
-from db.models import SecurityRecommendation
-from isolate import Isolate
-from isolate.isolate import _timeout_text, run_cmd
-from recon.local_target_recon import LocalRecon
-from recon.remote_feeds_recon import ReconFeeds
-from schemas import (
-    FeedsReconResult,
+from core.entities import (
+    CisaKevEntry,
+    CveExecution,
+    ExecutionReport,
+    Exploit,
     HostFileCapabilities,
-    HostInfoData,
+    HostInfo,
     HostKernelModule,
     HostProcessCapabilities,
     HostSELinuxBoolean,
     KernelLPE,
-    LesCVEItem,
-    LocalReconResult,
-    ReconResult,
+    PocExecution,
+    SandboxRun,
+    SandboxRunResult,
+    SecurityRecommendation,
     SecurityRecommendationType,
+    Vulnerability,
 )
-from sqxpl import GitHubExploitSearcher
-from term import unicode_glyph
+from db.db import ThreatDB
+from isolate import Isolate, PoCRunner
+from presentation.formatting import format_timestamp
+from presentation.glyphs import unicode_glyph
+from presentation.sandbox import format_sandbox_detail
+from recon.local_target_recon import LocalRecon
+from recon.remote_feeds_recon import ReconFeeds
+from report.base_report import format_report
+from sqxpl import GitHubExploitSearcher, PocInfo
 
 logger = logging.getLogger(f"kernel_audit.{__name__}")
 
@@ -76,6 +76,7 @@ class AppServices:
         self.poc_searcher = GitHubExploitSearcher()
         self.isolate = Isolate(timeout=ISOLATION_TIMEOUT_SEC)
         self.isolate.allow_host_execution = ALLOW_HOST_EXECUTION
+        self.poc_runner = PoCRunner(self.isolate)
 
     def _make_bar(self, total: int, label: str):
         if self.progress is None:
@@ -116,9 +117,12 @@ class AppServices:
         selinux_task = asyncio.to_thread(self.lr.get_host_selinux_bools)
         selinux_hard_task = asyncio.to_thread(self.lr.get_selinux_hardening)
 
+        bar.detail(label="lynis", note="checking sysctl hardening")
         lynis_result = await lynis_task
         bar.step(label="lynis", note=f"{len(lynis_result)} checks")
         logger.info("Lynis scan completed: %s", len(lynis_result))
+
+        bar.detail(label="linpeas", note="running kernel LPE scan")
         linpeas_result: KernelLPE | None = await linpeas_task
         bar.step(
             label="linpeas",
@@ -127,10 +131,13 @@ class AppServices:
             else "no LPE data",
         )
         logger.info("LinPEAS scan completed")
+
+        bar.detail(label="les", note="running exploit suggester")
         les_result: list[LesCVEItem] = await les_task
         bar.step(label="les", note=f"{len(les_result)} CVEs")
         logger.info("LES scan completed: %s", len(les_result))
 
+        bar.detail(label="selinux/caps", note="collecting booleans & caps")
         selinux_booleans: list[HostSELinuxBoolean] = await selinux_task
         process_caps: list[HostProcessCapabilities] = await pids_task
         file_caps: list[HostFileCapabilities] = await bpath_task
@@ -139,6 +146,8 @@ class AppServices:
             note=f"{len(selinux_booleans)} booleans, "
             f"{len(process_caps) + len(file_caps)} caps",
         )
+
+        bar.detail(label="hardening", note="comparing recommendations")
         selinux_hardening: list[SecurityRecommendationType] = (
             await selinux_hard_task
         )
@@ -189,7 +198,7 @@ class AppServices:
         arch = self.lr.environment_info.get("architecture")
         architecture = ", ".join(arch) if isinstance(arch, (tuple, list)) else str(arch)
 
-        host = HostInfoData(
+        host = HostInfo(
             hostname=self.lr.environment_info.get("node", ""),
             kernel_version=self.lr.get_kernel_version_simple(),
             kernel_release=self.lr.kernel_version.get("kernel_release", ""),
@@ -275,17 +284,17 @@ class AppServices:
         logger.info("full recon is completed, no isolated tests")
         return ReconResult(local=local_r, feeds=feeds_r)
 
-    def run_execution_tests(self) -> dict:
+    def run_execution_tests(self) -> ExecutionReport:
         """validate kernel CVEs by sandbox-executing PoC"""
         return asyncio.run(self._run_execution_tests_async())
 
-    async def _run_execution_tests_async(self) -> dict:
+    async def _run_execution_tests_async(self) -> ExecutionReport:
         """validate kernel CVEs by sandbox-executing PoC"""
         context = await self._build_execution_context()
         logger.info("execution tests started in context: %s", context)
         cve_hints = await asyncio.to_thread(self._collect_kernel_cves)
         bar = self._make_bar(len(cve_hints), "Executing PoCs")
-        report_entries = []
+        report_entries: list[CveExecution] = []
         try:
             for cve_id, hint in cve_hints.items():
                 bar.step(label=cve_id)
@@ -314,32 +323,32 @@ class AppServices:
     def _build_kev_records(
         self,
         kev_item: dict[str, Any],
-    ) -> tuple[str | None, dict[str, Any], dict[str, Any]]:
+    ) -> tuple[str | None, CisaKevEntry, Vulnerability]:
 
         cve_id = kev_item.get("cveID")
-        kev_data = {
-            "date_added": self._parse_kev_date(kev_item.get("dateAdded")),
-            "due_date": self._parse_kev_date(kev_item.get("dueDate")),
-            "required_action": kev_item.get("requiredAction"),
-            "known_ransomware": (kev_item.get("knownRansomwareCampaignUse") == "Known"),
-            "vendor_project": kev_item.get("vendorProject"),
-            "product": kev_item.get("product"),
-            "notes": kev_item.get("notes", ""),
-        }
-        vuln_data = {
-            "cve_id": cve_id,
-            "description": kev_item.get("shortDescription", ""),
-            "in_cisa_kev": True,
-            "sources": ["CISA_KEV"],
-        }
+        kev_data = CisaKevEntry(
+            date_added=self._parse_kev_date(kev_item.get("dateAdded")),
+            due_date=self._parse_kev_date(kev_item.get("dueDate")),
+            required_action=kev_item.get("requiredAction"),
+            known_ransomware=(kev_item.get("knownRansomwareCampaignUse") == "Known"),
+            vendor_project=kev_item.get("vendorProject"),
+            product=kev_item.get("product"),
+            notes=kev_item.get("notes", ""),
+        )
+        vuln_data = Vulnerability(
+            cve_id=cve_id or "",
+            description=kev_item.get("shortDescription", ""),
+            in_cisa_kev=True,
+            sources=["CISA_KEV"],
+        )
 
         return cve_id, kev_data, vuln_data
 
     def _save_kev_entry(
         self,
         cve_id: str,
-        kev_data: dict[str, Any],
-        vuln_data: dict[str, Any],
+        kev_data: CisaKevEntry,
+        vuln_data: Vulnerability,
     ) -> bool:
         try:
             self.db.upsert_vulnerability(vuln_data)
@@ -386,9 +395,9 @@ class AppServices:
 
             details = details_map.get(cve_id, {})
             if details:
-                vuln_data["cvss_v3_score"] = details.get("cvss_v3_score")
-                vuln_data["cvss_v3_vector"] = details.get("cvss_v3_vector")
-                vuln_data["severity"] = details.get("severity")
+                vuln_data.cvss_v3_score = details.get("cvss_v3_score")
+                vuln_data.cvss_v3_vector = details.get("cvss_v3_vector")
+                vuln_data.severity = details.get("severity")
 
             logger.debug("N KEV: %s | N VULN: %s", kev_data, vuln_data)
 
@@ -434,7 +443,7 @@ class AppServices:
         hint: dict[str, Any],
         metadata: dict[str, Any],
         context: dict[str, Any] | None,
-    ) -> dict[str, Any]:
+    ) -> Vulnerability:
 
         description = (
             hint.get("details") or hint.get("title") or metadata.get("description")
@@ -445,14 +454,14 @@ class AppServices:
         if context:
             raw_data["context"] = context
 
-        return {
-            "cve_id": cve_id,
-            "description": description,
-            "cvss_v3_score": metadata.get("cvss_v3_score"),
-            "severity": severity,
-            "sources": [self._normalize_source(hint.get("source", "linpeas"))],
-            "raw_data": raw_data,
-        }
+        return Vulnerability(
+            cve_id=cve_id,
+            description=description,
+            cvss_v3_score=metadata.get("cvss_v3_score"),
+            severity=severity,
+            sources=[self._normalize_source(hint.get("source", "linpeas"))],
+            raw_data=raw_data,
+        )
 
     async def _persist_cve_hint(
         self,
@@ -472,11 +481,11 @@ class AppServices:
             )
 
         return {
-            "cve_id": vuln["cve_id"],
-            "description": vuln["description"],
-            "cvss_v3_score": vuln["cvss_v3_score"],
-            "severity": vuln["severity"],
-            "sources": vuln["sources"],
+            "cve_id": vuln.cve_id,
+            "description": vuln.description,
+            "cvss_v3_score": vuln.cvss_v3_score,
+            "severity": vuln.severity,
+            "sources": vuln.sources,
         }
 
     async def _build_execution_context(self) -> dict[str, Any]:
@@ -492,7 +501,7 @@ class AppServices:
         cve_id: str,
         hint: dict[str, Any],
         context: dict[str, Any],
-    ) -> dict[str, Any] | None:
+    ) -> CveExecution | None:
 
         entry = await self._persist_cve_hint(
             cve_id,
@@ -515,23 +524,29 @@ class AppServices:
         # once would thrash the host.
         sem = asyncio.Semaphore(2)
 
-        async def _record(poc: dict) -> dict:
+        async def _record(poc: PocInfo) -> PocExecution:
             async with sem:
                 return await asyncio.to_thread(
                     self._record_poc_for_cve, cve_id, poc
                 )
 
         pocs = await asyncio.gather(*(_record(poc) for poc in downloads))
-        entry["pocs"] = pocs
 
-        return entry
+        return CveExecution(
+            cve_id=entry["cve_id"],
+            description=entry["description"],
+            cvss_v3_score=entry["cvss_v3_score"],
+            severity=entry["severity"],
+            sources=entry["sources"],
+            pocs=pocs,
+        )
 
     @staticmethod
-    def _cve_outcome_note(entry: dict[str, Any] | None) -> str:
+    def _cve_outcome_note(entry: CveExecution | None) -> str:
         """Short outcome line for a CVE execution step (stages panel)."""
         if entry is None:
             return "no data"
-        pocs = entry.get("pocs") or []
+        pocs = entry.pocs
         if not pocs:
             return "no PoCs"
         crashed = 0
@@ -539,17 +554,16 @@ class AppServices:
         errors = 0
         modes: set[str] = set()
         for poc in pocs:
-            sbx = poc.get("sandbox")
-            if not isinstance(sbx, dict):
+            sbx = poc.sandbox
+            if sbx is None:
                 errors += 1
                 continue
-            if sbx.get("crashed"):
+            if sbx.crashed:
                 crashed += 1
-            if sbx.get("success"):
+            if sbx.success:
                 ok += 1
-            mode = sbx.get("mode")
-            if mode:
-                modes.add(mode)
+            if sbx.execution_mode:
+                modes.add(sbx.execution_mode)
         mode = next(iter(modes), "") if len(modes) == 1 else ""
         bits = [f"{len(pocs)} PoCs"]
         if ok:
@@ -565,27 +579,27 @@ class AppServices:
     def _build_execution_report(
         self,
         context: dict[str, Any],
-        entries: list[dict[str, Any]],
-    ) -> dict[str, Any]:
+        entries: list[CveExecution],
+    ) -> ExecutionReport:
 
         build_date = context["build_date"]
-        return {
-            "kernel": context["kernel_version"],
-            "build_date": (
+        return ExecutionReport(
+            kernel=context["kernel_version"],
+            build_date=(
                 format_timestamp(build_date) if build_date is not None else None
             ),
-            "cves_processed": len(entries),
-            "stats": self.db.get_statistics(),
-            "entries": entries,
-        }
+            cves_processed=len(entries),
+            stats=self.db.get_statistics(),
+            entries=entries,
+        )
 
-    def _register_poc(self, cve_id: str, poc: dict[str, Any]) -> None:
-        exploit_meta = {
-            "exploit_type": "PoC",
-            "source": "GitHub",
-            "url": poc.get("url"),
-            "verified": True,
-        }
+    def _register_poc(self, cve_id: str, poc: PocInfo) -> None:
+        exploit_meta = Exploit(
+            exploit_type="PoC",
+            source="GitHub",
+            url=poc.get("url"),
+            verified=True,
+        )
 
         logger.debug("record poc meta: %s", exploit_meta)
         self.db.add_exploit(cve_id, exploit_meta)
@@ -596,281 +610,100 @@ class AppServices:
             )
 
     @staticmethod
-    def _build_poc_summary(poc: dict[str, Any]) -> dict[str, Any]:
-        return {
-            "url": poc.get("url"),
-            "language": poc.get("language"),
-            "stars": poc.get("stars"),
-            "compile_cmd": poc.get("compile_cmd"),
-            "test_cmd": poc.get("test_cmd"),
-        }
+    def _build_poc_summary(poc: PocInfo) -> PocExecution:
+        return PocExecution(
+            url=poc["url"],
+            language=poc.get("language") or "",
+            stars=poc.get("stars") or 0,
+            compile_cmd=poc.get("compile_cmd") or "",
+            test_cmd=poc.get("test_cmd") or "",
+        )
 
     def _execute_poc(
         self,
         cve_id: str,
-        poc: dict[str, Any],
-    ) -> dict[str, Any]:
-        repo: str = poc.get("local_path", "")
-
+        poc: PocInfo,
+    ) -> PocExecution:
+        repo: str = poc.get("local_path") or ""
         if not repo:
-            return {}
+            return PocExecution()
 
-        repo_path = Path(repo)
-        compile_cmd = poc.get("compile_cmd")
-        test_cmd = poc.get("test_cmd")
+        outcome = self.poc_runner.run(
+            Path(repo),
+            str(poc.get("compile_cmd") or ""),
+            str(poc.get("test_cmd") or ""),
+            on_output=lambda line: logger.debug("%s compile: %s", cve_id, line),
+        )
 
-        # no build or run steps -> nothing to sandbox
-        if not (compile_cmd and str(compile_cmd).strip()) and not (
-            test_cmd and str(test_cmd).strip()
-        ):
-            return {}
-
-        # build the PoC on the host where the sources and toolchain exist;
-        # the qemu initrd ships no compiler, so only the produced binary is
-        # handed to the sandbox. A failing compile is a legitimate outcome.
-        if compile_cmd and str(compile_cmd).strip():
-            try:
-                self._compile_poc(
-                    repo_path,
-                    str(compile_cmd),
-                    on_output=lambda line: logger.debug(
-                        "%s compile: %s", cve_id, line
-                    ),
-                )
-            except (RuntimeError, OSError, subprocess.TimeoutExpired) as exc:
-                logger.warning("%s: compile failed: %s", cve_id, exc)
-                return {"sandbox_error": f"compile failed: {exc}"}
-
-        binary = self._resolve_poc_binary(repo_path, test_cmd, compile_cmd)
-        if binary is None:
-            return {"sandbox_error": "no executable produced by the PoC build"}
-
-        command = str(test_cmd or f"./{binary.name}")
-
-        try:
-            logger.info("%s: %s - is started", cve_id, command)
-            result = self.isolate.run_binary(binary)
-            if result is None:
-                return {
-                    "sandbox_error": (
-                        "no sandbox backend available "
-                        "(virtme-ng/qemu missing and host denied)"
-                    )
-                }
-
-            logger.info("%s poc - is finished", cve_id)
-            self._store_sandbox_run(cve_id, result, command)
-
-            return {
-                "sandbox": summarize_sandbox(result),
-            }
-
-        except (
-            OSError,
-            RuntimeError,
-            subprocess.TimeoutExpired,
-            ValueError,
-            TypeError,
-            KeyError,
-            FileNotFoundError,
-            PermissionError,
-        ) as exc:
-            # A failed sandbox run is a legitimate test outcome; keep the
-            # user-facing summary at WARNING and the full traceback at DEBUG
-            # so genuine bugs in our runner aren't hidden by the short line.
-            logger.warning("%s: %s - is failed: %s", cve_id, command, exc)
-            logger.debug("sandbox failure traceback for %s", cve_id, exc_info=True)
-
-            return {
-                "sandbox_error": str(exc),
-            }
-
-    @staticmethod
-    def _compile_poc(
-        repo_path: Path,
-        compile_cmd: str,
-        timeout: int = COMPILE_TIMEOUT_SEC,
-        on_output: Callable[[str], None] | None = None,
-    ) -> None:
-        """Run the PoC compile command inside its cloned repo directory.
-
-        PoCs are built statically with musl-gcc: the qemu initrd is a minimal
-        rootfs without glibc, and glibc-linked binaries abort there. A gcc/cc
-        shim plus CC/CFLAGS force ``make``-based builds to do the same.
-
-        The build is bounded by ``timeout`` and killed as a whole process
-        tree; ``on_output`` receives each stdout/stderr line as it is produced
-        so the TUI can show live compile progress instead of a silent wait.
-        """
-        cmd = compile_cmd
-        env = os.environ.copy()
-        shim_dir: Path | None = None
-        musl_gcc = shutil.which("musl-gcc")
-
-        if musl_gcc:
-            # direct gcc/cc invocations -> musl-gcc -static (only these get
-            # the -static flag; make/other tools must not see it as an option)
-            compiler_direct = bool(re.match(r"^\s*(?:gcc|cc)\s+", cmd))
-            cmd = re.sub(r"^\s*(?:gcc|cc)\s+", "musl-gcc ", cmd, count=1)
-            if compiler_direct and "-static" not in cmd and not re.search(
-                r"-shared\b", cmd
-            ):
-                cmd = f"{cmd} -static"
-            # musl-gcc is a thin wrapper that execs $REALGCC (the real gcc);
-            # point it at the real binary so a gcc/cc shim never recurses
-            real_gcc = shutil.which("gcc")
-            if real_gcc:
-                env["REALGCC"] = real_gcc
-            # Makefile builds call $(CC)/$(CFLAGS) or hardcode gcc; a shim
-            # named gcc/cc forces every such invocation through musl-gcc -static
-            # (glibc and dynamic-musl binaries abort in the minimal initrd)
-            shim_dir = Path(tempfile.mkdtemp(prefix="kernaudit-cc-"))
-            shim_script = f"#!/bin/sh\nexec {musl_gcc} -static \"$@\"\n"
-            for name in ("gcc", "cc"):
-                shim = shim_dir / name
-                shim.write_text(shim_script)
-                shim.chmod(0o755)
-            env["PATH"] = f"{shim_dir}:{env.get('PATH', '')}"
-            env["CC"] = "musl-gcc -static"
-            env["CFLAGS"] = f"{env.get('CFLAGS', '')} -static".strip()
-
-        try:
-            proc = run_cmd(
-                cmd,
-                shell=True,
-                cwd=repo_path,
-                env=env,
-                capture_output=True,
-                text=True,
-                timeout=timeout,
-                line_callback=on_output,
-            )
-        except subprocess.TimeoutExpired as exc:
-            out_text, err_text = _timeout_text(exc)
-            partial = (err_text or out_text).strip()[:400]
-            raise RuntimeError(
-                f"compile timed out after {timeout}s\n{partial}"
-            ) from exc
-        finally:
-            if shim_dir is not None:
-                shutil.rmtree(shim_dir, ignore_errors=True)
-
-        if proc.returncode != 0:
-            detail = (proc.stderr or proc.stdout or "").strip()[:400]
-            raise RuntimeError(f"rc={proc.returncode}: {detail}")
-
-    @staticmethod
-    def _resolve_poc_binary(
-        repo_path: Path,
-        test_cmd: Any,
-        compile_cmd: Any,
-    ) -> Path | None:
-        """Find the executable the compile/test steps produced in the repo."""
-        name: str | None = None
-
-        # the runnable the test step references (./prog -> prog)
-        if test_cmd:
-            match = re.match(r"^\s*\./(\S+)", str(test_cmd))
-            if match:
-                name = match.group(1)
-
-        # else the -o output of the compile step
-        if name is None and compile_cmd:
-            match = re.search(r"(?<!\S)-o\s+(\S+)", str(compile_cmd))
-            if match:
-                name = match.group(1).rstrip(",;")
-
-        # bare "gcc foo.c" (no -o) produces a.out
-        if (
-            name is None
-            and compile_cmd
-            and "gcc" in str(compile_cmd)
-            and re.search(r"\.c\b", str(compile_cmd))
-            and not re.search(r"(?<!\S)-o\b", str(compile_cmd))
-        ):
-            name = "a.out"
-
-        if name:
-            candidate = (repo_path / name).resolve()
-            if candidate.is_file() and os.access(candidate, os.X_OK):
-                return candidate
-
-        # fall back to the newest executable at the repo root (e.g. make)
-        best: Path | None = None
-        try:
-            for f in repo_path.iterdir():
-                if f.is_file() and os.access(f, os.X_OK) and (
-                    best is None or f.stat().st_mtime > best.stat().st_mtime
-                ):
-                    best = f
-        except OSError:
-            return None
-        return best
+        if outcome.sandbox is not None:
+            self._store_sandbox_run(cve_id, outcome.sandbox, outcome.command or "")
+            return PocExecution(sandbox=outcome.sandbox)
+        if outcome.error is not None:
+            return PocExecution(sandbox_error=outcome.error)
+        return PocExecution()
 
     def _record_poc_for_cve(
         self,
         cve_id: str,
-        poc: dict[str, Any],
-    ) -> dict[str, Any]:
+        poc: PocInfo,
+    ) -> PocExecution:
         self._register_poc(cve_id, poc)
-        summary = self._build_poc_summary(poc)
-        summary.update(self._execute_poc(cve_id, poc))
+        execution = self._build_poc_summary(poc)
+        outcome = self._execute_poc(cve_id, poc)
+        execution.sandbox = outcome.sandbox
+        execution.sandbox_error = outcome.sandbox_error
 
-        return summary
+        return execution
 
-    def _store_sandbox_run(self, cve_id: str, result, command: str) -> None:
-        logs = getattr(result, "logs", {}) or {}
-        xpl_hash = logs.get("exploit_hash", logs.get("binary", " "))
-
-        sandbox_data = {
-            "sandbox_platform": getattr(result, "execution_mode", "unknown"),
-            "run_timestamp": datetime.now(UTC),
-            "exploit_file_hash": xpl_hash,
-            "execution_success": getattr(result, "returncode", 1) == 0,
-            "exit_code": getattr(result, "returncode", -1),
-            "crashed": getattr(result, "crashed", False),
-            "stdout": getattr(result, "stdout", " "),
-            "stderr": getattr(result, "stderr", " "),
-            "stdin": command,
-            "open_processes": getattr(result, "processes", []),
-            "open_files": getattr(result, "files", []),
-            "modules": getattr(result, "modules", []),
-            "kernel_info": getattr(result, "kernel_info", {}),
-            "resources": getattr(result, "resources", {}),
-            "notes": logs.get("command"),
-        }
+    def _store_sandbox_run(
+        self, cve_id: str, result: SandboxRunResult, command: str
+    ) -> None:
+        run = SandboxRun(
+            sandbox_platform=result.execution_mode,
+            run_timestamp=datetime.now(UTC),
+            exploit_file_hash=getattr(result.logs, "binary", None) or " ",
+            execution_success=result.returncode == 0,
+            exit_code=result.returncode,
+            crashed=result.crashed,
+            stdout=result.stdout,
+            stderr=result.stderr,
+            stdin=command,
+            open_processes=result.processes,
+            open_files=result.files,
+            modules=result.modules,
+            kernel_info=asdict(result.kernel_info),
+            resources=asdict(result.resources),
+            notes=getattr(result.logs, "command", None),
+        )
 
         logger.debug(
             "%s full sandbox POC data:\n%s",
             cve_id,
-            format_sandbox_detail(sandbox_data),
+            format_sandbox_detail(asdict(run)),
             extra={"skip_console": True},
         )
-        self.db.add_sandbox_run(cve_id, sandbox_data)
+        self.db.add_sandbox_run(cve_id, run)
 
-    def save_recon_results(self, results: dict) -> int:
+    def save_recon_results(self, results: ExecutionReport) -> int:
         """Persist a previous execution report into the DB."""
-        kernel = results.get("kernel")
-        build_date = results.get("build_date")
-        context = {"kernel_version": kernel, "build_date": build_date}
+        context = {"kernel_version": results.kernel, "build_date": results.build_date}
         saved = 0
-        for entry in results.get("entries", []):
-            cve_id = entry.get("cve_id")
-            if not cve_id:
+        for entry in results.entries:
+            if not entry.cve_id:
                 continue
-            vuln = {
-                "cve_id": cve_id,
-                "description": entry.get("description"),
-                "cvss_v3_score": entry.get("cvss_v3_score"),
-                "severity": entry.get("severity"),
-                "sources": entry.get("sources", []),
-                "raw_data": {
-                    "entry": entry,
+            vuln = Vulnerability(
+                cve_id=entry.cve_id,
+                description=entry.description,
+                cvss_v3_score=entry.cvss_v3_score,
+                severity=entry.severity,
+                sources=entry.sources,
+                raw_data={
+                    "entry": asdict(entry),
                     "context": context,
                 },
-            }
-            logger.info("saving recon results for %s", cve_id)
-            logger.debug("recon item for %s is: %s", cve_id, vuln)
+            )
+            logger.info("saving recon results for %s", entry.cve_id)
+            logger.debug("recon item for %s is: %s", entry.cve_id, vuln)
             self.db.upsert_vulnerability(vuln)
             saved += 1
         return saved
@@ -886,7 +719,7 @@ class AppServices:
                 logger.debug("no cached recon entries")
                 break
             for vuln in batch:
-                raw = vuln.get("raw_data", {})
+                raw = vuln.raw_data or {}
                 context = raw.get("context", {})
                 if context.get("kernel_version") == kernel:
                     logger.debug("found cached recon entry: %s", vuln)
@@ -900,19 +733,20 @@ class AppServices:
         """Return aggregated statistics from the DB."""
         stats = self.db.get_statistics()
         rec_stats = self.db.get_recommendations_stats()
-        stats["security_recommendations"] = rec_stats
-        return stats
+        return {**asdict(stats), "security_recommendations": asdict(rec_stats)}
 
     def get_security_recommendations(
         self, category: str | None = None, status: str | None = None, limit: int = 100
-    ) -> list[dict]:
+    ) -> list[SecurityRecommendation]:
         """Get security recommendations with optional filters."""
         logger.debug(f"getting recommendations/params for {category}")
         return self.db.get_security_recommendations(
             category=category, status=status, limit=limit
         )
 
-    def get_cisa_kev_entries(self, limit: int = 100) -> list[dict]:
+    def get_cisa_kev_entries(
+        self, limit: int = 100
+    ) -> list[Vulnerability]:
         """Get CISA KEV entries from DB."""
         return self.db.get_cisa_kev_list(limit=limit)
 

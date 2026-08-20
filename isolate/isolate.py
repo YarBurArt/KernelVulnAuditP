@@ -4,7 +4,6 @@ Supports virtme-ng/virtme, QEMU microvm,
 and host execution with comprehensive logging
 """
 
-import json
 import logging
 import os
 import signal
@@ -12,10 +11,9 @@ import subprocess
 import tempfile
 import threading
 from collections.abc import Callable
-from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, ClassVar, Protocol
 
 from config import (
     ALLOW_HOST_EXECUTION,
@@ -23,10 +21,15 @@ from config import (
     ISOLATION_TIMEOUT_SEC,
     SANDBOX_BACKEND,
 )
+from core.entities import RunLogs, SandboxRunResult
 
 logger = logging.getLogger(f"kernel_audit.{__name__}")
 # the assets live at the repo root, not inside the isolate/ package
 ASSETS = Path(__file__).resolve().parent.parent / "assets"
+
+
+class _Dataclass(Protocol):
+    __dataclass_fields__: ClassVar[dict[str, Any]]
 
 
 def _kill_tree(proc: subprocess.Popen) -> None:
@@ -41,12 +44,12 @@ def _kill_tree(proc: subprocess.Popen) -> None:
         pass
 
 
-def _timeout_text(exc: subprocess.TimeoutExpired) -> tuple[str, str]:
+def timeout_text(exc: subprocess.TimeoutExpired) -> tuple[str, str]:
     """Decode the partial output captured on a timeout.
 
-    ``communicate()`` and ``_stream_output`` stash the partial output in
-    ``exc.output``/``exc.stderr`` (raw bytes even with ``text=True``); this
-    normalizes both back to ``str`` for our ``str``-typed callers.
+    communicate() and _stream_output stash the partial output in
+    exc.output/exc.stderr (raw bytes even with text=True); this
+    normalizes both back to str for our str-typed callers.
     """
 
     def to_text(value: object) -> str:
@@ -57,6 +60,16 @@ def _timeout_text(exc: subprocess.TimeoutExpired) -> tuple[str, str]:
         return str(value)
 
     return to_text(exc.output), to_text(exc.stderr)
+
+
+def _as_typed[T: _Dataclass](klass: type[T], data: dict[str, str]) -> T:
+    """Coerce a backend's loose dict into one of the typed result fields.
+
+    Backends stash arbitrary keys (only a subset map to a field), so the
+    filter keeps the result valid even when the guest emits unexpected keys.
+    """
+    fields = klass.__dataclass_fields__
+    return klass(**{key: value for key, value in data.items() if key in fields})
 
 
 def _stream_output(
@@ -111,12 +124,12 @@ def run_cmd(
 ) -> subprocess.CompletedProcess:
     """subprocess.run() that never blocks on stdin and kills the whole tree.
 
-    ``subprocess.run(timeout=...)`` only SIGKILLs the direct child, so a
-    ``make``/``gcc``/``cc1`` tree survives the timeout as orphans that keep
-    burning CPU (the 120s-workaround problem). Each run owns its own session
-    (``start_new_session``) so a timeout can ``killpg`` the entire tree, and
+    subprocess.run(timeout=...) only SIGKILLs the direct child, so a
+    make/gcc/cc1 tree survives the timeout as orphans that keep burning CPU
+    (the 120s-workaround problem). Each run owns its own session
+    (start_new_session) so a timeout can killpg the entire tree, and
     stdin defaults to /dev/null so nothing blocks on input. With
-    ``line_callback`` the output is streamed line by line instead of buffered.
+    line_callback the output is streamed line by line instead of buffered.
     """
     kwargs.setdefault("start_new_session", True)
     kwargs.setdefault("stdin", subprocess.DEVNULL)
@@ -135,7 +148,7 @@ def run_cmd(
         if kwargs.get("text"):
             # communicate()'s TimeoutExpired carries raw bytes even in text
             # mode; normalize so callers always get str partial output
-            out, err = _timeout_text(exc)
+            out, err = timeout_text(exc)
             exc = subprocess.TimeoutExpired(
                 exc.cmd, exc.timeout, output=out, stderr=err
             )
@@ -189,27 +202,6 @@ echo b > /proc/sysrq-trigger
 """
 
 
-@dataclass
-class ExecutionResult:
-    stdout: str
-    stderr: str
-    returncode: int
-    execution_mode: Literal["virtme-ng", "qemu", "host"]
-    duration_ms: float
-    crashed: bool = False
-
-    logs: dict[str, str] = field(default_factory=dict)
-
-    kernel_info: dict[str, str] = field(default_factory=dict)
-    resources: dict[str, str] = field(default_factory=dict)
-    modules: list[str] = field(default_factory=list)
-    files: list[str] = field(default_factory=list)
-    processes: list[str] = field(default_factory=list)
-
-    def to_json(self) -> str:
-        return json.dumps(asdict(self), indent=4)
-
-
 class IsolationEnvironment:
     """base of isolation environments"""
 
@@ -221,7 +213,7 @@ class IsolationEnvironment:
     def is_available(self) -> bool:
         raise NotImplementedError
 
-    def execute(self) -> ExecutionResult:
+    def execute(self) -> SandboxRunResult:
         raise NotImplementedError
 
     def _log(self, key: str, value: str):
@@ -239,9 +231,8 @@ class HostEnvironment(IsolationEnvironment):
     def is_available(self) -> bool:
         return ALLOW_HOST_EXECUTION  # TODO: also check env from local recon
 
-    def execute(self) -> ExecutionResult:
+    def execute(self) -> SandboxRunResult:
         start = datetime.now(UTC)
-
         self._log("warning", "Executing on host system - take that risk! :)")
         self._log("binary_path", str(self.binary_path.absolute()))
         self._log("binary_permissions", oct(self.binary_path.stat().st_mode))
@@ -270,30 +261,30 @@ class HostEnvironment(IsolationEnvironment):
             if crashed:
                 self._log("signal", str(-result.returncode))
 
-            return ExecutionResult(
+            return SandboxRunResult(
                 stdout=result.stdout,
                 stderr=result.stderr,
                 returncode=result.returncode,
                 execution_mode="host",
-                logs=self.logs,
+                logs=_as_typed(RunLogs, self.logs),
                 duration_ms=duration,
                 crashed=crashed,
             )
 
         except subprocess.TimeoutExpired as e:
-            # its not mean system is not vulnerable, just xpl not run
+            # a timeout means the exploit didn't run, not that the host is safe
             duration = (datetime.now(UTC) - start).total_seconds() * 1000
-            stdout, stderr = _timeout_text(e)
+            stdout, stderr = timeout_text(e)
 
             self._log("timeout_stdout_size", str(len(stdout)))
             self._log("timeout_stderr_size", str(len(stderr)))
             self._log("error", f"Timeout after {self.timeout}s")
-            return ExecutionResult(
+            return SandboxRunResult(
                 stdout=stdout,
                 stderr=f"Execution timeout ({self.timeout}s)\n{stderr}",
                 returncode=-1,
                 execution_mode="host",
-                logs=self.logs,
+                logs=_as_typed(RunLogs, self.logs),
                 duration_ms=duration,
                 crashed=True,
             )
@@ -335,7 +326,7 @@ class CCompiler:
                 timeout=self.timeout,
             )
         except subprocess.TimeoutExpired as exc:
-            stdout, stderr = _timeout_text(exc)
+            stdout, stderr = timeout_text(exc)
             partial = (stderr or stdout).strip()[:400]
             raise RuntimeError(
                 f"Compilation timed out after {self.timeout}s\n{partial}"
@@ -372,7 +363,7 @@ class Isolate:
 
     def compile_and_run(
         self, source_path: Path, compile_flags: list[str] | None = None
-    ) -> ExecutionResult | None:
+    ) -> SandboxRunResult | None:
         compiler = CCompiler(source_path)
         binary_path: Path | None = compiler.compile(compile_flags)
         logger.info("Compiling completed: %s", source_path)
@@ -383,7 +374,7 @@ class Isolate:
         logger.warning("Binary path %s does not exist", binary_path)
         return None
 
-    def run_binary(self, binary_path: Path) -> ExecutionResult | None:
+    def run_binary(self, binary_path: Path) -> SandboxRunResult | None:
         """Pick a sandbox backend from config.SANDBOX_BACKEND and run the binary"""
         from isolate.qemu_vm import QemuEnvironment
         from isolate.virtme_ng_vm import VirtmeNGEnvironment

@@ -6,12 +6,13 @@ import tempfile
 import time
 from pathlib import Path
 
+from core.entities import KernelInfo, RunLogs, SandboxRunResult, VmResources
 from isolate.isolate import (
     ASSETS,
-    ExecutionResult,
     IsolationEnvironment,
-    _timeout_text,
+    _as_typed,
     run_cmd,
+    timeout_text,
 )
 from isolate.parse_vm_internal_results import QEMU_CRASH_PATTERNS, ParseVmResults
 
@@ -35,7 +36,7 @@ class QemuEnvironment(IsolationEnvironment):
             ]
         )
 
-    def execute(self) -> ExecutionResult:
+    def execute(self) -> SandboxRunResult:
         start = time.perf_counter()
         self._log("stage", "qemu_execute_start")
         self._log("binary", str(self.binary_path))
@@ -112,16 +113,16 @@ class QemuEnvironment(IsolationEnvironment):
                 # the qemu process itself always exits 0; the meaningful
                 # outcome is the guest's EXIT_CODE echoed by the audit script
                 returncode = exit_code if proc.returncode == 0 else proc.returncode
-                return ExecutionResult(
+                return SandboxRunResult(
                     stdout=stdout,
                     stderr=proc.stderr,
                     returncode=returncode,
                     execution_mode="qemu",
                     duration_ms=duration,
                     crashed=crashed,
-                    logs=self.logs,
-                    kernel_info=kernel_info,
-                    resources=resources,
+                    logs=_as_typed(RunLogs, self.logs),
+                    kernel_info=_as_typed(KernelInfo, kernel_info),
+                    resources=_as_typed(VmResources, resources),
                     modules=modules,
                     files=files,
                     processes=processes,
@@ -133,11 +134,11 @@ class QemuEnvironment(IsolationEnvironment):
                     if serial_log.exists()
                     else ""
                 )
-                out_text, err_text = _timeout_text(exc)
+                out_text, err_text = timeout_text(exc)
                 partial = (err_text or out_text).strip()[:400]
                 self._log("stdout_size", str(len(stdout)))
                 self._log("stderr_size", str(len(err_text)))
-                return ExecutionResult(
+                return SandboxRunResult(
                     stdout=stdout,
                     stderr=(
                         f"execution timeout ({self.timeout}s)\n"
@@ -147,7 +148,7 @@ class QemuEnvironment(IsolationEnvironment):
                     execution_mode="qemu",
                     duration_ms=duration,
                     crashed=True,
-                    logs=self.logs,
+                    logs=_as_typed(RunLogs, self.logs),
                 )
 
     def _build_initrd(self, workdir: Path) -> Path:
