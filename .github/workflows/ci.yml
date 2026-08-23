@@ -81,3 +81,17 @@ jobs:
       - name: Run pytest
         run: |
           uv run --frozen pytest tests -m "not integration" -q
+
+  nix-integration-no-isolate-m:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v31
+
+      # fast integration tests only; the QEMU suite is too slow in
+      # pure TCG on hosted runners, if you need run it locally via nix instead
+      - name: Run fast integration checks
+        run: nix build -L .#checks.x86_64-linux.integration-fast

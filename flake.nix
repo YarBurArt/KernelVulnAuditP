@@ -138,10 +138,22 @@
           p.scalene
         ]);
 
+        # reproducible integration tests; mocked (CI), qemu
+        # TCG boots of the isolate module (dev locally)
+        integration = import ./nix/integration.nix {
+          inherit pkgs python appSrc runtimeTools;
+          kernel = pkgs.linux;
+        };
+
       in {
         packages = {
           default = app;
           linpeas = linpeas;
+        };
+
+        checks = {
+          integration-fast = integration.fast.check;
+          integration-qemu = integration.qemu.check;
         };
 
         apps = {
@@ -149,6 +161,14 @@
           cli = flake-utils.lib.mkApp { drv = app; name = "kishirika-cli"; };
           gui = flake-utils.lib.mkApp { drv = app; name = "kishirika-gui"; };
           report = flake-utils.lib.mkApp { drv = app; name = "kishirika-report"; };
+          integration = {
+            type = "app";
+            program = "${integration.fast.cli}/bin/run-integration-fast";
+          };
+          integration-qemu = {
+            type = "app";
+            program = "${integration.qemu.cli}/bin/run-integration-qemu";
+          };
         };
 
         devShells.default = pkgs.mkShell {

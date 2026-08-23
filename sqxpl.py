@@ -487,4 +487,3 @@ def _fix_stale_compile_cmd(xpl: PocInfo, target_dir: Path) -> None:
         lambda m: root_c[0] if m.group(0) in refs else m.group(0),
         str(compile_cmd),
     )
-

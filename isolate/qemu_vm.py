@@ -170,11 +170,14 @@ class QemuEnvironment(IsolationEnvironment):
 
         archive = workdir / "initrd.cpio"
 
-        with archive.open("wb") as archive_file, subprocess.Popen(
-            ["find", ".", "-print0"],
-            cwd=root,
-            stdout=subprocess.PIPE,
-        ) as find_proc:
+        with (
+            archive.open("wb") as archive_file,
+            subprocess.Popen(
+                ["find", ".", "-print0"],
+                cwd=root,
+                stdout=subprocess.PIPE,
+            ) as find_proc,
+        ):
             assert find_proc.stdout is not None
 
             try:
@@ -258,7 +261,7 @@ class QemuEnvironment(IsolationEnvironment):
                     timeout=30,
                     check=False,
                 )
-            except (FileNotFoundError, subprocess.TimeoutExpired):
+            except FileNotFoundError, subprocess.TimeoutExpired:
                 continue
             if proc.returncode != 0:
                 continue
@@ -280,18 +283,28 @@ class QemuEnvironment(IsolationEnvironment):
     @staticmethod
     def _find_kernel() -> Path:
         release = os.uname().release
-        candidates = [
-            Path("/boot/vmlinuz"),
-            Path(f"/boot/vmlinuz-{release}"),
-            Path("/boot/vmlinuz-linux"),
-            Path("/run/booted-system/kernel"),
-            Path(f"/lib/modules/{release}/vmlinuz"),
-        ]
+        candidates = []
+        # optional explicit kernel image (e.g. a Nix store path); when unset
+        # the usual host locations below are probed exactly as before
+        vmlinuz_override = os.environ.get("KERNEL_AUDIT_VMLINUZ")
+        if vmlinuz_override:
+            candidates.append(Path(vmlinuz_override))
+        candidates.extend(
+            [
+                Path("/boot/vmlinuz"),
+                Path(f"/boot/vmlinuz-{release}"),
+                Path("/boot/vmlinuz-linux"),
+                Path("/run/booted-system/kernel"),
+                Path(f"/lib/modules/{release}/vmlinuz"),
+            ]
+        )
         for c in candidates:
             if c.exists():
                 return c
 
-        matches = sorted(Path("/boot").glob("vmlinuz*")) if Path("/boot").exists() else []
+        matches = (
+            sorted(Path("/boot").glob("vmlinuz*")) if Path("/boot").exists() else []
+        )
         if matches:
             return matches[-1]
 

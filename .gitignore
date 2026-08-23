@@ -217,4 +217,6 @@ lib_tools/linpeas_kernel.sh
 lib_tools/pocs/
 lib_tools/lynis/
 lib_tools/linux-exploit-suggester/
-lib_tools/PEASS-ng/
+lib_tools/PEASS-ng/result
+result-*
+result
