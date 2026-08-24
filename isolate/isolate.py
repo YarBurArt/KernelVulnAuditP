@@ -7,6 +7,8 @@ and host execution with comprehensive logging
 import contextlib
 import logging
 import os
+import resource
+import shutil
 import signal
 import subprocess
 import tempfile
@@ -27,6 +29,7 @@ from core.entities import RunLogs, SandboxRunResult
 logger = logging.getLogger(f"kernel_audit.{__name__}")
 # the assets live at the repo root, not inside the isolate/ package
 ASSETS = Path(__file__).resolve().parent.parent / "assets"
+_SBX_TMP = "/tmp"  # noqa: S108 - bwrap internal sandbox mount point, not host temp
 
 
 class _Dataclass(Protocol):
@@ -113,6 +116,35 @@ def _stream_output(
     return "".join(out), "".join(err)
 
 
+def _make_sandbox_preexec(timeout_sec: int):
+    """Return a preexec_fn that sets strict rlimits and prctl(NO_NEW_PRIVS)."""
+
+    def _set_limits():
+        with contextlib.suppress(Exception):
+            import ctypes
+            import ctypes.util
+
+            libc = ctypes.CDLL(ctypes.util.find_library("c"), use_errno=True)
+            PR_SET_NO_NEW_PRIVS = 38
+            libc.prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0)
+
+        with contextlib.suppress(ValueError):
+            resource.setrlimit(
+                resource.RLIMIT_CPU, (timeout_sec + 5, timeout_sec + 5)
+            )
+            resource.setrlimit(
+                resource.RLIMIT_AS, (512 * 1024 * 1024, 512 * 1024 * 1024)
+            )
+            resource.setrlimit(
+                resource.RLIMIT_FSIZE, (64 * 1024 * 1024, 64 * 1024 * 1024)
+            )
+            resource.setrlimit(resource.RLIMIT_NPROC, (64, 64))
+            resource.setrlimit(resource.RLIMIT_NOFILE, (128, 128))
+            resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
+
+    return _set_limits
+
+
 def run_cmd(
     cmd: list[str] | str,
     *,
@@ -136,7 +168,9 @@ def run_cmd(
         kwargs.setdefault("stdout", subprocess.PIPE)
         kwargs.setdefault("stderr", subprocess.PIPE)
 
-    proc = subprocess.Popen(cmd, **kwargs)
+    # Security: generic wrapper. Callers must pass list argv (shell=False) for
+    # untrusted input. poc_runner.py already enforces this via shlex+allow-list
+    proc = subprocess.Popen(cmd, **kwargs)  # noqa: S603 - generic wrapper, security enforced at call sites
     try:
         if line_callback is None:
             stdout, stderr = proc.communicate(timeout=timeout)
@@ -223,17 +257,23 @@ class IsolationEnvironment:
 
 class HostEnvironment(IsolationEnvironment):
     """
-    try direct execution like in prototype,
+    Host execution with minimal Linux namespace sandboxing
+    (bubblewrap, containers like, still dangerous cuz untrusted kernel PoC).
+    Falls back to rlimits + NO_NEW_PRIVS if bwrap is missing.
     on host with extended logging, docs what's need:
+    https://wiki.archlinux.org/title/Bubblewrap
+    https://man.archlinux.org/man/namespaces.7.en
     https://docs.python.org/3/library/subprocess.html#using-the-subprocess-module
     """
 
     def is_available(self) -> bool:
-        return ALLOW_HOST_EXECUTION  # TODO: also check env from local recon
+        return ALLOW_HOST_EXECUTION
 
     def execute(self) -> SandboxRunResult:
         start = datetime.now(UTC)
-        self._log("warning", "Executing on host system - take that risk! :)")
+        self._log(
+            "warning", "Executing on host system with namespace sandbox active"
+        )
         self._log("binary_path", str(self.binary_path.absolute()))
         self._log("binary_permissions", oct(self.binary_path.stat().st_mode))
         self._log("working_directory", os.getcwd())
@@ -242,18 +282,69 @@ class HostEnvironment(IsolationEnvironment):
         env = os.environ.copy()
         env["LD_PRELOAD"] = ""
 
-        cmd = [str(self.binary_path.absolute())]
-        self._log("command", " ".join(cmd))  # log stdin
+        # Private temp dir for this run (0700)
+        run_tmp = tempfile.mkdtemp(prefix="kernaudit-host-", dir="/tmp")
+        os.chmod(run_tmp, 0o700)
+
+        bwrap = shutil.which("bwrap")
+        if bwrap:
+            # bubblewrap = user+mount+net+ipc+pid+uts+cgroup namespaces
+            cmd = [
+                bwrap,
+                "--die-with-parent",
+                "--unshare-all",
+                "--new-session",
+                "--tmpfs",
+                _SBX_TMP,
+                "--proc",
+                "/proc",
+                "--dev",
+                "/dev",
+                "--ro-bind",
+                "/usr",
+                "/usr",
+                "--ro-bind",
+                "/bin",
+                "/bin",
+                "--ro-bind",
+                "/lib",
+                "/lib",
+                "--ro-bind",
+                "/lib64",
+                "/lib64",
+                "--ro-bind",
+                "/etc",
+                "/etc",
+                "--ro-bind",
+                str(self.binary_path.parent),
+                str(self.binary_path.parent),
+                "--bind",
+                run_tmp,
+                _SBX_TMP,
+                "--chdir",
+                _SBX_TMP,
+                "--cap-drop",
+                "ALL",
+                str(self.binary_path.absolute()),
+            ]
+            self._log("sandbox", "bubblewrap namespaces")
+        else:
+            self._log("sandbox", "NONE - direct execution (MORE DANGEROUS)")
+            cmd = [str(self.binary_path.absolute())]
+
+        self._log("command", " ".join(cmd))
 
         try:
-            result = subprocess.run(
+            # preexec_fn sets rlimits + NO_NEW_PRIVS even when bwrap is used
+            result = subprocess.run(  # noqa: S603 , isolated with namespaces
                 cmd,
                 capture_output=True,
                 text=True,
                 timeout=self.timeout,
                 env=env,
-                cwd=tempfile.gettempdir(),
+                cwd=run_tmp if bwrap is None else None,
                 check=False,
+                preexec_fn=_make_sandbox_preexec(self.timeout),
             )
             duration = (datetime.now(UTC) - start).total_seconds() * 1000
             crashed = result.returncode < 0
@@ -288,6 +379,8 @@ class HostEnvironment(IsolationEnvironment):
                 duration_ms=duration,
                 crashed=True,
             )
+        finally:
+            shutil.rmtree(run_tmp, ignore_errors=True)
 
 
 class CCompiler:

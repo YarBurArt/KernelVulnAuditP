@@ -162,6 +162,10 @@ Report/log files are written to a private per-process scratch directory (mode 07
 - httpx quickstart: https://www.python-httpx.org/
 - virtme-ng manual: https://github.com/arighi/virtme-ng
 - QEMU `microvm` machine type: https://www.qemu.org/docs/master/system/i386/microvm.html
+- Host execution minimal Bubblewrap isolation https://wiki.archlinux.org/title/Bubblewrap
+- ... and based on https://man.archlinux.org/man/namespaces.7.en
+- SELinux hardening https://access.redhat.com/articles/7047896
+- ... and bools from https://github.com/fedora-selinux/selinux-playbooks
 - Streamlit docs: https://docs.streamlit.io/
 - Lynis auditing tool: https://github.com/CISOfy/lynis
 - Linux Exploit Suggester (LES): https://github.com/The-Z-Labs/linux-exploit-suggester

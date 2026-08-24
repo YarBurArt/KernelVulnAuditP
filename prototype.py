@@ -1,8 +1,12 @@
+import contextlib
 import json
 import os
+import resource
 import shutil
 import stat
 import subprocess
+import tempfile
+from pathlib import Path
 
 import httpx
 
@@ -15,6 +19,99 @@ CISA_KEV_PATH = "known_exploited_vulnerabilities.json"
 CVEORG_BASE_URL = "https://cveawg.mitre.org/api/cve/"
 GITHUB_URL = "https://github.com/search?q={}%20&type=repositories"
 PACKETSTORM_URL = "https://packetstorm.news/download/"  # ...file_id
+
+_BWRAP_PROTO = shutil.which("bwrap")
+_SBX_TMP = "/tmp"  # noqa: S108 - bwrap internal sandbox mount point, not host temp
+
+
+def _proto_sandbox_preexec(timeout_sec: int):
+    def _set_limits():
+        with contextlib.suppress(Exception):
+            import ctypes
+
+            libc = ctypes.CDLL(ctypes.util.find_library("c"), use_errno=True)
+            libc.prctl(38, 1, 0, 0, 0)  # PR_SET_NO_NEW_PRIVS
+        with contextlib.suppress(ValueError):
+            resource.setrlimit(
+                resource.RLIMIT_CPU, (timeout_sec + 5, timeout_sec + 5)
+            )
+            resource.setrlimit(
+                resource.RLIMIT_AS, (256 * 1024 * 1024, 256 * 1024 * 1024)
+            )
+            resource.setrlimit(
+                resource.RLIMIT_FSIZE, (64 * 1024 * 1024, 64 * 1024 * 1024)
+            )
+            resource.setrlimit(resource.RLIMIT_NPROC, (32, 32))
+            resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
+
+    return _set_limits
+
+
+def _run_proto_sandboxed(
+    binary: Path, timeout: int = 24
+) -> subprocess.CompletedProcess:
+    run_tmp = tempfile.mkdtemp(prefix="kernaudit-proto-", dir="/tmp")
+    os.chmod(run_tmp, 0o700)
+    env = os.environ.copy()
+    env["LD_PRELOAD"] = ""
+
+    if _BWRAP_PROTO:
+        cmd = [
+            _BWRAP_PROTO,
+            "--die-with-parent",
+            "--unshare-all",
+            "--new-session",
+            "--tmpfs",
+            _SBX_TMP,
+            "--proc",
+            "/proc",
+            "--dev",
+            "/dev",
+            "--ro-bind",
+            "/usr",
+            "/usr",
+            "--ro-bind",
+            "/bin",
+            "/bin",
+            "--ro-bind",
+            "/lib",
+            "/lib",
+            "--ro-bind",
+            "/lib64",
+            "/lib64",
+            "--ro-bind",
+            "/etc",
+            "/etc",
+            "--ro-bind",
+            str(binary.parent),
+            str(binary.parent),
+            "--bind",
+            run_tmp,
+            _SBX_TMP,
+            "--chdir",
+            _SBX_TMP,
+            "--cap-drop",
+            "ALL",
+            str(binary),
+        ]
+    else:
+        cmd = [str(binary)]
+
+    try:
+        return subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            env=env,
+            cwd=run_tmp if _BWRAP_PROTO is None else None,
+            check=False,
+            preexec_fn=_proto_sandbox_preexec(timeout)
+            if not _BWRAP_PROTO
+            else None,
+        )
+    finally:
+        shutil.rmtree(run_tmp, ignore_errors=True)
 
 
 def get_vulns():
@@ -81,13 +178,7 @@ def compile_and_run(
     os.chmod(out, os.stat(out).st_mode | stat.S_IXUSR)
 
     try:
-        proc = subprocess.run(
-            [out],
-            capture_output=True,
-            text=True,
-            timeout=24,
-            check=False,
-        )
+        proc = _run_proto_sandboxed(Path(out), timeout=24)
         if proc.returncode != 0:
             return None
     except subprocess.TimeoutExpired:
@@ -105,8 +196,12 @@ def fix_filename(directory="./data"):
         if filename.isdigit():
             file_path = os.path.join(directory, filename)
 
+            file_cmd = shutil.which("file")
+            if not file_cmd:
+                raise RuntimeError("find utility not found in PATH")
+
             result = subprocess.run(
-                ["file", "--mime-type", "-b", file_path],
+                [file_cmd, "--mime-type", "-b", file_path],
                 capture_output=True,
                 text=True,
                 check=True,
@@ -133,11 +228,14 @@ def get_description(filename):
 
 def main():
     kern_cve: list[dict] = get_vulns()
+    uname_cmd = shutil.which("uname")
+    if not uname_cmd:
+        raise RuntimeError("uname utility not found in PATH")
     kern_version = subprocess.run(
-        ["uname", "-r"], capture_output=True, text=True, check=True
+        [uname_cmd, "-r"], capture_output=True, text=True, check=True
     ).stdout.strip()
     kern_build = subprocess.run(
-        ["uname", "-v"], capture_output=True, text=True, check=True
+        [uname_cmd, "-v"], capture_output=True, text=True, check=True
     ).stdout.strip()
     result_s = {
         "started": 0,
