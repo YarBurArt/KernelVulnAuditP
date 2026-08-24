@@ -100,6 +100,7 @@ def clean_command_string(cmd: str) -> str:
     cmd = cmd.split("\n")[0]
     return cmd.strip()
 
+
 #: GitHub search API rate limits unauthenticated clients to 10 req/min; keep a
 #: small safety margin so a batch of CVEs does not 403 out silently.
 _SEARCH_MIN_INTERVAL = 6.0
@@ -145,7 +146,7 @@ class GitHubExploitSearcher:
     def _load_templates(self) -> dict[str, Any]:
         """load xpl templates from JSON"""
         if Path(self.templates_file).exists():
-            with open(self.templates_file, "r") as f:
+            with open(self.templates_file) as f:
                 return json.load(f)
         return {"templates": []}
 
@@ -219,14 +220,17 @@ class GitHubExploitSearcher:
             response = httpx.get(
                 url, headers=self.headers, params=params, timeout=timeout
             )
-            if response.status_code not in (403, 429) or attempt == attempts - 1:
+            if (
+                response.status_code not in (403, 429)
+                or attempt == attempts - 1
+            ):
                 return response
             retry_after = response.headers.get("Retry-After")
             delay = 0.0
             if retry_after:
                 try:
                     delay = float(retry_after)
-                except (TypeError, ValueError):
+                except TypeError, ValueError:
                     delay = 0.0
             delay = max(delay, 2.0 * (attempt + 1))
             time.sleep(min(delay, 30.0))
@@ -270,7 +274,9 @@ class GitHubExploitSearcher:
         readme_url = f"https://api.github.com/repos/{owner}/{name}/readme"
 
         try:
-            response = httpx.get(readme_url, headers=self.headers, timeout=15.0)
+            response = httpx.get(
+                readme_url, headers=self.headers, timeout=15.0
+            )
             if response.status_code == 200:
                 data = response.json()
                 content = base64.b64decode(data.get("content", "")).decode(
@@ -278,7 +284,9 @@ class GitHubExploitSearcher:
                 )
                 return content
         except (httpx.HTTPError, ValueError) as e:
-            logger.warning("[!] README fetch error for %s/%s: %s", owner, name, e)
+            logger.warning(
+                "[!] README fetch error for %s/%s: %s", owner, name, e
+            )
         return ""
 
     def _parse_instructions(
@@ -350,7 +358,7 @@ class GitHubExploitSearcher:
                 if not candidate:
                     continue
                 # skip markdown image refs like ![](./imgs/poc.png)
-                prefix = readme[max(0, match.start() - 3): match.start()]
+                prefix = readme[max(0, match.start() - 3) : match.start()]
                 if prefix.endswith("](") or candidate.startswith("./imgs"):
                     continue
                 return candidate
@@ -360,7 +368,9 @@ class GitHubExploitSearcher:
     @staticmethod
     def _extract_requirements(readme: str) -> str | None:
         req_patterns = [REQUIREMENTS_RE, VERSIONS_RE]
-        extracted = extract_section_by_header(readme, req_patterns, max_length=500)
+        extracted = extract_section_by_header(
+            readme, req_patterns, max_length=500
+        )
         if extracted:
             return extracted
 

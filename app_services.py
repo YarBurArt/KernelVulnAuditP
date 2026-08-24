@@ -109,7 +109,9 @@ class AppServices:
         # lynis, linpeas, les are long-running subprocess audits; the host
         # snapshot scans are independent file/table walks. Running them
         # concurrently overlaps the subprocess waits instead of serializing them
-        lynis_task = asyncio.to_thread(self.lr.get_lynis_kernel_hardening_details)
+        lynis_task = asyncio.to_thread(
+            self.lr.get_lynis_kernel_hardening_details
+        )
         linpeas_task = asyncio.to_thread(self.lr.get_linpeas_scan_details)
         les_task = asyncio.to_thread(self.lr.get_les_scan_details)
         pids_task = asyncio.to_thread(self.lr.get_pids_caps)
@@ -148,15 +150,15 @@ class AppServices:
         )
 
         bar.detail(label="hardening", note="comparing recommendations")
-        selinux_hardening: list[SecurityRecommendationType] = (
-            await selinux_hard_task
-        )
-        capability_hardening: list[SecurityRecommendationType] = (
-            await asyncio.to_thread(
-                self.lr.get_capability_recommendations,
-                process_caps,
-                file_caps,
-            )
+        selinux_hardening: list[
+            SecurityRecommendationType
+        ] = await selinux_hard_task
+        capability_hardening: list[
+            SecurityRecommendationType
+        ] = await asyncio.to_thread(
+            self.lr.get_capability_recommendations,
+            process_caps,
+            file_caps,
         )
         bar.step(
             label="hardening",
@@ -196,7 +198,9 @@ class AppServices:
         """Persist the collected host snapshot (SELinux booleans + capability
         masks + loaded kernel modules) into the DB for the report."""
         arch = self.lr.environment_info.get("architecture")
-        architecture = ", ".join(arch) if isinstance(arch, (tuple, list)) else str(arch)
+        architecture = (
+            ", ".join(arch) if isinstance(arch, (tuple, list)) else str(arch)
+        )
 
         host = HostInfo(
             hostname=self.lr.environment_info.get("node", ""),
@@ -204,16 +208,22 @@ class AppServices:
             kernel_release=self.lr.kernel_version.get("kernel_release", ""),
             kernel_name=self.lr.kernel_version.get("kernel_name", ""),
             machine=self.lr.kernel_version.get("machine", ""),
-            platform_release=self.lr.kernel_version.get("platform_release", ""),
+            platform_release=self.lr.kernel_version.get(
+                "platform_release", ""
+            ),
             platform_system=self.lr.kernel_version.get("platform_system", ""),
-            platform_version=self.lr.kernel_version.get("platform_version", ""),
+            platform_version=self.lr.kernel_version.get(
+                "platform_version", ""
+            ),
             platform=self.lr.environment_info.get("platform", ""),
             proc_version=self.lr.kernel_version.get("proc_version", ""),
             node=self.lr.environment_info.get("node", ""),
             processor=self.lr.environment_info.get("processor", ""),
             architecture=architecture,
             distribution=self.lr.environment_info.get("distribution", ""),
-            current_directory=self.lr.environment_info.get("current_directory", ""),
+            current_directory=self.lr.environment_info.get(
+                "current_directory", ""
+            ),
             username=self.lr.environment_info.get("username", ""),
             home_dir=self.lr.environment_info.get("home_dir", ""),
             selinux_booleans=selinux_booleans,
@@ -239,14 +249,18 @@ class AppServices:
         """Fetch threat-intel feeds and optionally store CISA KEV data."""
         return asyncio.run(self._run_feeds_recon_async(store_kev))
 
-    async def _run_feeds_recon_async(self, store_kev: bool = True) -> FeedsReconResult:
+    async def _run_feeds_recon_async(
+        self, store_kev: bool = True
+    ) -> FeedsReconResult:
         """Fetch threat-intel feeds and optionally store CISA KEV data."""
         kernel: str = self.lr.get_kernel_version_simple()
         build_date: int = await asyncio.to_thread(
             self.lr.get_kernel_build_date, kernel
         )
 
-        logger.debug("Search feeds for kernel %s build_date %s", kernel, build_date)
+        logger.debug(
+            "Search feeds for kernel %s build_date %s", kernel, build_date
+        )
         bar = self._make_bar(4 if store_kev else 3, "Threat-intel feeds")
         try:
             if store_kev:
@@ -254,7 +268,9 @@ class AppServices:
                 bar.step(label="KEV", note=f"{stored} stored")
 
             # the three feed searches are independent network calls
-            nist_task = asyncio.create_task(self.rf.nist_search(kernel, build_date))
+            nist_task = asyncio.create_task(
+                self.rf.nist_search(kernel, build_date)
+            )
             osv_task = asyncio.create_task(self.rf.osv_search(kernel))
             github_task = asyncio.create_task(self.rf.github_search(kernel))
             findings = list(await nist_task)
@@ -330,7 +346,9 @@ class AppServices:
             date_added=self._parse_kev_date(kev_item.get("dateAdded")),
             due_date=self._parse_kev_date(kev_item.get("dueDate")),
             required_action=kev_item.get("requiredAction"),
-            known_ransomware=(kev_item.get("knownRansomwareCampaignUse") == "Known"),
+            known_ransomware=(
+                kev_item.get("knownRansomwareCampaignUse") == "Known"
+            ),
             vendor_project=kev_item.get("vendorProject"),
             product=kev_item.get("product"),
             notes=kev_item.get("notes", ""),
@@ -358,7 +376,7 @@ class AppServices:
         except IntegrityError:
             # a previous KEV run already persisted this row
             return False
-        except (SQLAlchemyError, ValueError, KeyError, TypeError, OSError):
+        except SQLAlchemyError, ValueError, KeyError, TypeError, OSError:
             logger.exception("Error storing KEV entry %s", cve_id)
             return False
 
@@ -368,7 +386,8 @@ class AppServices:
             await self.rf.get_kev()
             await self.rf.load_kev(build_date)
             logger.info(
-                "Loaded %s kernel-related KEV entries", len(self.rf.kev_kern_vuln)
+                "Loaded %s kernel-related KEV entries",
+                len(self.rf.kev_kern_vuln),
             )
         except (httpx.HTTPError, OSError, ValueError) as e:
             logger.warning("Failed to load CISA KEV catalog: %s", e)
@@ -407,7 +426,9 @@ class AppServices:
                 skipped += 1
 
         bar.finish(note=f"{stored} stored, {skipped} skipped")
-        logger.info("Stored %s CISA KEV entries, %s already existed", stored, skipped)
+        logger.info(
+            "Stored %s CISA KEV entries, %s already existed", stored, skipped
+        )
         return stored
 
     def _collect_kernel_cves(self) -> dict[str, dict[str, Any]]:
@@ -446,7 +467,9 @@ class AppServices:
     ) -> Vulnerability:
 
         description = (
-            hint.get("details") or hint.get("title") or metadata.get("description")
+            hint.get("details")
+            or hint.get("title")
+            or metadata.get("description")
         )
         severity = hint.get("severity") or metadata.get("severity")
         raw_data = {"hint": hint, "metadata": metadata.get("raw")}
@@ -477,7 +500,10 @@ class AppServices:
 
         if metadata.get("nist_url"):
             self.db.add_reference(
-                cve_id, metadata["nist_url"], ref_type="ADVISORY", source="NIST"
+                cve_id,
+                metadata["nist_url"],
+                ref_type="ADVISORY",
+                source="NIST",
             )
 
         return {
@@ -490,7 +516,9 @@ class AppServices:
 
     async def _build_execution_context(self) -> dict[str, Any]:
         kernel = self.lr.get_kernel_version_simple()
-        build_date = await asyncio.to_thread(self.lr.get_kernel_build_date, kernel)
+        build_date = await asyncio.to_thread(
+            self.lr.get_kernel_build_date, kernel
+        )
         return {
             "kernel_version": kernel,
             "build_date": build_date,
@@ -517,7 +545,9 @@ class AppServices:
             cve_id,
             max_results=3,
         )
-        downloads = await asyncio.to_thread(GitHubExploitSearcher.load_xpls, repos)
+        downloads = await asyncio.to_thread(
+            GitHubExploitSearcher.load_xpls, repos
+        )
 
         # PoCs run in bounded concurrency: one hanging compile (bounded by its
         # own timeout) must not serialize the whole CVE set, and several VMs at
@@ -586,7 +616,9 @@ class AppServices:
         return ExecutionReport(
             kernel=context["kernel_version"],
             build_date=(
-                format_timestamp(build_date) if build_date is not None else None
+                format_timestamp(build_date)
+                if build_date is not None
+                else None
             ),
             cves_processed=len(entries),
             stats=self.db.get_statistics(),
@@ -632,11 +664,15 @@ class AppServices:
             Path(repo),
             str(poc.get("compile_cmd") or ""),
             str(poc.get("test_cmd") or ""),
-            on_output=lambda line: logger.debug("%s compile: %s", cve_id, line),
+            on_output=lambda line: logger.debug(
+                "%s compile: %s", cve_id, line
+            ),
         )
 
         if outcome.sandbox is not None:
-            self._store_sandbox_run(cve_id, outcome.sandbox, outcome.command or "")
+            self._store_sandbox_run(
+                cve_id, outcome.sandbox, outcome.command or ""
+            )
             return PocExecution(sandbox=outcome.sandbox)
         if outcome.error is not None:
             return PocExecution(sandbox_error=outcome.error)
@@ -686,7 +722,10 @@ class AppServices:
 
     def save_recon_results(self, results: ExecutionReport) -> int:
         """Persist a previous execution report into the DB."""
-        context = {"kernel_version": results.kernel, "build_date": results.build_date}
+        context = {
+            "kernel_version": results.kernel,
+            "build_date": results.build_date,
+        }
         saved = 0
         for entry in results.entries:
             if not entry.cve_id:
@@ -736,7 +775,10 @@ class AppServices:
         return {**asdict(stats), "security_recommendations": asdict(rec_stats)}
 
     def get_security_recommendations(
-        self, category: str | None = None, status: str | None = None, limit: int = 100
+        self,
+        category: str | None = None,
+        status: str | None = None,
+        limit: int = 100,
     ) -> list[SecurityRecommendation]:
         """Get security recommendations with optional filters."""
         logger.debug(f"getting recommendations/params for {category}")
@@ -744,9 +786,7 @@ class AppServices:
             category=category, status=status, limit=limit
         )
 
-    def get_cisa_kev_entries(
-        self, limit: int = 100
-    ) -> list[Vulnerability]:
+    def get_cisa_kev_entries(self, limit: int = 100) -> list[Vulnerability]:
         """Get CISA KEV entries from DB."""
         return self.db.get_cisa_kev_list(limit=limit)
 

@@ -1,4 +1,3 @@
-
 import presentation.terminal as term
 from presentation.colors import BOLD, CRIT, GRAY, INFO, OK, WARN
 from presentation.glyphs import unicode_glyph
@@ -69,7 +68,10 @@ def test_kev_section_compact():
 
 def test_kev_section_verbose_lists_first_ten():
     r = _renderer(verbose=True)
-    kev = [{"cve_id": f"CVE-2024-{i}", "description": f"desc {i}"} for i in range(12)]
+    kev = [
+        {"cve_id": f"CVE-2024-{i}", "description": f"desc {i}"}
+        for i in range(12)
+    ]
     out = r._build_kev_section(kev)
     assert "CVE-2024-0" in out
     assert "and 2 more" in out
@@ -84,8 +86,13 @@ def test_kev_section_verbose_without_overflow():
 def test_runs_section_statuses_and_verbose():
     r = _renderer(verbose=True)
     runs = [
-        {"id": 1, "status": "SUCCESS", "description": "ran ok",
-         "stdout": "line1", "stderr": "err1"},
+        {
+            "id": 1,
+            "status": "SUCCESS",
+            "description": "ran ok",
+            "stdout": "line1",
+            "stderr": "err1",
+        },
         {"id": 2, "status": "FAILED", "description": "crashed"},
     ]
     out = r._build_runs_section(runs)
@@ -128,7 +135,14 @@ def test_exploits_section_empty():
 
 def test_exploits_section_verified_flag():
     out = CLIReportRenderer._build_exploits_section(
-        [{"exploit_type": "POC", "source": "GitHub", "url": "u", "verified": True}]
+        [
+            {
+                "exploit_type": "POC",
+                "source": "GitHub",
+                "url": "u",
+                "verified": True,
+            }
+        ]
     )
     assert "Verified" in out
 
@@ -253,8 +267,13 @@ def test_render_two_column_detail_hidden_when_ok_and_not_verbose():
         {
             "headers": ["L", "R"],
             "rows": [
-                {"key": "k", "left": "a", "right": "a", "status": "OK",
-                 "detail": "hidden"}
+                {
+                    "key": "k",
+                    "left": "a",
+                    "right": "a",
+                    "status": "OK",
+                    "detail": "hidden",
+                }
             ],
         }
     )
@@ -268,8 +287,13 @@ def test_render_two_column_color_changes_changed_right(monkeypatch):
         {
             "headers": ["L", "R"],
             "rows": [
-                {"key": "k", "left": "a", "right": "b", "status": "WARN",
-                 "changed": True}
+                {
+                    "key": "k",
+                    "left": "a",
+                    "right": "b",
+                    "status": "WARN",
+                    "changed": True,
+                }
             ],
         }
     )
@@ -283,10 +307,20 @@ def test_hardening_section_empty():
 def test_hardening_section_module_layout():
     r = _renderer()
     diff = [
-        {"type": "module", "key": "btrfs", "status": "new",
-         "expected": "not loaded", "actual": "loaded in sandbox"},
-        {"type": "module", "key": "kvm", "status": "removed",
-         "expected": "loaded", "actual": "not loaded in sandbox"},
+        {
+            "type": "module",
+            "key": "btrfs",
+            "status": "new",
+            "expected": "not loaded",
+            "actual": "loaded in sandbox",
+        },
+        {
+            "type": "module",
+            "key": "kvm",
+            "status": "removed",
+            "expected": "loaded",
+            "actual": "not loaded in sandbox",
+        },
     ]
     out = r._build_hardening_diff_section(diff)
     assert "Hardening & Diff" in out
@@ -296,8 +330,14 @@ def test_hardening_section_module_layout():
 def test_hardening_section_param_two_column():
     r = _renderer(verbose=True)
     diff = [
-        {"type": "param", "key": "fs.suid_dumpable", "status": "FAIL",
-         "expected": "0", "actual": "2", "detail": "mismatch"},
+        {
+            "type": "param",
+            "key": "fs.suid_dumpable",
+            "status": "FAIL",
+            "expected": "0",
+            "actual": "2",
+            "detail": "mismatch",
+        },
     ]
     out = r._build_hardening_diff_section(diff)
     assert "fs.suid_dumpable" in out
@@ -372,8 +412,14 @@ def test_render_capability_groups_without_detail():
 def test_hardening_section_references_fallback_links():
     r = _renderer()
     diff = [
-        {"type": "param", "key": "k", "status": "FAIL",
-         "expected": "a", "actual": "b", "link": "https://example.com/advisory"},
+        {
+            "type": "param",
+            "key": "k",
+            "status": "FAIL",
+            "expected": "a",
+            "actual": "b",
+            "link": "https://example.com/advisory",
+        },
     ]
     out = r._build_hardening_diff_section(diff)
     assert "example.com" in out
@@ -409,8 +455,13 @@ def test_build_full_report_integration():
                 {"cve_id": "CVE-2024-2", "severity": "LOW", "description": "x"}
             ],
             "diff": [
-                {"type": "param", "key": "k", "status": "OK",
-                 "expected": "a", "actual": "a"}
+                {
+                    "type": "param",
+                    "key": "k",
+                    "status": "OK",
+                    "expected": "a",
+                    "actual": "a",
+                }
             ],
         }
     )

@@ -5,8 +5,16 @@ import time
 from pathlib import Path
 
 from core.entities import KernelInfo, RunLogs, SandboxRunResult, VmResources
-from isolate.isolate import IsolationEnvironment, _as_typed, run_cmd, timeout_text
-from isolate.parse_vm_internal_results import VIRTME_CRASH_PATTERNS, ParseVmResults
+from isolate.isolate import (
+    IsolationEnvironment,
+    _as_typed,
+    run_cmd,
+    timeout_text,
+)
+from isolate.parse_vm_internal_results import (
+    VIRTME_CRASH_PATTERNS,
+    ParseVmResults,
+)
 
 # guest script run via vng --run --exec; emits the same section markers
 # qemu's guest script produces so ParseVmResults can extract the same data;
@@ -49,7 +57,11 @@ class VirtmeNGEnvironment(IsolationEnvironment):
     """
 
     def __init__(
-        self, binary_path: Path, timeout: int = 30, memory_mb: int = 512, cpus: int = 1
+        self,
+        binary_path: Path,
+        timeout: int = 30,
+        memory_mb: int = 512,
+        cpus: int = 1,
     ):
         super().__init__(binary_path, timeout)
         self.memory_mb = memory_mb
@@ -71,7 +83,9 @@ class VirtmeNGEnvironment(IsolationEnvironment):
             workdir = Path(td)
             script = workdir / "audit.sh"
             script.write_text(
-                VIRTME_GUEST_INIT.replace("__POC__", str(self.binary_path.absolute()))
+                VIRTME_GUEST_INIT.replace(
+                    "__POC__", str(self.binary_path.absolute())
+                )
             )
             script.chmod(0o755)
 
@@ -82,7 +96,7 @@ class VirtmeNGEnvironment(IsolationEnvironment):
             # warns about degraded redirection over pipes and may lose stderr
             cmd = [
                 "virtme-ng",
-                "--run",    # use the same current kernel
+                "--run",  # use the same current kernel
                 "--quiet",
                 "--memory",
                 f"{self.memory_mb}M",
@@ -95,7 +109,10 @@ class VirtmeNGEnvironment(IsolationEnvironment):
             self._log("stage", "vm_created")
 
             try:
-                with stdout_log.open("wb") as out, stderr_log.open("wb") as err:
+                with (
+                    stdout_log.open("wb") as out,
+                    stderr_log.open("wb") as err,
+                ):
                     proc = run_cmd(
                         cmd,
                         cwd=workdir,
@@ -116,7 +133,9 @@ class VirtmeNGEnvironment(IsolationEnvironment):
                 )
                 exit_code = ParseVmResults.parse_exit_code(stdout)
                 self._log("exit_code", str(exit_code))
-                self._log("kernel_version", kernel_info.get("uname", "unknown"))
+                self._log(
+                    "kernel_version", kernel_info.get("uname", "unknown")
+                )
 
                 duration = (time.perf_counter() - start) * 1000
                 crashed = ParseVmResults.detect_crash(
@@ -143,8 +162,16 @@ class VirtmeNGEnvironment(IsolationEnvironment):
                 )
             except subprocess.TimeoutExpired as exc:
                 duration = (time.perf_counter() - start) * 1000
-                stdout = stdout_log.read_text(errors="replace") if stdout_log.exists() else ""
-                stderr = stderr_log.read_text(errors="replace") if stderr_log.exists() else ""
+                stdout = (
+                    stdout_log.read_text(errors="replace")
+                    if stdout_log.exists()
+                    else ""
+                )
+                stderr = (
+                    stderr_log.read_text(errors="replace")
+                    if stderr_log.exists()
+                    else ""
+                )
                 self._log("stdout_size", str(len(stdout)))
                 self._log("stderr_size", str(len(stderr)))
                 out_text, err_text = timeout_text(exc)

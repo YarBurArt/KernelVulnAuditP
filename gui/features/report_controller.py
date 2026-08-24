@@ -35,7 +35,9 @@ class ReportController:
 
     def _build(self) -> list[str]:
         """Run in a worker thread; returns the lines to append, need for streamlit process"""
-        report_path = Path(__file__).resolve().parent.parent.parent / "report.py"
+        report_path = (
+            Path(__file__).resolve().parent.parent.parent / "report.py"
+        )
         if not report_path.exists():
             raise FileNotFoundError("report.py not found")
 
@@ -71,7 +73,10 @@ class ReportController:
                 db.close()
 
             renderer = CLIReportRenderer(data, verbose=True)
-            return renderer.build_full_report() + "\nReport generated (CLI mode)\n"
+            return (
+                renderer.build_full_report()
+                + "\nReport generated (CLI mode)\n"
+            )
         except APP_ERRORS as exc:
             # only for Engine-stdout tab instead of being hidden by the error line
             logger.exception("CLI report generation failed")

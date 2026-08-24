@@ -62,7 +62,10 @@ _FEED_API_ERRORS = (
 def _exc_desc(exc: BaseException) -> str:
     """human-readable exception description for Engine Stdout TUI log view"""
     message = str(exc).strip()
-    return f"{type(exc).__name__}: {message}" if message else type(exc).__name__
+    return (
+        f"{type(exc).__name__}: {message}" if message else type(exc).__name__
+    )
+
 
 #: KEV catalog fields that the rest of the tool actually reads,
 #: everything else is dropped on load so we never retain the full data per run.
@@ -88,7 +91,7 @@ def _write_bytes(path: str, content: bytes) -> None:
 
 def _read_text(path: str) -> str:
     """blocking file read helper, run off the event loop via asyncio.to_thread"""
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         return f.read()
 
 
@@ -169,7 +172,9 @@ class ReconFeeds:
             attempts = 0
             while True:
                 self._nvd_last_ts = loop.time()
-                response = await client.get(url, params=params or None, headers=headers)
+                response = await client.get(
+                    url, params=params or None, headers=headers
+                )
                 if response.status_code != 429 or attempts >= _NVD_MAX_RETRIES:
                     return response
 
@@ -178,8 +183,10 @@ class ReconFeeds:
                 retry_after = 0.0
                 if resp_headers is not None:
                     try:
-                        retry_after = float(resp_headers.get("Retry-After", "0") or 0)
-                    except (TypeError, ValueError):
+                        retry_after = float(
+                            resp_headers.get("Retry-After", "0") or 0
+                        )
+                    except TypeError, ValueError:
                         retry_after = 0.0
                 delay = retry_after or (_NVD_MIN_INTERVAL * (2**attempts))
                 delay += random.uniform(0, 1)
@@ -291,7 +298,9 @@ class ReconFeeds:
                 response = await self._nvd_get(url)
                 response.raise_for_status()
                 data = response.json()
-                findings.extend(self.parser.parse_nist_findings(data or {}, date))
+                findings.extend(
+                    self.parser.parse_nist_findings(data or {}, date)
+                )
 
                 vulns = (data or {}).get("vulnerabilities", []) or []
                 returned = len(vulns)
@@ -341,7 +350,9 @@ class ReconFeeds:
                     if cve_id in seen:
                         continue
                     seen.add(cve_id)
-                    findings.append(self.parser.build_osv_finding(cve_id, vuln))
+                    findings.append(
+                        self.parser.build_osv_finding(cve_id, vuln)
+                    )
 
             page_token = data.get("next_page_token")
             if not page_token:
@@ -383,7 +394,9 @@ class ReconFeeds:
 
     async def _enrich_osv_findings(self, findings: list[CVEFinding]) -> None:
         """batch-fetch CVE metadata concurrently to fill missing OSV data"""
-        details_map = await self.get_cve_details_many([f.cve_id for f in findings])
+        details_map = await self.get_cve_details_many(
+            [f.cve_id for f in findings]
+        )
         for finding in findings:
             details = details_map.get(finding.cve_id)
             if not details:
@@ -421,7 +434,9 @@ class ReconFeeds:
         try:
             data = await self._cve_org_details(cve_id)
         except _FEED_API_ERRORS as e:
-            logger.warning("%s get_cve_details error: %s", cve_id, _exc_desc(e))
+            logger.warning(
+                "%s get_cve_details error: %s", cve_id, _exc_desc(e)
+            )
             return {}
         if not data:
             return {}
@@ -444,7 +459,9 @@ class ReconFeeds:
         self._summary_cache[cve_id] = summary
         return summary
 
-    async def get_cve_details_many(self, cve_ids: list[str]) -> dict[str, dict[str, Any]]:
+    async def get_cve_details_many(
+        self, cve_ids: list[str]
+    ) -> dict[str, dict[str, Any]]:
         """fetch CVE summaries concurrently, preserving input order"""
         unique_ids = list(dict.fromkeys(cve_ids))
         if not unique_ids:
@@ -457,8 +474,4 @@ class ReconFeeds:
                 return cve_id, await self._fetch_cve_summary(cve_id)
 
         results = await asyncio.gather(*(_fetch(cid) for cid in unique_ids))
-        return {
-            cve_id: summary
-            for cve_id, summary in results
-            if summary
-        }
+        return {cve_id: summary for cve_id, summary in results if summary}

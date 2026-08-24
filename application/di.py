@@ -32,9 +32,7 @@ class _AppProvider(Provider):
         return get_db(self._backend)
 
     @provide(scope=Scope.APP)
-    def services(
-        self, db: ThreatDB, progress: ProgressFactory
-    ) -> AppServices:
+    def services(self, db: ThreatDB, progress: ProgressFactory) -> AppServices:
         return AppServices(db=db, progress=progress)
 
 

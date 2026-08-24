@@ -40,7 +40,7 @@ def parse_date_string(date_str: str) -> datetime | None:
     if dt is None:
         try:
             dt = parsedate_to_datetime(date_str)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             dt = None
 
     if dt is None:

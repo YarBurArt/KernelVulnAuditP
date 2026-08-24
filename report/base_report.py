@@ -60,17 +60,21 @@ def format_report(data: dict) -> dict:
     }
 
 
-def save_report_json(data: dict[str, Any], filepath: str = "report_data.json") -> None:
+def save_report_json(
+    data: dict[str, Any], filepath: str = "report_data.json"
+) -> None:
     """save report data to JSON file"""
     with open(filepath, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, default=str)
     print(f"Report saved to {filepath}")
 
 
-def load_report_json(filepath: str = "report_data.json") -> dict[str, Any] | None:
+def load_report_json(
+    filepath: str = "report_data.json",
+) -> dict[str, Any] | None:
     """load report data from JSON file"""
     try:
-        with open(filepath, "r", encoding="utf-8") as f:
+        with open(filepath, encoding="utf-8") as f:
             return json.load(f)
     except FileNotFoundError:
         return None
@@ -169,7 +173,9 @@ def get_scan_times(log_file: Path = LOG_FILE) -> tuple[str | None, str | None]:
     return started, completed
 
 
-def get_kernel_info(lr: LocalRecon | None = None) -> dict[str, str | None] | dict[str, str]:
+def get_kernel_info(
+    lr: LocalRecon | None = None,
+) -> dict[str, str | None] | dict[str, str]:
     """get kernel info from LocalRecon"""
     if lr is None:
         lr = LocalRecon()
@@ -179,8 +185,8 @@ def get_kernel_info(lr: LocalRecon | None = None) -> dict[str, str | None] | dic
 
     latest = "N/A"
     import httpx  # only needed here
-    try:
 
+    try:
         resp = httpx.get(
             "https://www.kernel.org/releases.json", timeout=10.0
         ).json()
@@ -217,7 +223,7 @@ def sort_vulnerabilities(vulns: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if cve_id.startswith("CVE-"):
             try:
                 year = int(cve_id.split("-")[1])
-            except (ValueError, IndexError):
+            except ValueError, IndexError:
                 year = 0
         crit = v.get("criticality_score", 0) or 0
         # Sort: -year (desc), -crit (desc)
@@ -332,7 +338,9 @@ def main_cli():
     """CLI argument parsing for report"""
     import argparse
 
-    parser = argparse.ArgumentParser(description="Generate Kernel Vulnerability Report")
+    parser = argparse.ArgumentParser(
+        description="Generate Kernel Vulnerability Report"
+    )
     parser.add_argument(
         "--verbose", "-v", action="store_true", help="Enable verbose output"
     )

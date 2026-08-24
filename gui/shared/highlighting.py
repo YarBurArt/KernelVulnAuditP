@@ -71,9 +71,8 @@ def matched_ranges(
 
 def is_header_line(kind: str, line: str) -> bool:
     """Whether a line is a table header that should be dimmed as a whole."""
-    return (
-        (kind == "process" and "PID USER" in line)
-        or (kind == "file" and line.startswith("total "))
+    return (kind == "process" and "PID USER" in line) or (
+        kind == "file" and line.startswith("total ")
     )
 
 

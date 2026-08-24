@@ -22,12 +22,12 @@ def supports_unicode(stream=None) -> bool:
     encoding = ""
     try:
         encoding = str(stream.encoding or "").lower()
-    except (AttributeError, ValueError):
+    except AttributeError, ValueError:
         encoding = ""
     if not encoding:
         try:
             encoding = str(locale.getencoding()).lower()
-        except (AttributeError, ValueError):
+        except AttributeError, ValueError:
             encoding = ""
     return "utf" in encoding
 

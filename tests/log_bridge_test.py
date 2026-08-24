@@ -29,11 +29,15 @@ class FakeTUI:
     def call_from_thread(self, fn, *args, **kwargs):
         fn(*args, **kwargs)
 
-    def notify(self, message: str, severity: str = "information", **kwargs) -> None:
+    def notify(
+        self, message: str, severity: str = "information", **kwargs
+    ) -> None:
         self.toasts.append((severity, message))
 
 
-def _record(handler: TUIHandler, levelname: str, message: str, skip_console=False):
+def _record(
+    handler: TUIHandler, levelname: str, message: str, skip_console=False
+):
     record = logging.LogRecord(
         name="kernel_audit.test",
         level=logging.getLevelName(levelname),
@@ -76,7 +80,9 @@ def test_error_toasts_with_severity():
 
 def test_identical_warning_deduped_within_window(monkeypatch):
     clock = {"now": 1000.0}
-    monkeypatch.setattr("gui.shared.log_bridge.time.monotonic", lambda: clock["now"])
+    monkeypatch.setattr(
+        "gui.shared.log_bridge.time.monotonic", lambda: clock["now"]
+    )
     tui = FakeTUI()
     handler = TUIHandler(tui)
     _record(handler, "WARNING", "same warning")

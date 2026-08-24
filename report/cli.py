@@ -188,7 +188,9 @@ class CLIReportRenderer:
             )
         return section
 
-    def _build_sandbox_section(self, sandbox_runs: list[dict[str, Any]]) -> str:
+    def _build_sandbox_section(
+        self, sandbox_runs: list[dict[str, Any]]
+    ) -> str:
         """Build sandbox runs section string."""
         if not sandbox_runs:
             return ""
@@ -251,8 +253,12 @@ class CLIReportRenderer:
             )
 
             section += self._build_exploits_section(vuln.get("exploits", []))
-            section += self._build_references_section(vuln.get("references", []))
-            section += self._build_sandbox_section(vuln.get("sandbox_runs", []))
+            section += self._build_references_section(
+                vuln.get("references", [])
+            )
+            section += self._build_sandbox_section(
+                vuln.get("sandbox_runs", [])
+            )
 
         return section
 
@@ -273,20 +279,14 @@ class CLIReportRenderer:
         left_h, right_h = headers
         out = ""
 
-        left_w = max(
-            [len(str(r["left"])) for r in rows] + [len(left_h)]
-        )
-        right_w = max(
-            [len(str(r["right"])) for r in rows] + [len(right_h)]
-        )
-        key_w = max(
-            [len(str(r["key"])) for r in rows] + [len("Parameter")]
-        )
+        left_w = max([len(str(r["left"])) for r in rows] + [len(left_h)])
+        right_w = max([len(str(r["right"])) for r in rows] + [len(right_h)])
+        key_w = max([len(str(r["key"])) for r in rows] + [len("Parameter")])
 
-        header = (
-            f"  {'Parameter':<{key_w}}  {left_h:<{left_w}}  {right_h}"
+        header = f"  {'Parameter':<{key_w}}  {left_h:<{left_w}}  {right_h}"
+        out += (
+            header + "\n" + "  " + "-" * (key_w + left_w + right_w + 4) + "\n"
         )
-        out += header + "\n" + "  " + "-" * (key_w + left_w + right_w + 4) + "\n"
 
         for r in rows:
             key = str(r["key"])
@@ -299,7 +299,9 @@ class CLIReportRenderer:
             detail = str(r.get("detail", "") or "")
             status = str(r.get("status", "") or "")
             if detail and (self.verbose or not is_ok_status(status)):
-                out += f"  {'':<{key_w}}  {'':<{left_w}}  {_arrow()} {detail}\n"
+                out += (
+                    f"  {'':<{key_w}}  {'':<{left_w}}  {_arrow()} {detail}\n"
+                )
         return out
 
     def _build_hardening_diff_section(self, diff: list[dict[str, Any]]) -> str:
@@ -311,8 +313,12 @@ class CLIReportRenderer:
             count_findings(section["rows"]) for section in sections.values()
         )
         out = f"\n--- Hardening & Diff ({total} findings) ---\n"
-        out += "  Recommended vs Current where noted; modules show host/sandbox\n"
-        out += "  divergence grouped by direction. Finding text is colored by\n"
+        out += (
+            "  Recommended vs Current where noted; modules show host/sandbox\n"
+        )
+        out += (
+            "  divergence grouped by direction. Finding text is colored by\n"
+        )
         out += "  severity (red=fail, yellow=warning, green=ok).\n"
 
         for kind in self._DIFF_SECTIONS:
@@ -356,9 +362,7 @@ class CLIReportRenderer:
             return ""
         out = ""
 
-        left_w = max(
-            [len(str(r["left"])) for r in rows] + [len("Holders")]
-        )
+        left_w = max([len(str(r["left"])) for r in rows] + [len("Holders")])
         key_w = min(
             max(len(str(r["key"])) for r in rows),
             60,
@@ -414,7 +418,9 @@ class CLIReportRenderer:
                 result.append("")
         return result
 
-    def _render_references_table(self, references: list[dict[str, str]]) -> str:
+    def _render_references_table(
+        self, references: list[dict[str, str]]
+    ) -> str:
         """Capability references as what | how works | why dangerous.
 
         When color is on, the how and why cells are short text wrapped
@@ -434,15 +440,10 @@ class CLIReportRenderer:
         what_w = max(len(r["what"]) for r in references) + 2
         how_w = len(how_label) + 2
         out = "  References:\n"
-        out += (
-            f"    {'Capability':<{what_w}}  {'How it works':<{how_w}}"
-            "  Why dangerous\n"
-        )
+        out += f"    {'Capability':<{what_w}}  {'How it works':<{how_w}}  Why dangerous\n"
         out += "    " + "-" * (what_w + how_w + 6) + "\n"
         for ref in references:
-            why = (
-                link(why_label, ref["why"]) if ref.get("why") else "-"
-            )
+            why = link(why_label, ref["why"]) if ref.get("why") else "-"
             out += (
                 f"    {ref['what']:<{what_w}}  {link(how_label, ref['how']):<{how_w}}"
                 f"  {why}\n"

@@ -86,7 +86,7 @@ class TUIHandler(logging.Handler):
         capped = (
             message
             if len(message) <= _TOAST_MAX_LEN
-            else message[: _TOAST_MAX_LEN] + "…"
+            else message[:_TOAST_MAX_LEN] + "…"
         )
         try:
             self._tui.notify(capped, severity=severity)

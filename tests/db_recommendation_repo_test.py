@@ -77,7 +77,12 @@ def test_bulk_insert_counts_successes(repo):
     count = repo.bulk_insert_recommendations(
         [
             _rec("KRNL-6001"),
-            _rec("KRNL-6002", category="selinux", severity="MEDIUM", status="WARNING"),
+            _rec(
+                "KRNL-6002",
+                category="selinux",
+                severity="MEDIUM",
+                status="WARNING",
+            ),
             _rec("KRNL-6003"),
         ]
     )
@@ -109,9 +114,12 @@ def test_get_recommendations_filters_category_and_status(repo):
 
     assert len(repo.get_security_recommendations(category="kernel")) == 2
     assert len(repo.get_security_recommendations(status="FAIL")) == 2
-    assert len(
-        repo.get_security_recommendations(category="kernel", status="FAIL")
-    ) == 1
+    assert (
+        len(
+            repo.get_security_recommendations(category="kernel", status="FAIL")
+        )
+        == 1
+    )
 
 
 def test_get_recommendations_pagination_and_order(repo):
@@ -138,9 +146,18 @@ def test_get_recommendations_empty_db(repo):
 def test_get_recommendations_stats(repo):
     repo.bulk_insert_recommendations(
         [
-            _rec("KRNL-6001", category="kernel", severity="HIGH", status="FAIL"),
-            _rec("KRNL-6002", category="kernel", severity="MEDIUM", status="WARNING"),
-            _rec("KRNL-6003", category="selinux", severity="HIGH", status="FAIL"),
+            _rec(
+                "KRNL-6001", category="kernel", severity="HIGH", status="FAIL"
+            ),
+            _rec(
+                "KRNL-6002",
+                category="kernel",
+                severity="MEDIUM",
+                status="WARNING",
+            ),
+            _rec(
+                "KRNL-6003", category="selinux", severity="HIGH", status="FAIL"
+            ),
             SecurityRecommendation(test_id="KRNL-6004"),
         ]
     )

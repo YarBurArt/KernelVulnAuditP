@@ -20,7 +20,9 @@ class BaseScreen(Screen):
 
     PAGE: ClassVar[str] = ""
 
-    BINDINGS: ClassVar[list[Binding | tuple[str, str] | tuple[str, str, str]]] = [
+    BINDINGS: ClassVar[
+        list[Binding | tuple[str, str] | tuple[str, str, str]]
+    ] = [
         Binding("j", "vi_down", "Scroll down"),
         Binding("down", "vi_down", "Scroll down"),
         Binding("k", "vi_up", "Scroll up"),
@@ -46,7 +48,11 @@ class BaseScreen(Screen):
         must be inspected to skip lists from inactive tabs.
         """
         focused = self.focused
-        if focused is not None and focused.is_scrollable and self._rendered(focused):
+        if (
+            focused is not None
+            and focused.is_scrollable
+            and self._rendered(focused)
+        ):
             return focused
         console = self.query_one_optional(ConsoleLog)
         if console is not None and self._rendered(console):

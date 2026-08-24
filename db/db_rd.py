@@ -126,7 +126,11 @@ class InMemoryThreatDB(ThreatDB):
         return copy.deepcopy(self._sandbox.get(cve_id, []))
 
     def add_reference(
-        self, cve_id: str, url: str, ref_type: str = "OTHER", source: str | None = None
+        self,
+        cve_id: str,
+        url: str,
+        ref_type: str = "OTHER",
+        source: str | None = None,
     ) -> None:
         vuln = self._require(cve_id)
         entry = Reference(
@@ -173,7 +177,10 @@ class InMemoryThreatDB(ThreatDB):
             if in_cisa_kev is not None and vuln.in_cisa_kev != in_cisa_kev:
                 continue
 
-            if min_criticality is not None and vuln.criticality_score < min_criticality:
+            if (
+                min_criticality is not None
+                and vuln.criticality_score < min_criticality
+            ):
                 continue
 
             results.append(vuln)
@@ -183,9 +190,7 @@ class InMemoryThreatDB(ThreatDB):
             reverse=True,
         )
 
-        return [
-            copy.deepcopy(v) for v in results[offset : offset + limit]
-        ]
+        return [copy.deepcopy(v) for v in results[offset : offset + limit]]
 
     def get_critical(self, limit: int = 50) -> list[Vulnerability]:
         return self.search(min_criticality=60, limit=limit)
@@ -222,7 +227,9 @@ class InMemoryThreatDB(ThreatDB):
             avg_cvss=round(cvss_sum / cvss_count, 2) if cvss_count else 0,
         )
 
-    def add_security_recommendation(self, rec_data: SecurityRecommendation) -> int:
+    def add_security_recommendation(
+        self, rec_data: SecurityRecommendation
+    ) -> int:
         rec = copy.deepcopy(rec_data)
         rec.id = len(self._recommendations) + 1
         self._recommendations.append(rec)
@@ -267,11 +274,15 @@ class InMemoryThreatDB(ThreatDB):
 
         for rec in self._recommendations:
             if rec.category is not None:
-                by_category[rec.category] = by_category.get(rec.category, 0) + 1
+                by_category[rec.category] = (
+                    by_category.get(rec.category, 0) + 1
+                )
             if rec.status is not None:
                 by_status[rec.status] = by_status.get(rec.status, 0) + 1
             if rec.severity is not None:
-                by_severity[rec.severity] = by_severity.get(rec.severity, 0) + 1
+                by_severity[rec.severity] = (
+                    by_severity.get(rec.severity, 0) + 1
+                )
 
         return RecommendationStats(
             total=len(self._recommendations),
@@ -320,7 +331,9 @@ class InMemoryThreatDB(ThreatDB):
     def get_host_infos(
         self, limit: int = 100, offset: int = 0
     ) -> list[HostInfo]:
-        ordered = sorted(self._host_infos, key=self._host_sort_key, reverse=True)
+        ordered = sorted(
+            self._host_infos, key=self._host_sort_key, reverse=True
+        )
         return [
             self._host_header_only(copy.deepcopy(snapshot))
             for snapshot in ordered[offset : offset + limit]

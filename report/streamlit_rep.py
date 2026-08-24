@@ -30,7 +30,9 @@ class StreamlitReportRenderer:
         """init render full report."""
         if st is None:
             return
-        st.set_page_config(page_title="Kernel Vulnerability Report", layout="wide")
+        st.set_page_config(
+            page_title="Kernel Vulnerability Report", layout="wide"
+        )
         st.title("System Scan Report")
 
         self._render_header()
@@ -81,7 +83,9 @@ class StreamlitReportRenderer:
         runs = self.data.get("runs", [])
         for idx, run in enumerate(runs):
             run_key = run.get("id", f"run_{idx}")
-            with st.expander(f"Run {run_key} - [{run.get('status', 'UNKNOWN')}]"):
+            with st.expander(
+                f"Run {run_key} - [{run.get('status', 'UNKNOWN')}]"
+            ):
                 st.write(run.get("description", "No description"))
                 col_out, col_err = st.columns(2)
                 col_out.text_area(
@@ -262,7 +266,9 @@ class StreamlitReportRenderer:
     @staticmethod
     def _status_color(status: str) -> str:
         """CSS text color for a status (never a background)."""
-        return StreamlitReportRenderer._SEV_CLASS_COLORS[status_severity(status)]
+        return StreamlitReportRenderer._SEV_CLASS_COLORS[
+            status_severity(status)
+        ]
 
     @staticmethod
     def _two_column_table(table: dict) -> str:
@@ -404,7 +410,9 @@ class StreamlitReportRenderer:
             )
             detail = str(row.get("detail", "") or "")
             if detail:
-                holders = StreamlitReportRenderer._columns_html(detail.splitlines())
+                holders = StreamlitReportRenderer._columns_html(
+                    detail.splitlines()
+                )
                 out.append(
                     "<tr><td colspan='2' style='padding:2px 8px; "
                     "color:#555; font-size:0.85em;'>" + holders + "</td></tr>"
@@ -455,7 +463,9 @@ class StreamlitReportRenderer:
         ]
         for ref in references:
             how = f"<a href='{ref['how']}' target='_blank'>MAN / capabilities.7</a>"
-            why_label = "Hacktricks" if ref.get("escalates") else "Hacktricks (info)"
+            why_label = (
+                "Hacktricks" if ref.get("escalates") else "Hacktricks (info)"
+            )
             if ref.get("why"):
                 why = f"<a href='{ref['why']}' target='_blank'>{why_label}</a>"
             else:

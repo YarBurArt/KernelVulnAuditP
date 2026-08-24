@@ -39,7 +39,9 @@ def test_add_host_info_invalid_data_raises_and_rolls_back(db):
     assert db.get_host_infos() == []
 
 
-def test_add_host_info_duplicate_user_raises_sqlalchemy_error_and_rolls_back(db):
+def test_add_host_info_duplicate_user_raises_sqlalchemy_error_and_rolls_back(
+    db,
+):
     with pytest.raises(SQLAlchemyError):
         db.add_host_info(
             HostInfo(

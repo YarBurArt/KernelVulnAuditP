@@ -29,7 +29,9 @@ from presentation.glyphs import unicode_glyph
 class SandboxItem(Collapsible):
     """A sandbox PoC execution: CVE + status row, then details + IO."""
 
-    def __init__(self, cve_id: str, poc: PocExecution, *args, **kwargs) -> None:
+    def __init__(
+        self, cve_id: str, poc: PocExecution, *args, **kwargs
+    ) -> None:
         self._cve_id = cve_id
         self._poc = poc
         children = self._body()
@@ -186,11 +188,16 @@ class SandboxItem(Collapsible):
             )
             if self._poc.url:
                 children.append(
-                    Static(f"PoC: {markup_escape(self._poc.url)}", classes="mono")
+                    Static(
+                        f"PoC: {markup_escape(self._poc.url)}", classes="mono"
+                    )
                 )
             if self._command:
                 children.append(
-                    Static(f"Command: {markup_escape(self._command)}", classes="mono")
+                    Static(
+                        f"Command: {markup_escape(self._command)}",
+                        classes="mono",
+                    )
                 )
             return children
         status = self._status_text()
@@ -203,7 +210,9 @@ class SandboxItem(Collapsible):
         )
         if self._command:
             children.append(
-                Static(f"Command: {markup_escape(self._command)}", classes="mono")
+                Static(
+                    f"Command: {markup_escape(self._command)}", classes="mono"
+                )
             )
         if self._exploit_hash and not is_url(self._exploit_hash):
             children.append(
@@ -226,10 +235,14 @@ class SandboxItem(Collapsible):
         if self._resources:
             mem = first_resource_line(self._resources.get("meminfo"))
             if mem:
-                children.append(Static(f"Memory: {markup_escape(mem)}", classes="mono"))
+                children.append(
+                    Static(f"Memory: {markup_escape(mem)}", classes="mono")
+                )
             cpu = first_resource_line(self._resources.get("cpuinfo"))
             if cpu:
-                children.append(Static(f"CPU: {markup_escape(cpu)}", classes="mono"))
+                children.append(
+                    Static(f"CPU: {markup_escape(cpu)}", classes="mono")
+                )
         if self._modules:
             children.append(
                 Static("Modules", classes="mono-bold section-label")

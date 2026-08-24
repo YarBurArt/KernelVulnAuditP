@@ -23,8 +23,12 @@ class SecurityRecommendation(Base):
 
     __tablename__ = "security_recommendations"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    test_id: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
+    id: Mapped[int] = mapped_column(
+        Integer, primary_key=True, autoincrement=True
+    )
+    test_id: Mapped[str] = mapped_column(
+        String(50), nullable=False, index=True
+    )
     category: Mapped[str | None] = mapped_column(String(100), index=True)
     description: Mapped[str | None] = mapped_column(Text)
     field_name: Mapped[str | None] = mapped_column(String(200))
@@ -51,5 +55,7 @@ class SecurityRecommendation(Base):
             "severity": self.severity,
             "source": self.source,
             "raw_data": self.raw_data or {},
-            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "created_at": self.created_at.isoformat()
+            if self.created_at
+            else None,
         }

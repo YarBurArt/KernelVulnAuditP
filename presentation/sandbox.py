@@ -23,7 +23,7 @@ def binary_output(stdout: str) -> str:
     end = stdout.find(_BINARY_OUTPUT_END)
     if start == -1 or end == -1:
         return stdout.strip()
-    body = stdout[start + len(_BINARY_OUTPUT_START):end]
+    body = stdout[start + len(_BINARY_OUTPUT_START) : end]
     lines = [ln for ln in body.splitlines() if not ln.startswith("EXIT_CODE=")]
     return "\n".join(lines).strip()
 
@@ -91,12 +91,13 @@ def format_sandbox_detail(data: dict[str, Any]) -> str:
         add(f"cpu:           {cpu}")
     modules = data.get("modules") or []
     if modules:
-        add(f"modules ({len(modules)}):      {', '.join(str(m) for m in modules)}")
+        add(
+            f"modules ({len(modules)}):      {', '.join(str(m) for m in modules)}"
+        )
     processes = data.get("open_processes") or []
     if processes:
         add(
-            f"processes ({len(processes)}):  "
-            f"{', '.join(str(p) for p in processes)}"
+            f"processes ({len(processes)}):  {', '.join(str(p) for p in processes)}"
         )
     files = data.get("open_files") or []
     if files:
@@ -109,7 +110,9 @@ def format_sandbox_detail(data: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def log_sandbox_run(logger: logging.Logger, cve_id: str, data: dict[str, Any]) -> None:
+def log_sandbox_run(
+    logger: logging.Logger, cve_id: str, data: dict[str, Any]
+) -> None:
     """Emit a stored sandbox run as separate DEBUG records, one per field.
 
     Replaces the single unreadable dict dump with several log records so
@@ -187,8 +190,7 @@ def format_execution_report(report: ExecutionReport) -> str:
             add("    PoCs:        none")
         for poc in pocs:
             add(
-                f"    PoC: {poc.url or 'N/A'} "
-                f"[{poc.language or '?'} stars:{poc.stars}]"
+                f"    PoC: {poc.url or 'N/A'} [{poc.language or '?'} stars:{poc.stars}]"
             )
             if poc.compile_cmd:
                 add(f"      compile: {poc.compile_cmd}")
@@ -225,7 +227,9 @@ def format_execution_report(report: ExecutionReport) -> str:
                 add(_debug_mapping(resources, 8))
             modules = sandbox.modules
             if modules:
-                add(f"      modules ({len(modules)}): {', '.join(str(m) for m in modules)}")
+                add(
+                    f"      modules ({len(modules)}): {', '.join(str(m) for m in modules)}"
+                )
             processes = sandbox.processes
             if processes:
                 add(
@@ -234,7 +238,9 @@ def format_execution_report(report: ExecutionReport) -> str:
                 )
             files = sandbox.files
             if files:
-                add(f"      files ({len(files)}): {', '.join(str(f) for f in files)}")
+                add(
+                    f"      files ({len(files)}): {', '.join(str(f) for f in files)}"
+                )
             for key, label in (("stdout", "STDOUT"), ("stderr", "STDERR")):
                 blob = getattr(sandbox, key)
                 if blob:
@@ -248,7 +254,8 @@ def _kernel_line(kernel_info: Any) -> str:
     if isinstance(kernel_info, dict):
         return str(kernel_info.get("uname", kernel_info.get("date", "N/A")))
     return str(
-        getattr(kernel_info, "uname", None) or getattr(kernel_info, "date", "N/A")
+        getattr(kernel_info, "uname", None)
+        or getattr(kernel_info, "date", "N/A")
     )
 
 
@@ -256,4 +263,8 @@ def first_line(resource: Any) -> str | None:
     """First line of a meminfo/cpuinfo blob"""
     if not resource:
         return None
-    return str(resource).split("\n")[0] if "\n" in str(resource) else str(resource)[:200]
+    return (
+        str(resource).split("\n")[0]
+        if "\n" in str(resource)
+        else str(resource)[:200]
+    )

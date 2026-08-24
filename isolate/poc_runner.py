@@ -68,8 +68,10 @@ def compile_poc(
         # the -static flag; make/other tools must not see it as an option)
         compiler_direct = bool(re.match(r"^\s*(?:gcc|cc)\s+", cmd))
         cmd = re.sub(r"^\s*(?:gcc|cc)\s+", "musl-gcc ", cmd, count=1)
-        if compiler_direct and "-static" not in cmd and not re.search(
-            r"-shared\b", cmd
+        if (
+            compiler_direct
+            and "-static" not in cmd
+            and not re.search(r"-shared\b", cmd)
         ):
             cmd = f"{cmd} -static"
         # musl-gcc is a thin wrapper that execs $REALGCC
@@ -81,7 +83,7 @@ def compile_poc(
         # named gcc/cc forces every such invocation through musl-gcc -static
         # (glibc and dynamic-musl binaries abort in the minimal initrd)
         shim_dir = Path(tempfile.mkdtemp(prefix="kernaudit-cc-"))
-        shim_script = f"#!/bin/sh\nexec {musl_gcc} -static \"$@\"\n"
+        shim_script = f'#!/bin/sh\nexec {musl_gcc} -static "$@"\n'
         for name in ("gcc", "cc"):
             shim = shim_dir / name
             shim.write_text(shim_script)
@@ -155,8 +157,10 @@ def resolve_poc_binary(
     best: Path | None = None
     try:
         for f in repo_path.iterdir():
-            if f.is_file() and os.access(f, os.X_OK) and (
-                best is None or f.stat().st_mtime > best.stat().st_mtime
+            if (
+                f.is_file()
+                and os.access(f, os.X_OK)
+                and (best is None or f.stat().st_mtime > best.stat().st_mtime)
             ):
                 best = f
     except OSError:
@@ -210,7 +214,9 @@ class PoCRunner:
             repo_path, str(test_cmd or ""), str(compile_cmd or "")
         )
         if binary is None:
-            return PocRunOutcome(error="no executable produced by the PoC build")
+            return PocRunOutcome(
+                error="no executable produced by the PoC build"
+            )
 
         command = str(test_cmd or f"./{binary.name}")
 
@@ -239,7 +245,9 @@ class PoCRunner:
             # A failed sandbox run is a legitimate test outcome; keep the
             # user-facing summary at WARNING and the full traceback at DEBUG
             logger.warning("%s: %s - is failed: %s", repo_path, command, exc)
-            logger.debug("sandbox failure traceback for %s", command, exc_info=True)
+            logger.debug(
+                "sandbox failure traceback for %s", command, exc_info=True
+            )
             return PocRunOutcome(error=str(exc))
 
 

@@ -29,7 +29,9 @@ class HostInfoRepository:
             session.commit()
             session.refresh(host)
             logger.info("host info snapshot %d added to TI DB", host.id)
-            logger.debug("host info snapshot %d added to TI DB: %s", host.id, host)
+            logger.debug(
+                "host info snapshot %d added to TI DB: %s", host.id, host
+            )
             return host
         except SQLAlchemyError as e:
             session.rollback()
@@ -58,7 +60,9 @@ class HostInfoRepository:
         try:
             host = (
                 query_host_with_children(session)
-                .order_by(HostInfoRow.captured_at.desc(), HostInfoRow.id.desc())
+                .order_by(
+                    HostInfoRow.captured_at.desc(), HostInfoRow.id.desc()
+                )
                 .first()
             )
             if host is None:
@@ -75,7 +79,9 @@ class HostInfoRepository:
         try:
             hosts = (
                 session.query(HostInfoRow)
-                .order_by(HostInfoRow.captured_at.desc(), HostInfoRow.id.desc())
+                .order_by(
+                    HostInfoRow.captured_at.desc(), HostInfoRow.id.desc()
+                )
                 .limit(limit)
                 .offset(offset)
                 .all()

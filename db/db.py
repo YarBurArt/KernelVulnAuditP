@@ -39,14 +39,20 @@ class ThreatDB(ABC):
     def add_cisa_kev(self, cve_id: str, kev_data: CisaKevEntry) -> None: ...
 
     @abstractmethod
-    def add_sandbox_run(self, cve_id: str, sandbox_data: SandboxRun) -> None: ...
+    def add_sandbox_run(
+        self, cve_id: str, sandbox_data: SandboxRun
+    ) -> None: ...
 
     @abstractmethod
     def get_sandbox_runs(self, cve_id: str) -> list[SandboxRun]: ...
 
     @abstractmethod
     def add_reference(
-        self, cve_id: str, url: str, ref_type: str = "OTHER", source: str | None = None
+        self,
+        cve_id: str,
+        url: str,
+        ref_type: str = "OTHER",
+        source: str | None = None,
     ) -> None: ...
 
     @abstractmethod
@@ -77,7 +83,9 @@ class ThreatDB(ABC):
     def get_statistics(self) -> Statistics: ...
 
     @abstractmethod
-    def add_security_recommendation(self, rec_data: SecurityRecommendation) -> int: ...
+    def add_security_recommendation(
+        self, rec_data: SecurityRecommendation
+    ) -> int: ...
 
     @abstractmethod
     def bulk_insert_recommendations(
@@ -108,7 +116,9 @@ class ThreatDB(ABC):
     def get_latest_host_info(self) -> HostInfo | None: ...
 
     @abstractmethod
-    def get_host_infos(self, limit: int = 100, offset: int = 0) -> list[HostInfo]:
+    def get_host_infos(
+        self, limit: int = 100, offset: int = 0
+    ) -> list[HostInfo]:
         """List host snapshots (header-only: scalar fields, no children)."""
         ...
 

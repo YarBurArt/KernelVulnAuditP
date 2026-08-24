@@ -37,12 +37,16 @@ class AuditItem(Static):
         )
 
     @staticmethod
-    def _line(rec: Any, field_width: int, exp_width: int, act_width: int) -> str:
+    def _line(
+        rec: Any, field_width: int, exp_width: int, act_width: int
+    ) -> str:
         severity, _ = rec_severity(rec)
         color = SEVERITY_COLORS.get(severity, "#8b949e")
         sev = markup_escape(f"[{severity}]").ljust(7)
         test_id = markup_escape(f"[{rec.test_id}]").ljust(12)
-        field = _clip(markup_escape(rec.field_name or rec.category or ""), field_width)
+        field = _clip(
+            markup_escape(rec.field_name or rec.category or ""), field_width
+        )
         parts = [
             f"[bold {color}]{sev}[/]",
             f"[dim]{test_id}[/]",
@@ -55,17 +59,13 @@ class AuditItem(Static):
             exp = _clip(markup_escape(expected or ""), exp_width)
             act = _clip(markup_escape(actual or "missing"), act_width)
             parts.append(
-                f"([bold {color}]expected {exp}[/]"
-                f" | [bold {color}]actual {act}[/])"
+                f"([bold {color}]expected {exp}[/] | [bold {color}]actual {act}[/])"
             )
         desc = str(rec.description or "").strip()
         if desc.lower() == "no description":
             desc = ""
         # Drop the description when it only re-states a long actual value
-        redundant = (
-            len(actual) >= 20
-            and actual.lower() in desc.lower()
-        )
+        redundant = len(actual) >= 20 and actual.lower() in desc.lower()
         if desc and not redundant:
             parts.append(markup_escape(desc))
         return " ".join(parts).rstrip()
@@ -74,7 +74,9 @@ class AuditItem(Static):
 class CapsItem(Collapsible):
     """A capability finding grouped by its capability set"""
 
-    def __init__(self, group: dict[str, Any], field_width: int = 30, *args, **kwargs) -> None:
+    def __init__(
+        self, group: dict[str, Any], field_width: int = 30, *args, **kwargs
+    ) -> None:
         status = str(group.get("status") or "").lower()
         severity = "CRIT" if status == "fail" else "WARN"
         color = SEVERITY_COLORS.get(severity, "#8b949e")
@@ -102,10 +104,13 @@ class CapsItem(Collapsible):
         ]
         if holders:
             children.append(
-                Static(f"Holders ({count}):", classes="mono-bold section-label")
+                Static(
+                    f"Holders ({count}):", classes="mono-bold section-label"
+                )
             )
             children.extend(
-                Static(markup_escape(line), classes="mono dim") for line in holders
+                Static(markup_escape(line), classes="mono dim")
+                for line in holders
             )
 
         super().__init__(

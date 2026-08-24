@@ -47,7 +47,9 @@ class ThreatIntelligenceORM(ThreatDB):
         self.engine = create_engine(
             db_url,
             connect_args=(
-                {"check_same_thread": False} if db_url.startswith("sqlite") else {}
+                {"check_same_thread": False}
+                if db_url.startswith("sqlite")
+                else {}
             ),
             poolclass=StaticPool if db_url == "sqlite:///:memory:" else None,
         )
@@ -90,7 +92,11 @@ class ThreatIntelligenceORM(ThreatDB):
         return self._vulnerabilities.add_affected_product(cve_id, product_data)
 
     def add_reference(
-        self, cve_id: str, url: str, ref_type: str = "OTHER", source: str | None = None
+        self,
+        cve_id: str,
+        url: str,
+        ref_type: str = "OTHER",
+        source: str | None = None,
     ) -> None:
         self._vulnerabilities.add_reference(cve_id, url, ref_type, source)
 
@@ -147,13 +153,17 @@ class ThreatIntelligenceORM(ThreatDB):
     def bulk_insert(self, vulnerabilities: list[Vulnerability]) -> int:
         return self._vulnerabilities.bulk_insert(vulnerabilities)
 
-    def add_security_recommendation(self, rec_data: SecurityRecommendation) -> int:
+    def add_security_recommendation(
+        self, rec_data: SecurityRecommendation
+    ) -> int:
         return self._recommendations.add_security_recommendation(rec_data)
 
     def bulk_insert_recommendations(
         self, recommendations: list[SecurityRecommendation]
     ) -> int:
-        return self._recommendations.bulk_insert_recommendations(recommendations)
+        return self._recommendations.bulk_insert_recommendations(
+            recommendations
+        )
 
     def get_security_recommendations(
         self,
@@ -178,7 +188,9 @@ class ThreatIntelligenceORM(ThreatDB):
     def get_latest_host_info(self) -> HostInfo | None:
         return self._host_info.get_latest_host_info()
 
-    def get_host_infos(self, limit: int = 100, offset: int = 0) -> list[HostInfo]:
+    def get_host_infos(
+        self, limit: int = 100, offset: int = 0
+    ) -> list[HostInfo]:
         return self._host_info.get_host_infos(limit=limit, offset=offset)
 
     def close(self):

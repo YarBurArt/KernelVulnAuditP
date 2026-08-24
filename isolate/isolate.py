@@ -36,7 +36,7 @@ def _kill_tree(proc: subprocess.Popen) -> None:
     """SIGKILL the whole process group, then the group leader itself."""
     try:
         os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
-    except (ProcessLookupError, PermissionError):
+    except ProcessLookupError, PermissionError:
         pass
     try:
         proc.kill()
@@ -69,7 +69,9 @@ def _as_typed[T: _Dataclass](klass: type[T], data: dict[str, str]) -> T:
     filter keeps the result valid even when the guest emits unexpected keys.
     """
     fields = klass.__dataclass_fields__
-    return klass(**{key: value for key, value in data.items() if key in fields})
+    return klass(
+        **{key: value for key, value in data.items() if key in fields}
+    )
 
 
 def _stream_output(
@@ -163,6 +165,7 @@ def run_cmd(
     return subprocess.CompletedProcess(
         args=cmd, returncode=proc.returncode, stdout=stdout, stderr=stderr
     )
+
 
 # binary start and end markers to track stdout
 BIN_INIT = """#!/bin/sh
@@ -308,7 +311,9 @@ class CCompiler:
     def compile(self, extra_flags: list[str] | None = None) -> Path | None:
         if not self.source_path.exists():
             logger.warning("Source path %s does not exist", self.source_path)
-            raise FileNotFoundError(f"Source file not found: {self.source_path}")
+            raise FileNotFoundError(
+                f"Source file not found: {self.source_path}"
+            )
         self.binary_path = self.output_dir / f"{self.source_path.stem}.out"
 
         flags = ["-static", "-O2", "-Wall", "-Wextra"]  # static for microvm
@@ -316,7 +321,11 @@ class CCompiler:
             logger.debug("Extra flags: %s", extra_flags)
             flags.extend(extra_flags)
 
-        cmd = ["gcc"] + flags + ["-o", str(self.binary_path), str(self.source_path)]
+        cmd = (
+            ["gcc"]
+            + flags
+            + ["-o", str(self.binary_path), str(self.source_path)]
+        )
         logger.debug("Compiling: %s", " ".join(cmd))
         try:
             result = run_cmd(
@@ -333,7 +342,9 @@ class CCompiler:
             ) from exc
 
         if result.returncode != 0:
-            logger.warning("Compilation failed with exit code %d", result.returncode)
+            logger.warning(
+                "Compilation failed with exit code %d", result.returncode
+            )
             raise RuntimeError(f"Compilation failed:\n{result.stderr}")
 
         return self.binary_path
@@ -394,7 +405,12 @@ class Isolate:
                     )
                 logger.info("Using %s sandbox", type(env).__name__)
                 return env.execute()
-            except (RuntimeError, OSError, FileNotFoundError, PermissionError) as exc:
+            except (
+                RuntimeError,
+                OSError,
+                FileNotFoundError,
+                PermissionError,
+            ) as exc:
                 logger.warning(
                     "%s sandbox failed: %s", type(env).__name__, exc
                 )

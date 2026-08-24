@@ -61,7 +61,9 @@ def render_report(
     if fmt == "txt":
         from report.cli import CLIReportRenderer
 
-        return CLIReportRenderer(data, verbose=verbose, color=color).build_full_report()
+        return CLIReportRenderer(
+            data, verbose=verbose, color=color
+        ).build_full_report()
     if fmt == "json":
         return json.dumps(data, indent=2, default=str, ensure_ascii=False)
     if fmt == "yaml":

@@ -87,7 +87,9 @@ def add_environment_variables(
     items: list[entities.HostEnvironmentVariable],
 ) -> None:
     session.add_all(
-        HostEnvironmentVariable(host_info_id=host_id, name=v.name, value=v.value)
+        HostEnvironmentVariable(
+            host_info_id=host_id, name=v.name, value=v.value
+        )
         for v in items
     )
 
@@ -357,7 +359,9 @@ def add_children(
     host_data: HostInfo,
 ) -> None:
     """persist every host data category as child rows under host_id."""
-    add_environment_variables(session, host_id, host_data.environment_variables)
+    add_environment_variables(
+        session, host_id, host_data.environment_variables
+    )
     add_kernel_parameters(session, host_id, host_data.kernel_parameters)
     add_boot_parameters(session, host_id, host_data.boot_parameters)
     add_kernel_modules(session, host_id, host_data.kernel_modules)
@@ -464,7 +468,8 @@ def environment_variables_to_data(
     rows: list[HostEnvironmentVariable],
 ) -> list[entities.HostEnvironmentVariable]:
     return [
-        entities.HostEnvironmentVariable(name=v.name, value=v.value or "") for v in rows
+        entities.HostEnvironmentVariable(name=v.name, value=v.value or "")
+        for v in rows
     ]
 
 
@@ -473,7 +478,8 @@ def kernel_parameters_to_data(
 ) -> list[entities.HostKernelParameter]:
     return [
         entities.HostKernelParameter(
-            parameter_name=p.parameter_name, parameter_value=p.parameter_value or ""
+            parameter_name=p.parameter_name,
+            parameter_value=p.parameter_value or "",
         )
         for p in rows
     ]
@@ -484,7 +490,8 @@ def boot_parameters_to_data(
 ) -> list[entities.HostBootParameter]:
     return [
         entities.HostBootParameter(
-            parameter_name=p.parameter_name, parameter_value=p.parameter_value or ""
+            parameter_name=p.parameter_name,
+            parameter_value=p.parameter_value or "",
         )
         for p in rows
     ]

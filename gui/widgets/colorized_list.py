@@ -31,7 +31,9 @@ class ColorizedList(Static):
                 for start, stop, color_name in ranges:
                     if start > pos:
                         text.append(line[pos:start])
-                    text.append(line[start:stop], style=COLOR.get(color_name, ""))
+                    text.append(
+                        line[start:stop], style=COLOR.get(color_name, "")
+                    )
                     pos = stop
                 if pos < len(line):
                     text.append(line[pos:])

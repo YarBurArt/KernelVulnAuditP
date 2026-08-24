@@ -23,7 +23,9 @@ def db():
     database.close()
 
 
-def _sample_host(hostname: str = "memsample", captured_at: datetime | None = None):
+def _sample_host(
+    hostname: str = "memsample", captured_at: datetime | None = None
+):
     return HostInfo(
         hostname=hostname,
         kernel_version="6.8.0",
@@ -99,7 +101,9 @@ def test_adapter_add_reference_and_details(orm_db):
         )
     )
 
-    orm_db.add_reference("CVE-2024-0001", "https://nvd.example.com", ref_type="ADVISORY")
+    orm_db.add_reference(
+        "CVE-2024-0001", "https://nvd.example.com", ref_type="ADVISORY"
+    )
 
     details = orm_db.get_vulnerability_with_details("CVE-2024-0001")
 
@@ -150,7 +154,10 @@ def test_adapter_search_and_stats(orm_db):
 def test_adapter_recommendations_and_bulk(orm_db):
     rid = orm_db.add_security_recommendation(
         SecurityRecommendation(
-            test_id="KRNL-1000", category="kernel", severity="HIGH", status="open"
+            test_id="KRNL-1000",
+            category="kernel",
+            severity="HIGH",
+            status="open",
         )
     )
     assert rid == 1
@@ -158,7 +165,10 @@ def test_adapter_recommendations_and_bulk(orm_db):
     orm_db.bulk_insert_recommendations(
         [
             SecurityRecommendation(
-                test_id="KRNL-2000", category="selinux", severity="LOW", status="fixed"
+                test_id="KRNL-2000",
+                category="selinux",
+                severity="LOW",
+                status="fixed",
             )
         ]
     )
@@ -517,8 +527,12 @@ def test_host_info_missing_returns_none(db):
 
 
 def test_host_info_latest_ordering(db):
-    db.add_host_info(_sample_host("older", datetime(2023, 1, 1, 8, 0, 0, tzinfo=UTC)))
-    db.add_host_info(_sample_host("newer", datetime(2025, 1, 1, 8, 0, 0, tzinfo=UTC)))
+    db.add_host_info(
+        _sample_host("older", datetime(2023, 1, 1, 8, 0, 0, tzinfo=UTC))
+    )
+    db.add_host_info(
+        _sample_host("newer", datetime(2025, 1, 1, 8, 0, 0, tzinfo=UTC))
+    )
 
     latest = db.get_latest_host_info()
 
@@ -538,7 +552,9 @@ def test_host_infos_header_only(db):
 
 def test_host_infos_pagination(db):
     for i in range(3):
-        db.add_host_info(_sample_host(f"host-{i}", datetime(2024, 1, i + 1, tzinfo=UTC)))
+        db.add_host_info(
+            _sample_host(f"host-{i}", datetime(2024, 1, i + 1, tzinfo=UTC))
+        )
 
     page = db.get_host_infos(limit=2, offset=0)
 

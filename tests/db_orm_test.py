@@ -26,16 +26,24 @@ def db(tmp_path):
     database.close()
 
 
-def _sample_host(hostname: str = "sample", captured_at: datetime | None = None):
+def _sample_host(
+    hostname: str = "sample", captured_at: datetime | None = None
+):
     return HostInfo(
         hostname=hostname,
         kernel_version="6.8.0",
         captured_at=captured_at or datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC),
-        environment_variables=[HostEnvironmentVariable(name="PATH", value="/usr/bin")],
+        environment_variables=[
+            HostEnvironmentVariable(name="PATH", value="/usr/bin")
+        ],
         kernel_modules=[HostKernelModule(module_name="ext4", size=4096)],
-        kernel_hardening=[HostKernelHardening(test_id="KRNL-6000", status="ok")],
+        kernel_hardening=[
+            HostKernelHardening(test_id="KRNL-6000", status="ok")
+        ],
         users=[HostUser(username="bob", uid=1000, gid=1000)],
-        groups=[HostGroup(group_name="admin", gid=1002, members=["bob", "alice"])],
+        groups=[
+            HostGroup(group_name="admin", gid=1002, members=["bob", "alice"])
+        ],
     )
 
 
@@ -302,8 +310,12 @@ def test_host_info_missing_returns_none(db):
 
 
 def test_latest_host_info_ordering(db):
-    db.add_host_info(_sample_host("older", datetime(2023, 1, 1, 8, 0, 0, tzinfo=UTC)))
-    db.add_host_info(_sample_host("newer", datetime(2025, 1, 1, 8, 0, 0, tzinfo=UTC)))
+    db.add_host_info(
+        _sample_host("older", datetime(2023, 1, 1, 8, 0, 0, tzinfo=UTC))
+    )
+    db.add_host_info(
+        _sample_host("newer", datetime(2025, 1, 1, 8, 0, 0, tzinfo=UTC))
+    )
 
     latest = db.get_latest_host_info()
 
@@ -324,7 +336,9 @@ def test_host_infos_header_only(db):
 
 def test_host_infos_pagination(db):
     for i in range(3):
-        db.add_host_info(_sample_host(f"host-{i}", datetime(2024, 1, i + 1, tzinfo=UTC)))
+        db.add_host_info(
+            _sample_host(f"host-{i}", datetime(2024, 1, i + 1, tzinfo=UTC))
+        )
 
     page = db.get_host_infos(limit=2, offset=0)
 

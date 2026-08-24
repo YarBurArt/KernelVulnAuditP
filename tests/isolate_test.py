@@ -7,7 +7,10 @@ import pytest
 
 from core.entities import RunLogs, SandboxRunResult
 from isolate import CCompiler, HostEnvironment, Isolate
-from isolate.parse_vm_internal_results import QEMU_CRASH_PATTERNS, ParseVmResults
+from isolate.parse_vm_internal_results import (
+    QEMU_CRASH_PATTERNS,
+    ParseVmResults,
+)
 from isolate.qemu_vm import QemuEnvironment
 from isolate.virtme_ng_vm import VirtmeNGEnvironment
 
@@ -64,8 +67,8 @@ drwxr-xr-x bin
 PID USER
 """
 
-    kernel_info, resources, modules, files, processes = parser.parse_guest_output(
-        output
+    kernel_info, resources, modules, files, processes = (
+        parser.parse_guest_output(output)
     )
 
     assert kernel_info["date"] == "Sat Aug  1 12:00:00 UTC 2026"
@@ -81,8 +84,8 @@ PID USER
 def test_parse_guest_output_no_sections():
     parser = ParseVmResults()
 
-    kernel_info, resources, modules, files, processes = parser.parse_guest_output(
-        "random noise\nno sections here"
+    kernel_info, resources, modules, files, processes = (
+        parser.parse_guest_output("random noise\nno sections here")
     )
 
     assert kernel_info == {}
@@ -107,7 +110,10 @@ def test_qemu_detect_crash(text):
 
 
 def test_qemu_detect_crash_negative():
-    assert ParseVmResults.detect_crash("hello world", QEMU_CRASH_PATTERNS) is False
+    assert (
+        ParseVmResults.detect_crash("hello world", QEMU_CRASH_PATTERNS)
+        is False
+    )
 
 
 def test_parse_exit_code_bad_value_keeps_previous():
@@ -115,15 +121,11 @@ def test_parse_exit_code_bad_value_keeps_previous():
 
 
 def test_parse_exit_code_invalid_then_valid():
-    assert (
-        ParseVmResults.parse_exit_code("EXIT_CODE=abc\nEXIT_CODE=7\n") == 7
-    )
+    assert ParseVmResults.parse_exit_code("EXIT_CODE=abc\nEXIT_CODE=7\n") == 7
 
 
 def test_parse_exit_code_multiple_last_wins():
-    assert (
-        ParseVmResults.parse_exit_code("EXIT_CODE=1\nEXIT_CODE=2\n") == 2
-    )
+    assert ParseVmResults.parse_exit_code("EXIT_CODE=1\nEXIT_CODE=2\n") == 2
 
 
 def test_parse_guest_output_dmesg_cpu_memory_sections():
@@ -140,8 +142,8 @@ processor : 0
 MemTotal: 512
 """
 
-    kernel_info, resources, _modules, _files, _processes = parser.parse_guest_output(
-        output
+    kernel_info, resources, _modules, _files, _processes = (
+        parser.parse_guest_output(output)
     )
 
     assert kernel_info["dmesg"] == "[    0.000000] Linux version 6.1.0"
@@ -157,8 +159,8 @@ def test_parse_guest_output_modules_fallback_from_dmesg():
 [    2.0] kvm loaded
 """
 
-    _kernel_info, _resources, modules, _files, _processes = parser.parse_guest_output(
-        output
+    _kernel_info, _resources, modules, _files, _processes = (
+        parser.parse_guest_output(output)
     )
 
     assert modules == ["ext4", "kvm"]
@@ -171,8 +173,8 @@ def test_parse_guest_output_resources_single_line():
 0.00 0.01 0.02 1/123 456
 """
 
-    _kernel_info, resources, _modules, _files, _processes = parser.parse_guest_output(
-        output
+    _kernel_info, resources, _modules, _files, _processes = (
+        parser.parse_guest_output(output)
     )
 
     assert resources["loadavg"] == "0.00 0.01 0.02 1/123 456"
@@ -204,7 +206,9 @@ def test_virtme_execute_success(monkeypatch, tmp_path):
         stdout = kwargs.get("stdout")
         if stdout is not None:
             stdout.write(guest_out.encode())
-        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
+        return subprocess.CompletedProcess(
+            args=cmd, returncode=0, stdout="", stderr=""
+        )
 
     monkeypatch.setattr("isolate.virtme_ng_vm.run_cmd", fake_run)
 
@@ -245,7 +249,9 @@ def test_virtme_execute_raises_when_unavailable(monkeypatch, tmp_path):
     binary = tmp_path / "bin"
     binary.write_text("x")
     env = VirtmeNGEnvironment(binary, 10)
-    monkeypatch.setattr(VirtmeNGEnvironment, "is_available", lambda self: False)
+    monkeypatch.setattr(
+        VirtmeNGEnvironment, "is_available", lambda self: False
+    )
 
     with pytest.raises(RuntimeError):
         env.execute()
@@ -256,12 +262,18 @@ def test_qemu_execute_success(monkeypatch, tmp_path):
     binary.write_text("x")
     env = QemuEnvironment(binary, 10)
     monkeypatch.setattr(QemuEnvironment, "is_available", lambda self: True)
-    monkeypatch.setattr(env, "_build_initrd", lambda workdir: tmp_path / "initrd.cpio")
+    monkeypatch.setattr(
+        env, "_build_initrd", lambda workdir: tmp_path / "initrd.cpio"
+    )
     monkeypatch.setattr(env, "_find_kernel", lambda: Path("/boot/vmlinuz"))
-    monkeypatch.setattr(tempfile, "TemporaryDirectory", lambda: FakeTempDir(tmp_path))
+    monkeypatch.setattr(
+        tempfile, "TemporaryDirectory", lambda: FakeTempDir(tmp_path)
+    )
 
     (tmp_path / "serial.log").write_text("noise\nEXIT_CODE=42\n")
-    completed = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
+    completed = subprocess.CompletedProcess(
+        args=[], returncode=0, stdout="", stderr=""
+    )
     monkeypatch.setattr(
         "isolate.qemu_vm.run_cmd",
         lambda *a, **k: completed,
@@ -283,9 +295,13 @@ def test_qemu_execute_timeout(monkeypatch, tmp_path):
     binary.write_text("x")
     env = QemuEnvironment(binary, 5)
     monkeypatch.setattr(QemuEnvironment, "is_available", lambda self: True)
-    monkeypatch.setattr(env, "_build_initrd", lambda workdir: tmp_path / "initrd.cpio")
+    monkeypatch.setattr(
+        env, "_build_initrd", lambda workdir: tmp_path / "initrd.cpio"
+    )
     monkeypatch.setattr(env, "_find_kernel", lambda: Path("/boot/vmlinuz"))
-    monkeypatch.setattr(tempfile, "TemporaryDirectory", lambda: FakeTempDir(tmp_path))
+    monkeypatch.setattr(
+        tempfile, "TemporaryDirectory", lambda: FakeTempDir(tmp_path)
+    )
 
     def fake_run(*args, **kwargs):
         raise subprocess.TimeoutExpired(
@@ -308,9 +324,13 @@ def test_qemu_execute_timeout_no_partial_stderr(monkeypatch, tmp_path):
     binary.write_text("x")
     env = QemuEnvironment(binary, 5)
     monkeypatch.setattr(QemuEnvironment, "is_available", lambda self: True)
-    monkeypatch.setattr(env, "_build_initrd", lambda workdir: tmp_path / "initrd.cpio")
+    monkeypatch.setattr(
+        env, "_build_initrd", lambda workdir: tmp_path / "initrd.cpio"
+    )
     monkeypatch.setattr(env, "_find_kernel", lambda: Path("/boot/vmlinuz"))
-    monkeypatch.setattr(tempfile, "TemporaryDirectory", lambda: FakeTempDir(tmp_path))
+    monkeypatch.setattr(
+        tempfile, "TemporaryDirectory", lambda: FakeTempDir(tmp_path)
+    )
 
     (tmp_path / "serial.log").write_text("boot noise")
 
@@ -458,7 +478,9 @@ def test_compile_with_extra_flags(monkeypatch, tmp_path):
 
     def fake_run(cmd, **kwargs):
         captured_cmd.extend(cmd)
-        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
+        return subprocess.CompletedProcess(
+            args=cmd, returncode=0, stdout="", stderr=""
+        )
 
     monkeypatch.setattr("isolate.isolate.run_cmd", fake_run)
 
@@ -552,7 +574,9 @@ def test_run_binary_host_allowed(monkeypatch, tmp_path):
         duration_ms=1.0,
         crashed=False,
     )
-    monkeypatch.setattr("isolate.HostEnvironment.execute", lambda self: fake_result)
+    monkeypatch.setattr(
+        "isolate.HostEnvironment.execute", lambda self: fake_result
+    )
 
     result = isolate.run_binary(binary)
 
@@ -593,7 +617,9 @@ def test_run_binary_backend_host(monkeypatch, tmp_path):
         duration_ms=1.0,
         crashed=False,
     )
-    monkeypatch.setattr("isolate.HostEnvironment.execute", lambda self: fake_result)
+    monkeypatch.setattr(
+        "isolate.HostEnvironment.execute", lambda self: fake_result
+    )
 
     result = isolate.run_binary(binary)
 
@@ -642,8 +668,12 @@ def test_run_binary_backend_forced_qemu(monkeypatch, tmp_path):
         duration_ms=1.0,
         crashed=False,
     )
-    monkeypatch.setattr("isolate.QemuEnvironment.is_available", lambda self: True)
-    monkeypatch.setattr("isolate.QemuEnvironment.execute", lambda self: fake_result)
+    monkeypatch.setattr(
+        "isolate.QemuEnvironment.is_available", lambda self: True
+    )
+    monkeypatch.setattr(
+        "isolate.QemuEnvironment.execute", lambda self: fake_result
+    )
 
     result = isolate.run_binary(binary)
 
@@ -656,7 +686,9 @@ def test_run_binary_backend_forced_missing(monkeypatch, tmp_path):
     binary.write_text("x")
 
     isolate = Isolate(backend="qemu")
-    monkeypatch.setattr("isolate.QemuEnvironment.is_available", lambda self: False)
+    monkeypatch.setattr(
+        "isolate.QemuEnvironment.is_available", lambda self: False
+    )
     monkeypatch.setattr(isolate, "_ask_user_permission", lambda: False)
 
     result = isolate.run_binary(binary)
@@ -672,7 +704,9 @@ def test_run_binary_unknown_backend_falls_back_to_auto(monkeypatch, tmp_path):
     monkeypatch.setattr(
         "isolate.VirtmeNGEnvironment.is_available", lambda self: False
     )
-    monkeypatch.setattr("isolate.QemuEnvironment.is_available", lambda self: False)
+    monkeypatch.setattr(
+        "isolate.QemuEnvironment.is_available", lambda self: False
+    )
     monkeypatch.setattr(isolate, "_ask_user_permission", lambda: False)
 
     result = isolate.run_binary(binary)
@@ -700,11 +734,13 @@ def test_run_binary_auto_skips_failed_backend(monkeypatch, tmp_path):
     monkeypatch.setattr(
         "isolate.VirtmeNGEnvironment.is_available", lambda self: True
     )
+    monkeypatch.setattr("isolate.VirtmeNGEnvironment.execute", failing_execute)
     monkeypatch.setattr(
-        "isolate.VirtmeNGEnvironment.execute", failing_execute
+        "isolate.QemuEnvironment.is_available", lambda self: True
     )
-    monkeypatch.setattr("isolate.QemuEnvironment.is_available", lambda self: True)
-    monkeypatch.setattr("isolate.QemuEnvironment.execute", lambda self: fake_qemu)
+    monkeypatch.setattr(
+        "isolate.QemuEnvironment.execute", lambda self: fake_qemu
+    )
 
     result = isolate.run_binary(binary)
 
@@ -733,13 +769,19 @@ def test_qemu_execute_detects_crash(monkeypatch, tmp_path):
     env = QemuEnvironment(binary, 10)
 
     monkeypatch.setattr(QemuEnvironment, "is_available", lambda self: True)
-    monkeypatch.setattr(env, "_build_initrd", lambda workdir: tmp_path / "initrd.cpio")
+    monkeypatch.setattr(
+        env, "_build_initrd", lambda workdir: tmp_path / "initrd.cpio"
+    )
     monkeypatch.setattr(env, "_find_kernel", lambda: Path("/boot/vmlinuz"))
-    monkeypatch.setattr(tempfile, "TemporaryDirectory", lambda: FakeTempDir(tmp_path))
+    monkeypatch.setattr(
+        tempfile, "TemporaryDirectory", lambda: FakeTempDir(tmp_path)
+    )
 
     (tmp_path / "serial.log").write_text("Kernel panic\nEXIT_CODE=0\n")
 
-    completed = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
+    completed = subprocess.CompletedProcess(
+        args=[], returncode=0, stdout="", stderr=""
+    )
 
     monkeypatch.setattr("isolate.qemu_vm.run_cmd", lambda *a, **k: completed)
 
@@ -754,9 +796,13 @@ def test_qemu_execute_nonzero_exit_code(monkeypatch, tmp_path):
 
     env = QemuEnvironment(binary, 10)
     monkeypatch.setattr(QemuEnvironment, "is_available", lambda self: True)
-    monkeypatch.setattr(env, "_build_initrd", lambda workdir: tmp_path / "initrd.cpio")
+    monkeypatch.setattr(
+        env, "_build_initrd", lambda workdir: tmp_path / "initrd.cpio"
+    )
     monkeypatch.setattr(env, "_find_kernel", lambda: Path("/boot/vmlinuz"))
-    monkeypatch.setattr(tempfile, "TemporaryDirectory", lambda: FakeTempDir(tmp_path))
+    monkeypatch.setattr(
+        tempfile, "TemporaryDirectory", lambda: FakeTempDir(tmp_path)
+    )
 
     (tmp_path / "serial.log").write_text("ok\nEXIT_CODE=13\n")
     completed = subprocess.CompletedProcess(
@@ -782,9 +828,13 @@ def test_qemu_execute_preserves_qemu_stderr(monkeypatch, tmp_path):
 
     env = QemuEnvironment(binary, 10)
     monkeypatch.setattr(QemuEnvironment, "is_available", lambda self: True)
-    monkeypatch.setattr(env, "_build_initrd", lambda workdir: tmp_path / "initrd.cpio")
+    monkeypatch.setattr(
+        env, "_build_initrd", lambda workdir: tmp_path / "initrd.cpio"
+    )
     monkeypatch.setattr(env, "_find_kernel", lambda: Path("/boot/vmlinuz"))
-    monkeypatch.setattr(tempfile, "TemporaryDirectory", lambda: FakeTempDir(tmp_path))
+    monkeypatch.setattr(
+        tempfile, "TemporaryDirectory", lambda: FakeTempDir(tmp_path)
+    )
 
     (tmp_path / "serial.log").write_text("ok\nEXIT_CODE=0\n")
     completed = subprocess.CompletedProcess(

@@ -101,9 +101,7 @@ class CLIApp:
                 status = "OK" if sandbox and sandbox.success else "FAIL"
                 print(f"     [{mode}] {_paint_sev(status)} {url}")
 
-    def run_report(
-        self, output: str | None = None, fmt: str = "txt"
-    ) -> None:
+    def run_report(self, output: str | None = None, fmt: str = "txt") -> None:
         """Build the DB-driven report, save it and print it unless quiet."""
         from report import build_report_data, emit_report
 
@@ -130,7 +128,9 @@ class CLIApp:
         saved = self.services.store_security_recommendations(
             result.local.security_recommendations
         )
-        self._emit(f"Full scan complete, saved {saved} recommendation(s) to DB")
+        self._emit(
+            f"Full scan complete, saved {saved} recommendation(s) to DB"
+        )
 
         exec_report = self.services.run_execution_tests()
         pocs_run = sum(len(entry.pocs) for entry in exec_report.entries)
@@ -199,7 +199,7 @@ class CLIApp:
 
     @staticmethod
     def save_settings(pairs: list[str]) -> None:
-        """Update config values in place """
+        """Update config values in place"""
         config_path = Path(__file__).parent / "config.py"
         updates: dict[str, str] = {}
         for pair in pairs:
@@ -216,13 +216,14 @@ class CLIApp:
         print(f"Saved {len(updates)} setting(s) to config.py")
         print("Note: Some settings may require a restart to take effect")
 
-
     def _print_local(self, local: dict[str, Any]):
         if self.quiet:
             return
         build_date = local.get("build_date")
         build_date_str = (
-            format_timestamp(build_date) if isinstance(build_date, int) else "N/A"
+            format_timestamp(build_date)
+            if isinstance(build_date, int)
+            else "N/A"
         )
         print(
             "Running local recon...\n"
@@ -246,17 +247,18 @@ class CLIApp:
                     f"    Expected: {rec.get('expected_value')} | "
                     f"Actual: {rec.get('actual_value')}"
                 )
-            suggestion = (
-                rec.get("raw_data", {}).get("details")
-                or rec.get("raw_data", {}).get("solution")
-            )
+            suggestion = rec.get("raw_data", {}).get("details") or rec.get(
+                "raw_data", {}
+            ).get("solution")
             if suggestion:
                 print(f"    Details: {suggestion[:120]}")
 
         les = local.get("possible_cves", []) or []
         print(f"\nLinux Exploit Suggester CVEs ({len(les)}):")
         for cve in les:
-            print(f"  - {cve.get('cve_id', 'N/A')}: {cve.get('title', '') or 'N/A'}")
+            print(
+                f"  - {cve.get('cve_id', 'N/A')}: {cve.get('title', '') or 'N/A'}"
+            )
             if cve.get("download_urls"):
                 for url in cve["download_urls"][:3]:
                     print(f"      {url}")
@@ -264,7 +266,9 @@ class CLIApp:
         selinux_bools = local.get("selinux_booleans", []) or []
         print(f"\nSELinux booleans checked ({len(selinux_bools)}):")
         hardened = [
-            b for b in selinux_bools if isinstance(b, dict) and not b.get("value")
+            b
+            for b in selinux_bools
+            if isinstance(b, dict) and not b.get("value")
         ]
         if hardened:
             print(
@@ -312,7 +316,7 @@ class CLIApp:
         for poc in pocs:
             print(
                 f"  - {poc.get('repo_name', 'N/A')} ({poc.get('stars', 0)} stars): "
-                f"{ (poc.get('description') or 'No description')[:110] }"
+                f"{(poc.get('description') or 'No description')[:110]}"
             )
             if poc.get("repo_url"):
                 print(f"      {poc['repo_url']}")
@@ -351,19 +355,27 @@ class CLIApp:
 
         kernel_info = run.kernel_info or {}
         if kernel_info:
-            print(f"    Kernel: {kernel_info.get('uname', kernel_info.get('date', 'N/A'))}")
+            print(
+                f"    Kernel: {kernel_info.get('uname', kernel_info.get('date', 'N/A'))}"
+            )
         modules = run.modules or []
         if modules:
-            print(f"    Modules: {', '.join(modules[:10])}"
-                  + ("..." if len(modules) > 10 else ""))
+            print(
+                f"    Modules: {', '.join(modules[:10])}"
+                + ("..." if len(modules) > 10 else "")
+            )
         processes = run.open_processes or []
         if processes:
-            print(f"    Processes: {', '.join(processes[:5])}"
-                  + ("..." if len(processes) > 5 else ""))
+            print(
+                f"    Processes: {', '.join(processes[:5])}"
+                + ("..." if len(processes) > 5 else "")
+            )
         files = run.open_files or []
         if files:
-            print(f"    Files: {', '.join(files[:5])}"
-                  + ("..." if len(files) > 5 else ""))
+            print(
+                f"    Files: {', '.join(files[:5])}"
+                + ("..." if len(files) > 5 else "")
+            )
         if stdout:
             tail = "..." if len(stdout) > 500 else ""
             print(f"    STDOUT: {stdout[:500]}{tail}")
@@ -417,12 +429,20 @@ def _print_quick_help() -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     """Build the main CLI argument parser (kept separate for tests)."""
-    parser = argparse.ArgumentParser(description="Kernel Vulnerability Auditor")
-    parser.add_argument(
-        "--local", "-l", action="store_true", help="Run local recon (Lynis + LES)"
+    parser = argparse.ArgumentParser(
+        description="Kernel Vulnerability Auditor"
     )
     parser.add_argument(
-        "--feeds", "-f", action="store_true", help="Fetch NIST/OSV/GitHub feeds"
+        "--local",
+        "-l",
+        action="store_true",
+        help="Run local recon (Lynis + LES)",
+    )
+    parser.add_argument(
+        "--feeds",
+        "-f",
+        action="store_true",
+        help="Fetch NIST/OSV/GitHub feeds",
     )
     parser.add_argument(
         "--scan", "-s", action="store_true", help="Full scan (local + feeds)"
@@ -486,7 +506,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--verbose", "-v", action="store_true", help="Enable verbose output"
     )
-    parser.add_argument("--save", action="store_true", help="Save results to DB")
+    parser.add_argument(
+        "--save", action="store_true", help="Save results to DB"
+    )
     parser.add_argument(
         "--db",
         type=str,
@@ -513,18 +535,20 @@ def main_cli(db: ThreatDB | None = None):
         quiet=args.quiet,
     )
 
-    command_requested = any((
-        args.set,
-        args.settings,
-        args.list_kev,
-        args.sandbox_runs,
-        args.exec_tests,
-        args.full_poc_tests,
-        args.local,
-        args.feeds,
-        args.scan,
-        args.report,
-    ))
+    command_requested = any(
+        (
+            args.set,
+            args.settings,
+            args.list_kev,
+            args.sandbox_runs,
+            args.exec_tests,
+            args.full_poc_tests,
+            args.local,
+            args.feeds,
+            args.scan,
+            args.report,
+        )
+    )
 
     if not command_requested and is_interactive():
         _print_quick_help()

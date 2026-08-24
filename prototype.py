@@ -20,7 +20,7 @@ PACKETSTORM_URL = "https://packetstorm.news/download/"  # ...file_id
 def get_vulns():
     # res = httpx.get(CISA_KEV_URL)
     # print(res.json()[0].keys())
-    with open(CISA_KEV_PATH, "r") as f:
+    with open(CISA_KEV_PATH) as f:
         res: list = [
             json.load(f),
         ]
@@ -55,13 +55,16 @@ def get_vulns():
     return kern_cve
 
 
-def compile_and_run(src="./data/xpl.c", out="./xpl/tmp.out") -> tuple[str, str] | None:
+def compile_and_run(
+    src="./data/xpl.c", out="./xpl/tmp.out"
+) -> tuple[str, str] | None:
     """cc -o ./xpl/tmp.out ./data/xpl.c
     chmod u+x ./xpl/tmp.out; ./xpl/tmp.out"""
     os.makedirs(os.path.dirname(out), exist_ok=True)
 
     compiler = next(
-        (shutil.which(c) for c in ("gcc", "clang", "cc") if shutil.which(c)), None
+        (shutil.which(c) for c in ("gcc", "clang", "cc") if shutil.which(c)),
+        None,
     )
     if compiler is None:
         return None
@@ -116,7 +119,7 @@ def fix_filename(directory="./data"):
 
 
 def get_description(filename):
-    with open(filename, "r", encoding="utf-8") as f:
+    with open(filename, encoding="utf-8") as f:
         if f.read(2) != "/*":
             return ""
         lines = []

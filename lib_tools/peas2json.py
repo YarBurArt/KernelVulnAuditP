@@ -67,7 +67,9 @@ def get_colors(line: str) -> dict[str, list[str]]:
                     color_str1 = potential_color_str.split("\x1b")[0]
                     color_str2 = potential_color_str.split("\\[0")[0]
                     color_str = (
-                        color_str1 if len(color_str1) < len(color_str2) else color_str2
+                        color_str1
+                        if len(color_str1) < len(color_str2)
+                        else color_str2
                     )
 
                     if color_str:
@@ -126,13 +128,21 @@ def parse_line(line: str) -> None:
 
     elif is_section(line, TITLE2_PATTERN):
         title = parse_title(line)
-        C_MAIN_SECTION["sections"][title] = {"sections": {}, "lines": [], "infos": []}
+        C_MAIN_SECTION["sections"][title] = {
+            "sections": {},
+            "lines": [],
+            "infos": [],
+        }
         C_2_SECTION = C_MAIN_SECTION["sections"][title]
         C_SECTION = C_2_SECTION
 
     elif is_section(line, TITLE3_PATTERN):
         title = parse_title(line)
-        C_2_SECTION["sections"][title] = {"sections": {}, "lines": [], "infos": []}
+        C_2_SECTION["sections"][title] = {
+            "sections": {},
+            "lines": [],
+            "infos": [],
+        }
         C_3_SECTION = C_2_SECTION["sections"][title]
         C_SECTION = C_3_SECTION
 
@@ -177,7 +187,7 @@ def parse_peass(outputpath_loc: str, jsonpath_loc: str = "") -> dict | None:
     C_2_SECTION = FINAL_JSON
     C_3_SECTION = FINAL_JSON
 
-    with open(OUTPUT_PATH, "r", encoding="utf8") as f:
+    with open(OUTPUT_PATH, encoding="utf8") as f:
         for line in f:
             line = line.strip()
             # Remove empty lines or lines containing only color codes

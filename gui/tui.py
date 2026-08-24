@@ -117,7 +117,9 @@ class KernelVulnTUI(App[str]):
     def _dispatch(callback: Callable[[Any], None], value: Any) -> None:
         callback(value)
 
-    def _make_progress_bar(self, total: int = 0, label: str = "") -> ProgressAdapter:
+    def _make_progress_bar(
+        self, total: int = 0, label: str = ""
+    ) -> ProgressAdapter:
         return ProgressAdapter(
             self.get_progress_box(),
             marshal=self.call_from_thread,
@@ -126,7 +128,9 @@ class KernelVulnTUI(App[str]):
             on_label=self._on_stage_progress,
         )
 
-    def _on_stage_progress(self, label: str, final: bool, note: str = "") -> None:
+    def _on_stage_progress(
+        self, label: str, final: bool, note: str = ""
+    ) -> None:
         """Keep the big-stages checklist sub-steps in sync."""
         panel = self.get_stages_panel()
         if panel is None:
@@ -149,7 +153,9 @@ class KernelVulnTUI(App[str]):
         return self.get_screen("scan").query_one(f"#{name}", VerticalScroll)
 
     def _scan_widget(
-        self, query: str | type[QueryType], widget_type: type[QueryType | Widget] | None = None
+        self,
+        query: str | type[QueryType],
+        widget_type: type[QueryType | Widget] | None = None,
     ) -> Any | None:
         """The scan-screen widget for query, or None before it is mounted."""
         if not self.is_screen_installed("scan"):
@@ -219,7 +225,12 @@ class KernelVulnTUI(App[str]):
         cve: int | None = None,
         runs: int | None = None,
     ) -> None:
-        for key, value in (("crit", crit), ("warn", warn), ("cve", cve), ("runs", runs)):
+        for key, value in (
+            ("crit", crit),
+            ("warn", warn),
+            ("cve", cve),
+            ("runs", runs),
+        ):
             if value is not None:
                 self._counters[key] = value
         bar = self.get_metrics_bar()

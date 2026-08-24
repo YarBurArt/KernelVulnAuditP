@@ -18,7 +18,9 @@ class _FakeIsolate:
 
 
 def _ok_run(*args, **kwargs):
-    return subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
+    return subprocess.CompletedProcess(
+        args=[], returncode=0, stdout="", stderr=""
+    )
 
 
 def _executable(tmp_path, name="poc") -> Path:
@@ -239,7 +241,9 @@ def test_resolve_poc_binary_compile_cmd_no_o(tmp_path):
 
 def test_resolve_poc_binary_test_cmd_no_slash(tmp_path):
     (tmp_path / "src.c").write_text("x")
-    assert resolve_poc_binary(tmp_path, "python x.py", "gcc a.c -o out") is None
+    assert (
+        resolve_poc_binary(tmp_path, "python x.py", "gcc a.c -o out") is None
+    )
 
 
 def test_resolve_poc_binary_gcc_aout(tmp_path):

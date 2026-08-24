@@ -78,7 +78,10 @@ class ScanPage(BaseScreen):
                     yield VerticalScroll(id="cve_list")
                 with TabPane("Sandbox Runs", id="tab-sandbox"):
                     yield VerticalScroll(id="sandbox_list")
-                with TabPane("Engine stdout", id="tab-engine"), Horizontal(id="engine_out"):
+                with (
+                    TabPane("Engine stdout", id="tab-engine"),
+                    Horizontal(id="engine_out"),
+                ):
                     yield StagesPanel(id="stages_panel")
                     yield ConsoleLog(id="console_log")
         yield Footer()

@@ -229,21 +229,21 @@ class TestSupportsUnicode(unittest.TestCase):
 
     def test_missing_encoding_falls_back_to_locale(self):
         os_patch = {**os.environ, "TERM": "xterm-256color"}
-        with mock.patch.dict(os.environ, os_patch), mock.patch.object(
-            locale, "getencoding", return_value="UTF-8"
+        with (
+            mock.patch.dict(os.environ, os_patch),
+            mock.patch.object(locale, "getencoding", return_value="UTF-8"),
         ):
-            self.assertTrue(
-                supports_unicode(FakeStream(True, None))
-            )
+            self.assertTrue(supports_unicode(FakeStream(True, None)))
 
     def test_locale_encoding_error_falls_back(self):
         os_patch = {**os.environ, "TERM": "xterm-256color"}
-        with mock.patch.dict(os.environ, os_patch), mock.patch.object(
-            locale, "getencoding", side_effect=AttributeError
+        with (
+            mock.patch.dict(os.environ, os_patch),
+            mock.patch.object(
+                locale, "getencoding", side_effect=AttributeError
+            ),
         ):
-            self.assertFalse(
-                supports_unicode(FakeStream(True, None))
-            )
+            self.assertFalse(supports_unicode(FakeStream(True, None)))
 
     def test_stream_encoding_raises_uses_locale(self):
         class RaisingStream(FakeStream):
@@ -255,12 +255,11 @@ class TestSupportsUnicode(unittest.TestCase):
                 self._isatty = isatty_result
 
         os_patch = {**os.environ, "TERM": "xterm-256color"}
-        with mock.patch.dict(os.environ, os_patch), mock.patch.object(
-            locale, "getencoding", return_value="UTF-8"
+        with (
+            mock.patch.dict(os.environ, os_patch),
+            mock.patch.object(locale, "getencoding", return_value="UTF-8"),
         ):
-            self.assertTrue(
-                supports_unicode(RaisingStream(True))
-            )
+            self.assertTrue(supports_unicode(RaisingStream(True)))
 
 
 class TestUnicodeGlyph(unittest.TestCase):

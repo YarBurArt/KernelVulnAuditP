@@ -34,10 +34,19 @@ def test_collect_sandbox_modules_parses_lines_and_dedupes():
     data = {
         "runs": [
             {"modules": [_proc_modules_line("ext4"), "  ", "", None, 5]},
-            {"modules": [_proc_modules_line("ext4"), _proc_modules_line("kvm")]},
+            {
+                "modules": [
+                    _proc_modules_line("ext4"),
+                    _proc_modules_line("kvm"),
+                ]
+            },
         ],
         "vulnerabilities": [
-            {"sandbox_runs": [{"modules": [_proc_modules_line("nft_chain_nat")]}]}
+            {
+                "sandbox_runs": [
+                    {"modules": [_proc_modules_line("nft_chain_nat")]}
+                ]
+            }
         ],
     }
     modules = collect_sandbox_modules(data)
@@ -46,16 +55,17 @@ def test_collect_sandbox_modules_parses_lines_and_dedupes():
 
 def test_collect_sandbox_modules_tolerates_missing_keys():
     assert collect_sandbox_modules({}) == set()
-    assert collect_sandbox_modules({"runs": [{}], "vulnerabilities": [{}]}) == set()
+    assert (
+        collect_sandbox_modules({"runs": [{}], "vulnerabilities": [{}]})
+        == set()
+    )
 
 
 def test_host_module_map_from_dict_and_dataclass():
     host_dict = {
         "kernel_modules": [{"module_name": "ext4"}, {"module_name": "kvm"}]
     }
-    host_data = HostInfo(
-        kernel_modules=[HostKernelModule(module_name="ext4")]
-    )
+    host_data = HostInfo(kernel_modules=[HostKernelModule(module_name="ext4")])
     assert host_module_set(host_dict) == {"ext4", "kvm"}
     assert host_module_set(host_data) == {"ext4"}
     assert host_module_set(None) == set()
@@ -124,10 +134,17 @@ def test_build_param_diff_computes_status_from_values():
 
 def test_build_param_diff_marks_absent_actual():
     rows = build_param_diff(
-        [{"field_name": "kernel.yama", "expected_value": "1", "actual_value": ""}]
+        [
+            {
+                "field_name": "kernel.yama",
+                "expected_value": "1",
+                "actual_value": "",
+            }
+        ]
     )
     assert rows[0]["actual"] == "(not present)"
     assert rows[0]["status"] == "missing"
+
 
 _HOST_WITH_CAPS = {
     "file_capabilities": [
@@ -222,17 +239,23 @@ def test_build_diff_sorts_by_section_then_severity_then_key():
     rows = build_diff(
         sandbox_modules={"aaa_extra"},
         host_modules=set(),
-        kernel_recs=[{"field_name": "fs.suid_dumpable", "expected_value": "0",
-                      "actual_value": "2"}],
+        kernel_recs=[
+            {
+                "field_name": "fs.suid_dumpable",
+                "expected_value": "0",
+                "actual_value": "2",
+            }
+        ],
         host_info={
             "file_capabilities": [
-                {"path": "capbin", "cap_effective": "cap_sys_admin",
-                 "cap_permitted": "cap_sys_admin"}
+                {
+                    "path": "capbin",
+                    "cap_effective": "cap_sys_admin",
+                    "cap_permitted": "cap_sys_admin",
+                }
             ],
             "process_capabilities": [],
-            "selinux_booleans": [
-                {"boolean_name": "zsel", "value": True}
-            ],
+            "selinux_booleans": [{"boolean_name": "zsel", "value": True}],
         },
         selinux_params={
             "s": {"booleans": [{"name": "zsel", "state": "off"}]},
@@ -261,13 +284,14 @@ def _sample_diff_rows():
         ],
         host_info={
             "file_capabilities": [
-                {"path": "capbin", "cap_effective": "cap_sys_admin",
-                 "cap_permitted": "cap_sys_admin"}
+                {
+                    "path": "capbin",
+                    "cap_effective": "cap_sys_admin",
+                    "cap_permitted": "cap_sys_admin",
+                }
             ],
             "process_capabilities": [],
-            "selinux_booleans": [
-                {"boolean_name": "bool1", "value": True}
-            ],
+            "selinux_booleans": [{"boolean_name": "bool1", "value": True}],
         },
         selinux_params={
             "s": {"booleans": [{"name": "bool1", "state": "off"}]},
@@ -285,9 +309,9 @@ def test_build_diff_columns_module_added_removed():
     module = build_diff_columns(_sample_diff_rows())["module"]
     assert module["layout"] == "module"
     groups = {g["title"]: set(g["items"]) for g in module["groups"]}
-    assert groups["module loaded by the sandbox run but missing on the host"] == {
-        "btrfs"
-    }
+    assert groups[
+        "module loaded by the sandbox run but missing on the host"
+    ] == {"btrfs"}
     assert groups[
         "module present on the host but not loaded in the sandbox"
     ] == {"kvm"}
@@ -353,16 +377,26 @@ def test_host_info_data_to_dict_serializes_children_and_dates():
         captured_at=now,
         kernel_modules=[HostKernelModule(module_name="ext4", size=4096)],
         kernel_parameters=[
-            HostKernelParameter(parameter_name="fs.suid_dumpable", parameter_value="0")
+            HostKernelParameter(
+                parameter_name="fs.suid_dumpable", parameter_value="0"
+            )
         ],
     )
     as_dict = host.to_dict()
     assert as_dict["captured_at"] == now.isoformat()
     assert as_dict["kernel_modules"] == [
-        {"module_name": "ext4", "size": 4096, "refcount": None,
-         "used_by": None, "state": None, "address": None}
+        {
+            "module_name": "ext4",
+            "size": 4096,
+            "refcount": None,
+            "used_by": None,
+            "state": None,
+            "address": None,
+        }
     ]
-    assert as_dict["kernel_parameters"][0]["parameter_name"] == "fs.suid_dumpable"
+    assert (
+        as_dict["kernel_parameters"][0]["parameter_name"] == "fs.suid_dumpable"
+    )
 
 
 def test_count_findings_ignores_ok_rows():
@@ -400,7 +434,10 @@ def test_param_diff_carries_deduplicable_link():
     ]
     rows = {row["key"]: row for row in build_param_diff(recs)}
     assert rows["fs.suid_dumpable"]["link"] == "https://kernel.org/doc/fs.txt"
-    assert rows["kernel.dmesg_restrict"]["link"] == "https://kernel.org/doc/kernel.txt"
+    assert (
+        rows["kernel.dmesg_restrict"]["link"]
+        == "https://kernel.org/doc/kernel.txt"
+    )
     assert rows["no.link"]["link"] == ""
 
 
@@ -422,7 +459,12 @@ def test_cap_references_only_link_hacktricks_for_escalating_caps():
     from report.diff import _cap_reference_rows
 
     rows = _cap_reference_rows(
-        ["cap_net_raw", "cap_sys_admin", "cap_setuid", "cap_checkpoint_restore"]
+        [
+            "cap_net_raw",
+            "cap_sys_admin",
+            "cap_setuid",
+            "cap_checkpoint_restore",
+        ]
     )
     by_what = {r["what"]: r for r in rows}
     doc = by_what["CAP_SYS_ADMIN"]
@@ -557,13 +599,17 @@ def test_diff_columns_param_preserves_link_and_detail():
 
 
 def test_host_module_names_sorted_dedup():
-    host = {"kernel_modules": [{"module_name": "btrfs"}, {"module_name": "ext4"}]}
+    host = {
+        "kernel_modules": [{"module_name": "btrfs"}, {"module_name": "ext4"}]
+    }
     assert host_module_names(host) == ["btrfs", "ext4"]
     assert host_module_names(None) == []
 
 
 def test_host_module_names_skips_empty_and_non_str():
-    host = {"kernel_modules": [{"module_name": ""}, {"module_name": "x"}, None]}
+    host = {
+        "kernel_modules": [{"module_name": ""}, {"module_name": "x"}, None]
+    }
     assert host_module_names(host) == ["x"]
 
 
@@ -577,7 +623,9 @@ def test_host_param_map_from_dict_and_dataclass():
     }
     host_data = HostInfo(
         kernel_parameters=[
-            HostKernelParameter(parameter_name="fs.suid_dumpable", parameter_value="0")
+            HostKernelParameter(
+                parameter_name="fs.suid_dumpable", parameter_value="0"
+            )
         ]
     )
     assert host_param_map(host_dict) == {
@@ -631,12 +679,16 @@ def test_load_selinux_params_non_dict_json_returns_empty(tmp_path):
 
 
 def test_build_selinux_diff_skips_non_dict_sections():
-    rows = build_selinux_diff(None, {"s1": "not-a-dict", "s2": {"booleans": []}})
+    rows = build_selinux_diff(
+        None, {"s1": "not-a-dict", "s2": {"booleans": []}}
+    )
     assert rows == []
 
 
 def test_build_selinux_diff_skips_missing_names():
-    params = {"s1": {"booleans": [{"state": "on"}, {"name": "", "state": "off"}]}}
+    params = {
+        "s1": {"booleans": [{"state": "on"}, {"name": "", "state": "off"}]}
+    }
     rows = build_selinux_diff({}, params)
     assert rows == []
 
@@ -690,7 +742,14 @@ def test_build_hardening_diff_filters_non_findings():
 def test_build_capability_section_wrapper():
     from report.diff import build_capability_section
 
-    rows = [{"actual": "cap_net_raw", "status": "warning", "key": "x", "detail": ""}]
+    rows = [
+        {
+            "actual": "cap_net_raw",
+            "status": "warning",
+            "key": "x",
+            "detail": "",
+        }
+    ]
     section = build_capability_section(rows)
     assert section["rows"][0]["key"] == "cap_net_raw"
 

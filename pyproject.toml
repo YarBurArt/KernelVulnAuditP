@@ -12,6 +12,7 @@ dependencies = [
     "pyyaml>=6.0.0",
     "anyio==4.14.2",
     "dishka>=1.10.1",
+    "ruff==0.16.4",
 ]
 
 [project.optional-dependencies]
@@ -33,14 +34,25 @@ dev = [
     "bandit>=1.9.4",
     "pytest==9.1.1",
     "pylint>=4.0.7",
-    "black>=26.5.1",
     "ruff>=0.16.3",
     "types-pyyaml>=6.0.12.20260815",
     "coverage>=7.15.4",
+    "pre-commit>=4.6.2",
 ]
 
 [tool.mypy]
 # report.py is a thin entry shim that deliberately shares the package name;
 # lib_tools is vendored third-party tooling (peas2json) kept untyped.
 exclude = "^report\\.py$|^lib_tools/"
+
+[tool.ruff]
+line-length = 79
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "S"]  # enable SAST like checks
+ignore = []
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["S101"]
+"tests_integration/**/*.py" = ["S101"]
 

@@ -44,7 +44,9 @@ def test_extract_test_command_skips_markdown_image_ref():
 
 
 def test_extract_test_command_keeps_dotted_binary():
-    cmd = GitHubExploitSearcher._extract_test_command(DOTTED_BINARY_README, "C")
+    cmd = GitHubExploitSearcher._extract_test_command(
+        DOTTED_BINARY_README, "C"
+    )
     assert cmd == "./a.out"
 
 

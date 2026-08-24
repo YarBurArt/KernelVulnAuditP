@@ -55,7 +55,10 @@ def test_update_keeps_same_id(db):
     vid2 = db.upsert_vulnerability(updated)
 
     assert vid1 == vid2
-    assert db.get_vulnerability("CVE-2024-1086").description == "Updated description"
+    assert (
+        db.get_vulnerability("CVE-2024-1086").description
+        == "Updated description"
+    )
 
 
 def test_missing_returns_none(db):
@@ -273,7 +276,9 @@ def test_details_missing_returns_none(db):
 
 def test_exploitdb_reference_counts(db):
     db.upsert_vulnerability(_base_vuln())
-    db.add_reference("CVE-2024-1086", "https://edb.com/1", ref_type="EXPLOIT_DB")
+    db.add_reference(
+        "CVE-2024-1086", "https://edb.com/1", ref_type="EXPLOIT_DB"
+    )
 
     vuln = db.get_vulnerability("CVE-2024-1086")
     assert vuln.exploitdb_refs == 1
@@ -333,7 +338,10 @@ def test_recommendation_crud(db):
 
 def test_recommendations_bulk_with_error(db):
     good = SecurityRecommendation(
-        test_id="KRNL-3000", category="kernel", severity="MEDIUM", status="open"
+        test_id="KRNL-3000",
+        category="kernel",
+        severity="MEDIUM",
+        status="open",
     )
 
     class _Broken:
@@ -352,7 +360,10 @@ def test_recommendations_bulk_with_error(db):
 def test_recommendations_stats(db):
     db.add_security_recommendation(
         SecurityRecommendation(
-            test_id="KRNL-1000", category="kernel", severity="HIGH", status="open"
+            test_id="KRNL-1000",
+            category="kernel",
+            severity="HIGH",
+            status="open",
         )
     )
     db.add_security_recommendation(

@@ -99,7 +99,9 @@ def parse_key_with_brackets(raw_key: str) -> tuple:
     return match.group(1), match.group(2)
 
 
-def ensure_list_in_dict(container: dict[str, Any], key: str, value: Any) -> None:
+def ensure_list_in_dict(
+    container: dict[str, Any], key: str, value: Any
+) -> None:
     if key not in container:
         container[key] = [value]
     else:
@@ -147,7 +149,9 @@ class ParseReports:
     def convert_linpeas_to_dict(output_path: str, json_path: str = "") -> dict:
         res: dict | None = parse_peass(output_path, json_path)
         if res is None:
-            logger.debug("lynis report not found or not parsed at %s", output_path)
+            logger.debug(
+                "lynis report not found or not parsed at %s", output_path
+            )
             raise ValueError("Could not parse PEAS output")
         return res
 
@@ -160,7 +164,9 @@ class ParseReports:
             if text.startswith("OS:"):
                 info["os"] = text.replace("OS:", "").strip()
             elif text.startswith("User & Groups:"):
-                info["user_groups"] = text.replace("User & Groups:", "").strip()
+                info["user_groups"] = text.replace(
+                    "User & Groups:", ""
+                ).strip()
             elif text.startswith("Hostname:"):
                 info["hostname"] = text.replace("Hostname:", "").strip()
             elif any(c in colors for c in ("RED", "REDYELLOW")):
@@ -182,7 +188,9 @@ class ParseReports:
     @staticmethod
     def _extract_kernel_modules_peas(sys_info: dict) -> dict:
         mods_info = {}
-        kmi = sys_info.get("sections", {}).get("Kernel Modules Information", {})
+        kmi = sys_info.get("sections", {}).get(
+            "Kernel Modules Information", {}
+        )
         for mod_name, mod_data in kmi.get("sections", {}).items():
             for line in mod_data.get("lines", []):
                 text = line.get("clean_text", "")
@@ -227,7 +235,9 @@ class ParseReports:
                 if current_id and current:
                     results.append(current)
                 current_id = value["id"]
-                current = LesCVEItem(cve_id=value["cve_id"], title=value["title"])
+                current = LesCVEItem(
+                    cve_id=value["cve_id"], title=value["title"]
+                )
                 continue
 
             if current_id is None or key is None:
@@ -288,7 +298,9 @@ class ParseReports:
         parts = [part.strip() for part in payload.split(";")]
 
         if len(parts) < 6:
-            logger.debug("skip malformed params.prf line %d: %s", line_no, line)
+            logger.debug(
+                "skip malformed params.prf line %d: %s", line_no, line
+            )
             return None
 
         if parts[0].lower() != "sysctl":
@@ -304,7 +316,9 @@ class ParseReports:
             details = solution[5:]
         elif solution not in ("-", ""):
             logger.debug(
-                "skip non-solution field %s in params.prf line %d", solution, line_no
+                "skip non-solution field %s in params.prf line %d",
+                solution,
+                line_no,
             )
         else:
             details = ""
@@ -366,7 +380,6 @@ class ParseReports:
             logger.warning("os error reading params.prf: %s", e)
         return {}
 
-
     @staticmethod
     @lru_cache
     def load_selinux_params(
@@ -389,7 +402,9 @@ class ParseReports:
         values: dict[str, bool] = {}
         getsebool = shutil.which("getsebool")
         if getsebool is None:
-            logger.warning("getsebool not found, SELinux booleans check skipped")
+            logger.warning(
+                "getsebool not found, SELinux booleans check skipped"
+            )
             return values
         try:
             proc = subprocess.run(
@@ -441,7 +456,7 @@ class ParseReports:
             return 0
         try:
             return int(mask, 16)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             return 0
 
     @staticmethod
@@ -457,7 +472,7 @@ class ParseReports:
             return None
         try:
             return pwd.getpwuid(uid).pw_name
-        except (KeyError, OverflowError):
+        except KeyError, OverflowError:
             return str(uid)
 
     @staticmethod
@@ -629,7 +644,9 @@ class ParseReports:
         }
 
     @staticmethod
-    def parse_nist_findings(data: dict, min_ts: int | None = None) -> list[CVEFinding]:
+    def parse_nist_findings(
+        data: dict, min_ts: int | None = None
+    ) -> list[CVEFinding]:
         """parse NIST CVE 2.0 search payload into CVEFinding list, date-filtered"""
         raw = filter_items_by_date(
             (data or {}).get("vulnerabilities", []),
@@ -644,7 +661,9 @@ class ParseReports:
             if not cve_id:
                 continue
 
-            description = extract_english_description(cve.get("descriptions", []))
+            description = extract_english_description(
+                cve.get("descriptions", [])
+            )
             cvss, severity, _ = extract_cvss(cve.get("metrics", {}))
             references = [
                 ref.get("url", "")
@@ -718,7 +737,9 @@ class ParseReports:
         candidates: list[str] = [vuln.get("id", "")]
         candidates.extend(vuln.get("aliases", []) or [])
         cve_ids = [
-            str(c).upper() for c in candidates if str(c).upper().startswith("CVE-")
+            str(c).upper()
+            for c in candidates
+            if str(c).upper().startswith("CVE-")
         ]
         if not cve_ids and vuln.get("id"):
             cve_ids.append(str(vuln["id"]))
@@ -757,8 +778,12 @@ class ParseReports:
         # cve.org / reformatted NIST use containers.cna, raw NIST 2.0 uses cve
         cve_obj = data.get("cve", {}) or cna
 
-        description = extract_english_description(cve_obj.get("descriptions", []))
-        cvss_score, cvss_severity, cvss_vector = extract_cvss(cve_obj.get("metrics"))
+        description = extract_english_description(
+            cve_obj.get("descriptions", [])
+        )
+        cvss_score, cvss_severity, cvss_vector = extract_cvss(
+            cve_obj.get("metrics")
+        )
 
         return {
             "description": description,

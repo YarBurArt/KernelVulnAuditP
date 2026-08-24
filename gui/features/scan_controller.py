@@ -46,14 +46,18 @@ class ScanController:
     def start_local(self) -> None:
         self._running.add("local")
         self._app.set_stage("local", "running")
-        self._app.log_terminal("Initiating local telemetry acquisition...", "INFO")
+        self._app.log_terminal(
+            "Initiating local telemetry acquisition...", "INFO"
+        )
         self._app.show_progress("Running local recon...")
         self._run(self.services.run_local_recon, self._on_local_done, "local")
 
     def start_feeds(self) -> None:
         self._running.add("feeds")
         self._app.set_stage("feeds", "running")
-        self._app.log_terminal("Fetching intelligence feeds (KEV/NIST/OSV/GitHub)...", "INFO")
+        self._app.log_terminal(
+            "Fetching intelligence feeds (KEV/NIST/OSV/GitHub)...", "INFO"
+        )
         self._app.show_progress("Fetching threat intel feeds...")
         self._run(self.services.run_feeds_recon, self._on_feeds_done, "feeds")
 
@@ -65,18 +69,28 @@ class ScanController:
         self._app.log_terminal("Full cycle recon initiated...", "INFO")
         self._app.show_progress("Full cycle recon initiated...")
         self._run(
-            self.services.run_local_recon, self._on_local_done, "local", parent="full"
+            self.services.run_local_recon,
+            self._on_local_done,
+            "local",
+            parent="full",
         )
         self._run(
-            self.services.run_feeds_recon, self._on_feeds_done, "feeds", parent="full"
+            self.services.run_feeds_recon,
+            self._on_feeds_done,
+            "feeds",
+            parent="full",
         )
 
     def start_exec(self) -> None:
         self._running.add("exec")
         self._app.set_stage("exec", "running")
-        self._app.log_terminal("Invoking sandbox execution verification...", "INFO")
+        self._app.log_terminal(
+            "Invoking sandbox execution verification...", "INFO"
+        )
         self._app.show_progress("Running sandbox execution tests...")
-        self._run(self.services.run_execution_tests, self._on_exec_done, "exec")
+        self._run(
+            self.services.run_execution_tests, self._on_exec_done, "exec"
+        )
 
     def _run(
         self,
@@ -103,7 +117,11 @@ class ScanController:
     def _findings(recs: list) -> list:
         """filter non-actionable rows (CRIT/WARN)"""
         ranked = [
-            (rec_severity(rec)[0], str(rec.field_name or rec.category or "").lower(), rec)
+            (
+                rec_severity(rec)[0],
+                str(rec.field_name or rec.category or "").lower(),
+                rec,
+            )
             for rec in recs or []
             if rec_severity(rec)[0] != "INFO"
         ]
@@ -136,7 +154,9 @@ class ScanController:
         """Capability findings as report-style diff rows for dedup later"""
         rows: list[dict] = []
         for rec in recs or []:
-            names = sorted({c for c in str(rec.actual_value or "").split(",") if c})
+            names = sorted(
+                {c for c in str(rec.actual_value or "").split(",") if c}
+            )
             if not names:
                 continue
             key = str(rec.field_name or rec.category or "?")
@@ -191,7 +211,10 @@ class ScanController:
             exp_w, act_w = self._value_widths(audit)
             self._mount(
                 AUDIT,
-                [AuditItem(rec, self._field_width(audit), exp_w, act_w) for rec in audit],
+                [
+                    AuditItem(rec, self._field_width(audit), exp_w, act_w)
+                    for rec in audit
+                ],
             )
             self._set_references(SELINUX, snapshot.selinux)
             exp_w, act_w = self._value_widths(selinux)
@@ -211,7 +234,9 @@ class ScanController:
             max_cap_name_width = max(cap_name_lengths, default=12)
             cap_width = min(max_cap_name_width + 1, 64)
 
-            self._mount(CAPS, [CapsItem(group, cap_width) for group in cap_groups])
+            self._mount(
+                CAPS, [CapsItem(group, cap_width) for group in cap_groups]
+            )
             cve_items = [
                 CveItem(
                     "LES",
@@ -234,7 +259,14 @@ class ScanController:
                 f"{len(audit) + len(selinux) + len(cap_groups)} hardening"
                 f", {len(cve_items)} CVEs"
             )
-        except (TypeError, ValueError, AttributeError, KeyError, NoMatches, OSError):
+        except (
+            TypeError,
+            ValueError,
+            AttributeError,
+            KeyError,
+            NoMatches,
+            OSError,
+        ):
             logger.exception("local recon render failed")
             self._app.log_terminal("Local recon render error", "FAIL")
         finally:
@@ -272,12 +304,21 @@ class ScanController:
                 )
             if items:
                 cve_list.mount(*items)
-            cve_list.sort_children(key=lambda c: str(getattr(c, "cve_id", "")).lower())
+            cve_list.sort_children(
+                key=lambda c: str(getattr(c, "cve_id", "")).lower()
+            )
 
             self._app.log_terminal("Threat feeds sync complete.", "OK")
             self._app.set_metrics(cve=len(cve_list.children))
             summary = f"{len(cve_list.children)} CVEs"
-        except (TypeError, ValueError, AttributeError, KeyError, NoMatches, OSError):
+        except (
+            TypeError,
+            ValueError,
+            AttributeError,
+            KeyError,
+            NoMatches,
+            OSError,
+        ):
             logger.exception("feeds recon render failed")
             self._app.log_terminal("Feeds recon render error", "FAIL")
         finally:
@@ -313,7 +354,14 @@ class ScanController:
             summary = f"{len(sandbox_runs)} PoC runs"
             if failed:
                 summary += f", {failed} failed"
-        except (TypeError, ValueError, AttributeError, KeyError, NoMatches, OSError):
+        except (
+            TypeError,
+            ValueError,
+            AttributeError,
+            KeyError,
+            NoMatches,
+            OSError,
+        ):
             logger.exception("exec tests render failed")
             self._app.log_terminal("Exec tests render error", "FAIL")
         finally:
@@ -336,8 +384,11 @@ class ScanController:
             if local or feeds:
                 self._app.set_stage_summary(
                     "full",
-                    f" {unicode_glyph('·', '.')} ".join(p for p in (local, feeds) if p),
+                    f" {unicode_glyph('·', '.')} ".join(
+                        p for p in (local, feeds) if p
+                    ),
                 )
+
     def _list(self, name: str) -> VerticalScroll:
         return self._app.get_scan_list(name)
 

@@ -14,12 +14,19 @@ from isolate.isolate import (
     run_cmd,
     timeout_text,
 )
-from isolate.parse_vm_internal_results import QEMU_CRASH_PATTERNS, ParseVmResults
+from isolate.parse_vm_internal_results import (
+    QEMU_CRASH_PATTERNS,
+    ParseVmResults,
+)
 
 
 class QemuEnvironment(IsolationEnvironment):
     def __init__(
-        self, binary_path: Path, timeout: int = 30, memory_mb: int = 512, cpus: int = 1
+        self,
+        binary_path: Path,
+        timeout: int = 30,
+        memory_mb: int = 512,
+        cpus: int = 1,
     ):
         super().__init__(binary_path, timeout)
         self.memory_mb = memory_mb
@@ -112,7 +119,9 @@ class QemuEnvironment(IsolationEnvironment):
                 )
                 # the qemu process itself always exits 0; the meaningful
                 # outcome is the guest's EXIT_CODE echoed by the audit script
-                returncode = exit_code if proc.returncode == 0 else proc.returncode
+                returncode = (
+                    exit_code if proc.returncode == 0 else proc.returncode
+                )
                 return SandboxRunResult(
                     stdout=stdout,
                     stderr=proc.stderr,
@@ -209,7 +218,15 @@ class QemuEnvironment(IsolationEnvironment):
 
         out = root / "init"
         subprocess.run(
-            ["musl-gcc", "-static", "-Os", "-s", "-o", str(out), str(root / "init.c")],
+            [
+                "musl-gcc",
+                "-static",
+                "-Os",
+                "-s",
+                "-o",
+                str(out),
+                str(root / "init.c"),
+            ],
             check=True,
         )
 
@@ -303,7 +320,9 @@ class QemuEnvironment(IsolationEnvironment):
                 return c
 
         matches = (
-            sorted(Path("/boot").glob("vmlinuz*")) if Path("/boot").exists() else []
+            sorted(Path("/boot").glob("vmlinuz*"))
+            if Path("/boot").exists()
+            else []
         )
         if matches:
             return matches[-1]

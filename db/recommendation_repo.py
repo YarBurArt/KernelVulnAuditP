@@ -42,7 +42,9 @@ class RecommendationRepository:
     def get_session(self) -> Session:
         return self._session_factory()
 
-    def add_security_recommendation(self, rec_data: SecurityRecommendation) -> int:
+    def add_security_recommendation(
+        self, rec_data: SecurityRecommendation
+    ) -> int:
         """add security recommendation"""
         session = self.get_session()
         try:
@@ -109,7 +111,9 @@ class RecommendationRepository:
 
             def _counts(column) -> dict[str, int]:
                 rows = (
-                    session.query(column, func.count(SecurityRecommendationRow.id))
+                    session.query(
+                        column, func.count(SecurityRecommendationRow.id)
+                    )
                     .filter(column.isnot(None))
                     .group_by(column)
                     .all()
@@ -117,7 +121,9 @@ class RecommendationRepository:
                 return {row[0]: row[1] for row in rows}
 
             by_category = _counts(SecurityRecommendationRow.category)
-            logger.debug(f"Parsed recommendation category stats: {by_category}")
+            logger.debug(
+                f"Parsed recommendation category stats: {by_category}"
+            )
             by_status = _counts(SecurityRecommendationRow.status)
             logger.debug(f"Parsed recommendation status stats: {by_status}")
             by_severity = _counts(SecurityRecommendationRow.severity)

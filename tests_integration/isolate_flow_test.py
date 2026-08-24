@@ -50,7 +50,9 @@ def test_run_cmd_timeout_kills_whole_process_tree():
         text=True,
         check=False,
     )
-    assert gone.returncode != 0, "orphaned sleep processes survived the timeout"
+    assert gone.returncode != 0, (
+        "orphaned sleep processes survived the timeout"
+    )
 
 
 @pytest.mark.integration
@@ -208,7 +210,12 @@ def test_stages_panel_renders_descriptions():
     import anyio
     from textual.app import App, ComposeResult
 
-    from gui.widgets.stages_panel import _HEADLINE_LABELS, STAGES, StageRow, StagesPanel
+    from gui.widgets.stages_panel import (
+        _HEADLINE_LABELS,
+        STAGES,
+        StageRow,
+        StagesPanel,
+    )
 
     class _T(App[None]):
         def compose(self) -> ComposeResult:
@@ -278,7 +285,9 @@ def test_sandbox_error_row_header_has_no_exit_none_or_url_hash():
 
     body = [str(c.render()) for c in item._body()]
     assert any("compile failed: rc=1" in line for line in body)
-    assert any("https://github.com/org/CVE-2021-22555" in line for line in body)
+    assert any(
+        "https://github.com/org/CVE-2021-22555" in line for line in body
+    )
     assert any("gcc exploit.c" in line for line in body)
 
 

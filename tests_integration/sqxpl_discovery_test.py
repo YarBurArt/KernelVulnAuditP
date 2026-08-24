@@ -76,7 +76,9 @@ def test_search_repositories_retries_on_rate_limit(monkeypatch):
     searcher = GitHubExploitSearcher()
     repos = searcher.search_repositories("CVE-2025-32463", max_results=3)
 
-    search_calls = [u for u in calls if u == GitHubExploitSearcher.SEARCH_REPOS]
+    search_calls = [
+        u for u in calls if u == GitHubExploitSearcher.SEARCH_REPOS
+    ]
     assert len(search_calls) == 2
     assert repos and repos[0]["url"].endswith(
         "mirchr/CVE-2025-32463-sudo-chwoot"

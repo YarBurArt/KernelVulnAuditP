@@ -30,7 +30,9 @@ class CveItem(Collapsible):
         cve = markup_escape(self.cve_id).ljust(15)
         title_text = markup_escape(title)
 
-        children: list[Static] = [Static(markup_escape(details), classes="mono")]
+        children: list[Static] = [
+            Static(markup_escape(details), classes="mono")
+        ]
         for url in urls or []:
             if is_url(url):
                 children.append(

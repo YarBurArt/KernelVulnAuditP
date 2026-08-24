@@ -31,7 +31,11 @@ _RUNNING_MARK = unicode_glyph("●", "*")
 
 #: (key, display name, description) for the top-level scan stages
 STAGES = [
-    ("local", "Local Recon", "on-host hardening, SELinux, capabilities, CVE hints"),
+    (
+        "local",
+        "Local Recon",
+        "on-host hardening, SELinux, capabilities, CVE hints",
+    ),
     ("feeds", "TI Feeds", "KEV / NIST / OSV / GitHub threat-intel"),
     ("full", "Full Cycle", "local recon + threat feeds together"),
     ("exec", "Exec Tests", "sandbox PoC compilation and execution"),
@@ -55,9 +59,23 @@ _HEADLINE_LABELS = {
 def stage_for_label(label: str) -> str | None:
     """Map a progress-bar label back to its owning stage key."""
     low = str(label or "").lower()
-    if low in ("local recon", "lynis", "linpeas", "les", "selinux/caps", "hardening"):
+    if low in (
+        "local recon",
+        "lynis",
+        "linpeas",
+        "les",
+        "selinux/caps",
+        "hardening",
+    ):
         return "local"
-    if low in ("threat-intel feeds", "threat feeds", "kev", "nist", "osv", "github"):
+    if low in (
+        "threat-intel feeds",
+        "threat feeds",
+        "kev",
+        "nist",
+        "osv",
+        "github",
+    ):
         return "feeds"
     if low in ("executing pocs",) or low.startswith("cve-"):
         return "exec"
@@ -157,8 +175,14 @@ class StageRow(Static):
             note_txt = f"  [dim]{_DOT} {note}[/]" if note else ""
             rows.append(f"    [dim]{_DONE_MARK} {label}[/]{note_txt}")
         if self._current:
-            note_txt = f"  [dim]{_DOT} {self._current_note}[/]" if self._current_note else ""
-            rows.append(f"    [{color}]{_RUNNING_MARK} {self._current}[/]{note_txt}")
+            note_txt = (
+                f"  [dim]{_DOT} {self._current_note}[/]"
+                if self._current_note
+                else ""
+            )
+            rows.append(
+                f"    [{color}]{_RUNNING_MARK} {self._current}[/]{note_txt}"
+            )
         if len(self._done) > _MAX_SUB_STEPS:
             rows.append(
                 f"    [dim]+{len(self._done) - _MAX_SUB_STEPS} more[/]"
@@ -209,7 +233,10 @@ class StagesPanel(VerticalScroll):
     def _autoscale(self) -> None:
         """Size the pane to its widest rendered line, within 22-40%."""
         parent_region = getattr(self.parent, "region", None)
-        if parent_region is not None and getattr(parent_region, "width", 0) > 0:
+        if (
+            parent_region is not None
+            and getattr(parent_region, "width", 0) > 0
+        ):
             total = parent_region.width
         else:
             total = self.screen.size.width

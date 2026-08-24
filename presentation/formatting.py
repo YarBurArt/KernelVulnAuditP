@@ -60,7 +60,7 @@ def format_run_timestamp(ts: Any) -> str:
     try:
         dt = datetime.fromisoformat(str(ts))
         return dt.strftime("%H:%M:%S")
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         return str(ts)[:19]
 
 
@@ -121,7 +121,7 @@ def audit_priority(rec: Any) -> tuple[int, str]:
             return 0, "CRIT"
         if diff == 1:
             return 1, "WARN"
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         pass
     return 2, "INFO"
 
@@ -147,7 +147,7 @@ def rec_severity(rec: Any) -> tuple[str, str]:
             return "CRIT", "crit"
         if diff == 1:
             return "WARN", "warn"
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         pass
 
     status = str(safe_get_attr(rec, "status", ""))
@@ -163,7 +163,9 @@ def suggestion_for(rec: Any) -> str:
     raw = safe_get_attr(rec, "raw_data", {}) or {}
     if not isinstance(raw, dict):
         raw = {}
-    suggestion = raw.get("suggestion", raw.get("details", raw.get("solution", "")))
+    suggestion = raw.get(
+        "suggestion", raw.get("details", raw.get("solution", ""))
+    )
     if not suggestion:
         suggestion = safe_get_attr(rec, "description", "")
     suggestion = str(suggestion or "").strip()

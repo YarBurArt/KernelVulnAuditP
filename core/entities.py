@@ -385,7 +385,9 @@ class HostInfo:
     selinux_mount: str = ""
     notes: str = ""
 
-    environment_variables: list[HostEnvironmentVariable] = field(default_factory=list)
+    environment_variables: list[HostEnvironmentVariable] = field(
+        default_factory=list
+    )
     kernel_parameters: list[HostKernelParameter] = field(default_factory=list)
     boot_parameters: list[HostBootParameter] = field(default_factory=list)
     kernel_modules: list[HostKernelModule] = field(default_factory=list)
@@ -398,7 +400,9 @@ class HostInfo:
     processes: list[HostProcess] = field(default_factory=list)
     files: list[HostFile] = field(default_factory=list)
     file_capabilities: list[HostFileCapabilities] = field(default_factory=list)
-    process_capabilities: list[HostProcessCapabilities] = field(default_factory=list)
+    process_capabilities: list[HostProcessCapabilities] = field(
+        default_factory=list
+    )
 
     def to_dict(self) -> dict[str, Any]:
         """serialize to a JSON-safe dict (mirrors the ORM HostInfo row)."""

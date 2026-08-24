@@ -41,7 +41,9 @@ class FeedsSnapshot:
 
     @classmethod
     def from_feeds(cls, feeds: FeedsReconResult) -> FeedsSnapshot:
-        return cls(findings=list(feeds.findings or []), pocs=list(feeds.pocs or []))
+        return cls(
+            findings=list(feeds.findings or []), pocs=list(feeds.pocs or [])
+        )
 
 
 __all__ = ["FeedsSnapshot", "ScanSnapshot"]

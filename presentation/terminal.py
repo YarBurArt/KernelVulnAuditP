@@ -10,7 +10,7 @@ from presentation.colors import BOLD, DIM, RESET
 def stream_tty(stream) -> bool:
     try:
         return bool(stream.isatty())
-    except (AttributeError, ValueError):
+    except AttributeError, ValueError:
         return False
 
 
@@ -20,7 +20,7 @@ def supports_color(stream=None) -> bool:
     try:
         if not stream.isatty():
             return False
-    except (AttributeError, ValueError):
+    except AttributeError, ValueError:
         return False
     if os.environ.get("NO_COLOR"):
         return False
@@ -38,7 +38,7 @@ def paint(text: str, color: str = "", *, bold: bool = False) -> str:
 def is_interactive() -> bool:
     try:
         return sys.stdin.isatty() and sys.stdout.isatty()
-    except (AttributeError, ValueError):
+    except AttributeError, ValueError:
         return False
 
 
@@ -62,7 +62,7 @@ def pager(text: str, *, page_size: int = 40) -> None:
                 .strip()
                 .lower()
             )
-        except (KeyboardInterrupt, EOFError):
+        except KeyboardInterrupt, EOFError:
             print()
             return
         if answer in ("q", "quit"):
@@ -144,8 +144,12 @@ class ProgressBar:
             bar = f"{self._color}{bar[:filled]}{RESET}{bar[filled:]}"
 
         label = f"{self._label} " if self._label else ""
-        counter = f"{pct}% {self._n}/{total}" if self._total > 0 else str(self._n)
-        line = f"\r{label}[{bar}] {counter} {time.monotonic() - self._start:.1f}s"
+        counter = (
+            f"{pct}% {self._n}/{total}" if self._total > 0 else str(self._n)
+        )
+        line = (
+            f"\r{label}[{bar}] {counter} {time.monotonic() - self._start:.1f}s"
+        )
 
         if note:
             line += f" {note}"

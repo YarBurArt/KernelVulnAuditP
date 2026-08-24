@@ -192,14 +192,26 @@ def test_cve_outcome_note_full_stats():
     note = AppServices._cve_outcome_note(
         _execution(
             pocs=[
-                _poc(SandboxRunResult(
-                    returncode=1, execution_mode="qemu", crashed=True,
-                    stdout="", stderr="", duration_ms=0.0,
-                )),
-                _poc(SandboxRunResult(
-                    returncode=0, execution_mode="qemu", crashed=False,
-                    stdout="", stderr="", duration_ms=0.0,
-                )),
+                _poc(
+                    SandboxRunResult(
+                        returncode=1,
+                        execution_mode="qemu",
+                        crashed=True,
+                        stdout="",
+                        stderr="",
+                        duration_ms=0.0,
+                    )
+                ),
+                _poc(
+                    SandboxRunResult(
+                        returncode=0,
+                        execution_mode="qemu",
+                        crashed=False,
+                        stdout="",
+                        stderr="",
+                        duration_ms=0.0,
+                    )
+                ),
                 _poc(error="boom"),
             ]
         )
@@ -214,10 +226,16 @@ def test_cve_outcome_note_no_ok_no_crash():
     note = AppServices._cve_outcome_note(
         _execution(
             pocs=[
-                _poc(SandboxRunResult(
-                    returncode=1, execution_mode="qemu", crashed=False,
-                    stdout="", stderr="", duration_ms=0.0,
-                ))
+                _poc(
+                    SandboxRunResult(
+                        returncode=1,
+                        execution_mode="qemu",
+                        crashed=False,
+                        stdout="",
+                        stderr="",
+                        duration_ms=0.0,
+                    )
+                )
             ]
         )
     )
@@ -230,10 +248,16 @@ def test_cve_outcome_note_crash_only():
     note = AppServices._cve_outcome_note(
         _execution(
             pocs=[
-                _poc(SandboxRunResult(
-                    returncode=1, execution_mode="qemu", crashed=True,
-                    stdout="", stderr="", duration_ms=0.0,
-                ))
+                _poc(
+                    SandboxRunResult(
+                        returncode=1,
+                        execution_mode="qemu",
+                        crashed=True,
+                        stdout="",
+                        stderr="",
+                        duration_ms=0.0,
+                    )
+                )
             ]
         )
     )
@@ -244,14 +268,26 @@ def test_cve_outcome_note_multiple_modes_no_mode():
     note = AppServices._cve_outcome_note(
         _execution(
             pocs=[
-                _poc(SandboxRunResult(
-                    returncode=0, execution_mode="qemu", crashed=False,
-                    stdout="", stderr="", duration_ms=0.0,
-                )),
-                _poc(SandboxRunResult(
-                    returncode=0, execution_mode="host", crashed=False,
-                    stdout="", stderr="", duration_ms=0.0,
-                )),
+                _poc(
+                    SandboxRunResult(
+                        returncode=0,
+                        execution_mode="qemu",
+                        crashed=False,
+                        stdout="",
+                        stderr="",
+                        duration_ms=0.0,
+                    )
+                ),
+                _poc(
+                    SandboxRunResult(
+                        returncode=0,
+                        execution_mode="host",
+                        crashed=False,
+                        stdout="",
+                        stderr="",
+                        duration_ms=0.0,
+                    )
+                ),
             ]
         )
     )
@@ -285,7 +321,13 @@ def test_register_poc_without_url():
 
 def test_build_poc_summary():
     summary = AppServices._build_poc_summary(
-        {"url": "u", "language": "C", "stars": 5, "compile_cmd": "gcc", "test_cmd": "./x"}
+        {
+            "url": "u",
+            "language": "C",
+            "stars": 5,
+            "compile_cmd": "gcc",
+            "test_cmd": "./x",
+        }
     )
     assert summary.url == "u"
     assert summary.language == "C"
@@ -309,7 +351,9 @@ def test_execute_poc_delegates_skipped_outcome(tmp_path):
 
 def test_execute_poc_error_outcome(tmp_path):
     s = _bare_services()
-    s.poc_runner.run.return_value = PocRunOutcome(error="compile failed: cc fail")
+    s.poc_runner.run.return_value = PocRunOutcome(
+        error="compile failed: cc fail"
+    )
     result = s._execute_poc(
         "CVE-2024-1",
         {"local_path": str(tmp_path), "compile_cmd": "gcc x.c"},
@@ -343,11 +387,16 @@ def test_generate_report():
     import app_services
     from application.dto import ReconResult
 
-    with mock.patch.object(
-        s, "run_full_recon", return_value=ReconResult(local=None, feeds=None)
-    ), mock.patch.object(
-        app_services, "format_report", return_value="<report>"
-    ) as fmt_mock:
+    with (
+        mock.patch.object(
+            s,
+            "run_full_recon",
+            return_value=ReconResult(local=None, feeds=None),
+        ),
+        mock.patch.object(
+            app_services, "format_report", return_value="<report>"
+        ) as fmt_mock,
+    ):
         assert s.generate_report() == "<report>"
     fmt_mock.assert_called_once()
 
@@ -404,12 +453,20 @@ def test_process_single_cve_gathers_pocs():
         mock.patch.object(
             s,
             "_record_poc_for_cve",
-            return_value=PocExecution(sandbox=SandboxRunResult(
-                returncode=0, execution_mode="qemu", crashed=False,
-                stdout="", stderr="", duration_ms=0.0,
-            )),
+            return_value=PocExecution(
+                sandbox=SandboxRunResult(
+                    returncode=0,
+                    execution_mode="qemu",
+                    crashed=False,
+                    stdout="",
+                    stderr="",
+                    duration_ms=0.0,
+                )
+            ),
         ),
-        mock.patch.object(GitHubExploitSearcher, "load_xpls", side_effect=fake_load),
+        mock.patch.object(
+            GitHubExploitSearcher, "load_xpls", side_effect=fake_load
+        ),
     ):
         import asyncio
 
@@ -443,7 +500,9 @@ def test_run_execution_tests_skips_none_entry():
             s, "_build_execution_context", new=mock.AsyncMock(return_value={})
         ),
         mock.patch.object(
-            s, "_collect_kernel_cves", return_value={"CVE-1": {"source": "les"}}
+            s,
+            "_collect_kernel_cves",
+            return_value={"CVE-1": {"source": "les"}},
         ),
         mock.patch.object(
             s, "_process_single_cve", new=mock.AsyncMock(return_value=None)
@@ -601,15 +660,22 @@ def test_save_host_recon(tmp_path):
         "system": "Linux",
     }
     s.lr.get_kernel_version_simple.return_value = "6.8.0"
-    s.lr.kernel_version = {"kernel_release": "r", "kernel_name": "n",
-                           "machine": "m", "platform_release": "p",
-                           "platform_system": "ps", "platform_version": "pv",
-                           "proc_version": "pr"}
+    s.lr.kernel_version = {
+        "kernel_release": "r",
+        "kernel_name": "n",
+        "machine": "m",
+        "platform_release": "p",
+        "platform_system": "ps",
+        "platform_version": "pv",
+        "proc_version": "pr",
+    }
     s.lr.get_loaded_kernel_modules.return_value = ["ext4", "", "kvm"]
     s.db.add_host_info.return_value = 7
 
     hid = s.save_host_recon(
-        selinux_booleans=[], process_capabilities=[], file_capabilities=[],
+        selinux_booleans=[],
+        process_capabilities=[],
+        file_capabilities=[],
         kernel_modules=["ext4", "", "kvm"],
     )
 
@@ -711,7 +777,9 @@ def test_run_execution_tests():
             s, "_build_execution_context", new=mock.AsyncMock(return_value={})
         ),
         mock.patch.object(
-            s, "_collect_kernel_cves", return_value={"CVE-1": {"source": "les"}}
+            s,
+            "_collect_kernel_cves",
+            return_value={"CVE-1": {"source": "les"}},
         ),
         mock.patch.object(
             s,
@@ -719,7 +787,9 @@ def test_run_execution_tests():
             new=mock.AsyncMock(return_value=CveExecution(cve_id="CVE-1")),
         ),
         mock.patch.object(
-            s, "_build_execution_report", return_value=ExecutionReport(entries=1)
+            s,
+            "_build_execution_report",
+            return_value=ExecutionReport(entries=1),
         ),
     ):
         result = s.run_execution_tests()
@@ -823,7 +893,9 @@ def test_process_single_cve():
     s = _bare_services()
     s.rf.get_cve_details.return_value = {}
     s.poc_searcher.search_repositories.return_value = [{"url": "u"}]
-    with mock.patch.object(GitHubExploitSearcher, "load_xpls", return_value=[]):
+    with mock.patch.object(
+        GitHubExploitSearcher, "load_xpls", return_value=[]
+    ):
         import asyncio
 
         entry = asyncio.run(
@@ -842,10 +914,16 @@ def test_record_poc_for_cve():
         mock.patch.object(
             s,
             "_execute_poc",
-            return_value=PocExecution(sandbox=SandboxRunResult(
-                returncode=0, execution_mode="qemu", crashed=False,
-                stdout="", stderr="", duration_ms=0.0,
-            )),
+            return_value=PocExecution(
+                sandbox=SandboxRunResult(
+                    returncode=0,
+                    execution_mode="qemu",
+                    crashed=False,
+                    stdout="",
+                    stderr="",
+                    duration_ms=0.0,
+                )
+            ),
         ),
     ):
         summary = s._record_poc_for_cve("CVE-2024-1", {"url": "u"})

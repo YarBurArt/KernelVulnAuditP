@@ -16,7 +16,9 @@ class ProgressBox(Horizontal):
         # Textual ProgressBar.percentage is progress/total, with total=None
         # it renders "--%" forever. then we feed a 0..1 fraction, so total must be 1.
         yield Label("", id="progress_label", classes="mono dim")
-        yield ProgressBar(id="progress_bar", total=1, show_percentage=True, show_eta=False)
+        yield ProgressBar(
+            id="progress_bar", total=1, show_percentage=True, show_eta=False
+        )
 
     def update(
         self,

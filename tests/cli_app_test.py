@@ -75,7 +75,9 @@ def test_progress_bar_step_accepts_note_kwarg():
     accept it (the old signature raised TypeError, which aborted the async
     flow and left asyncio.to_thread coroutines never awaited)."""
     with mock.patch.object(term, "stream_tty", return_value=True):
-        bar = term.ProgressBar(total=5, label="Local recon", stream=io.StringIO())
+        bar = term.ProgressBar(
+            total=5, label="Local recon", stream=io.StringIO()
+        )
         bar.step(label="lynis", note="147 checks")
         bar.step(label="linpeas", note="3 CVEs")
         bar.finish(note="complete")
@@ -100,9 +102,7 @@ def test_run_full_poc_tests_flow(mock_emit, mock_build, MockServices):
     services.run_execution_tests.return_value = ExecutionReport(
         cves_processed=1,
         entries=[
-            CveExecution(
-                pocs=[PocExecution(url="https://example.invalid/x")]
-            )
+            CveExecution(pocs=[PocExecution(url="https://example.invalid/x")])
         ],
     )
 
@@ -146,7 +146,9 @@ def test_main_cli_dispatch_full_poc(MockCLIApp):
 
 
 @mock.patch("cli_app.CLIApp")
-@mock.patch("sys.argv", ["main.py", "--exec-tests", "--format", "json", "-o", "x.json"])
+@mock.patch(
+    "sys.argv", ["main.py", "--exec-tests", "--format", "json", "-o", "x.json"]
+)
 def test_main_cli_exec_tests_emits_report(MockCLIApp):
     app = MockCLIApp.return_value
     main_cli(db=mock.Mock())

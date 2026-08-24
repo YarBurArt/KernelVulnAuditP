@@ -12,7 +12,7 @@ def calculate_criticality_score(data: dict[str, Any]) -> int:
     def as_float(value: Any) -> float:
         try:
             return float(value)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             return 0.0
 
     score = 0

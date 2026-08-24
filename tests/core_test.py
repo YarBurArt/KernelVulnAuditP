@@ -240,7 +240,9 @@ class TestTextParsing(unittest.TestCase):
     def test_extract_code_block_commands(self):
         text = "```bash\ngcc -O2 test.c -o test\n```"
         patterns = [r"gcc\s+\S+"]
-        result = extract_code_block_commands(text, patterns, languages=["bash"])
+        result = extract_code_block_commands(
+            text, patterns, languages=["bash"]
+        )
         self.assertGreaterEqual(len(result), 1)
         self.assertIn("gcc", result[0])
 
@@ -355,7 +357,9 @@ class TestCriticalityScore(unittest.TestCase):
         score = calculate_criticality_score(
             {"in_cisa_kev": True, "known_ransomware": True}
         )
-        self.assertGreater(score, calculate_criticality_score({"in_cisa_kev": True}))
+        self.assertGreater(
+            score, calculate_criticality_score({"in_cisa_kev": True})
+        )
 
     def test_exploit_only(self):
         score = calculate_criticality_score({"has_exploit": True})
@@ -425,7 +429,10 @@ class TestCVEHelpers(unittest.TestCase):
         self.assertEqual(result, [])
 
     def test_extract_english_description_found(self):
-        descriptions = [{"lang": "fr", "value": "truc"}, {"lang": "en", "value": "stuff"}]
+        descriptions = [
+            {"lang": "fr", "value": "truc"},
+            {"lang": "en", "value": "stuff"},
+        ]
         self.assertEqual(extract_english_description(descriptions), "stuff")
 
     def test_extract_english_description_fallback_first(self):
@@ -441,7 +448,10 @@ class TestCVEHelpers(unittest.TestCase):
         self.assertEqual(extract_english_description(descriptions), "real")
 
     def test_extract_english_description_empty_value(self):
-        descriptions = [{"lang": "en", "value": ""}, {"lang": "en", "value": "real"}]
+        descriptions = [
+            {"lang": "en", "value": ""},
+            {"lang": "en", "value": "real"},
+        ]
         self.assertEqual(extract_english_description(descriptions), "real")
 
     def test_extract_english_description_first_non_dict(self):
@@ -709,7 +719,11 @@ class TestRecommendationSeverity(unittest.TestCase):
         self.assertEqual(rec_severity({})[0], "INFO")
 
     def test_non_numeric_values_fall_back_to_status(self):
-        rec = {"expected_value": "n/a", "actual_value": "n/a", "status": "FAIL"}
+        rec = {
+            "expected_value": "n/a",
+            "actual_value": "n/a",
+            "status": "FAIL",
+        }
         self.assertEqual(rec_severity(rec)[0], "CRIT")
 
     def test_object_rec(self):
@@ -722,13 +736,16 @@ class TestRecommendationSeverity(unittest.TestCase):
 
     def test_audit_priority(self):
         self.assertEqual(
-            audit_priority({"expected_value": 2, "actual_value": 0}), (0, "CRIT")
+            audit_priority({"expected_value": 2, "actual_value": 0}),
+            (0, "CRIT"),
         )
         self.assertEqual(
-            audit_priority({"expected_value": 1, "actual_value": 0}), (1, "WARN")
+            audit_priority({"expected_value": 1, "actual_value": 0}),
+            (1, "WARN"),
         )
         self.assertEqual(
-            audit_priority({"expected_value": 0, "actual_value": 0}), (2, "INFO")
+            audit_priority({"expected_value": 0, "actual_value": 0}),
+            (2, "INFO"),
         )
         self.assertEqual(audit_priority({}), (2, "INFO"))
 
@@ -753,15 +770,24 @@ class TestRecommendationText(unittest.TestCase):
 
     def test_suggestion_ignores_no_description(self):
         rec = {"raw_data": {}, "description": "No description"}
-        self.assertEqual(suggestion_for(rec), "See the docs section for details")
+        self.assertEqual(
+            suggestion_for(rec), "See the docs section for details"
+        )
 
     def test_suggestion_related_fallback(self):
         rec = {"raw_data": {"related": "https://docs.example.com"}}
-        self.assertEqual(suggestion_for(rec), "Check with: https://docs.example.com")
+        self.assertEqual(
+            suggestion_for(rec), "Check with: https://docs.example.com"
+        )
 
     def test_rec_context_rows_selinux(self):
-        rec = {"source": "selinux", "raw_data": {"section": "s1", "persistent": "yes"}}
-        self.assertEqual(rec_context_rows(rec), ["Section: s1", "Persistent: yes"])
+        rec = {
+            "source": "selinux",
+            "raw_data": {"section": "s1", "persistent": "yes"},
+        }
+        self.assertEqual(
+            rec_context_rows(rec), ["Section: s1", "Persistent: yes"]
+        )
 
     def test_rec_context_rows_proc(self):
         rec = {"source": "proc", "raw_data": {"username": "u", "pid": 5}}
@@ -803,15 +829,31 @@ class TestLinkExtraction(unittest.TestCase):
             }
         }
         self.assertEqual(
-            extract_links(rec), ["https://example.com/a", "https://example.com/b", "https://example.com/c"]
+            extract_links(rec),
+            [
+                "https://example.com/a",
+                "https://example.com/b",
+                "https://example.com/c",
+            ],
         )
 
     def test_extract_links_top_level(self):
-        rec = {"link": "https://example.com/x", "links": ["https://example.com/y"]}
-        self.assertEqual(extract_links(rec), ["https://example.com/x", "https://example.com/y"])
+        rec = {
+            "link": "https://example.com/x",
+            "links": ["https://example.com/y"],
+        }
+        self.assertEqual(
+            extract_links(rec),
+            ["https://example.com/x", "https://example.com/y"],
+        )
 
     def test_extract_links_ignores_non_urls(self):
-        rec = {"raw_data": {"solution": "see docs", "url": "https://example.com/d"}}
+        rec = {
+            "raw_data": {
+                "solution": "see docs",
+                "url": "https://example.com/d",
+            }
+        }
         self.assertEqual(extract_links(rec), ["https://example.com/d"])
 
     def test_extract_links_empty(self):
@@ -824,9 +866,15 @@ class TestLinkExtraction(unittest.TestCase):
     def test_dedupe_links_across_recs(self):
         recs = [
             {"raw_data": {"link": "https://example.com/a"}},
-            {"raw_data": {"link": "https://example.com/a"}, "links": ["https://example.com/b"]},
+            {
+                "raw_data": {"link": "https://example.com/a"},
+                "links": ["https://example.com/b"],
+            },
         ]
-        self.assertEqual(dedupe_links(recs), ["https://example.com/a", "https://example.com/b"])
+        self.assertEqual(
+            dedupe_links(recs),
+            ["https://example.com/a", "https://example.com/b"],
+        )
 
     def test_dedupe_links_empty(self):
         self.assertEqual(dedupe_links([]), [])
@@ -854,7 +902,9 @@ class TestSandboxFormatting(unittest.TestCase):
         self.assertEqual(binary_output(stdout), "body")
 
     def test_format_run_timestamp(self):
-        self.assertEqual(format_run_timestamp("2024-01-15T10:30:00Z"), "10:30:00")
+        self.assertEqual(
+            format_run_timestamp("2024-01-15T10:30:00Z"), "10:30:00"
+        )
         self.assertEqual(
             format_run_timestamp("2024-01-15T10:30:00+02:00"), "10:30:00"
         )
@@ -872,7 +922,9 @@ class TestSandboxFormatting(unittest.TestCase):
 
     def test_format_kernel_line(self):
         self.assertEqual(format_kernel_line({"uname": "5.4.0"}), "5.4.0")
-        self.assertEqual(format_kernel_line({"date": "some date"}), "some date")
+        self.assertEqual(
+            format_kernel_line({"date": "some date"}), "some date"
+        )
         self.assertEqual(format_kernel_line({}), "N/A")
 
     def test_first_resource_line(self):
@@ -920,7 +972,9 @@ class TestSandboxFormatting(unittest.TestCase):
                             duration_ms=0.0,
                             crashed=True,
                             logs=RunLogs(binary="abc123"),
-                            kernel_info=KernelInfo(uname="Linux 6.9.0", date="d"),
+                            kernel_info=KernelInfo(
+                                uname="Linux 6.9.0", date="d"
+                            ),
                             resources=VmResources(meminfo="MemTotal: 512"),
                             modules=["mod_a"],
                             files=["/etc/passwd"],
@@ -959,7 +1013,9 @@ class TestSandboxFormatting(unittest.TestCase):
         self.assertIn("CVE-2026-0001", text)
         self.assertIn("CVSS 9.8", text)
         self.assertIn("Bad exploit demo", text)
-        self.assertIn("mode=virtme-ng returncode=1 success=False crashed=True", text)
+        self.assertIn(
+            "mode=virtme-ng returncode=1 success=False crashed=True", text
+        )
         self.assertIn("abc123", text)
         self.assertIn("line one", text)
         self.assertIn("line two", text)
@@ -1078,7 +1134,9 @@ class TestSandboxFormatting(unittest.TestCase):
             ]
         )
         text = format_execution_report(report)
-        self.assertIn("mode=qemu returncode=0 success=True crashed=False", text)
+        self.assertIn(
+            "mode=qemu returncode=0 success=True crashed=False", text
+        )
 
     def test_format_execution_report_sandbox_with_kernel_info_extra(self):
         report = ExecutionReport(
@@ -1096,7 +1154,9 @@ class TestSandboxFormatting(unittest.TestCase):
                                 duration_ms=0.0,
                                 logs=RunLogs(binary="beef"),
                                 kernel_info=KernelInfo(
-                                    uname="Linux 6.1", date="d", dmesg="boot log"
+                                    uname="Linux 6.1",
+                                    date="d",
+                                    dmesg="boot log",
                                 ),
                             ),
                         )
@@ -1233,7 +1293,6 @@ class TestDebugMapping(unittest.TestCase):
             logger.removeHandler(handler)
 
         self.assertEqual(handler.records, [])
-
 
 
 if __name__ == "__main__":

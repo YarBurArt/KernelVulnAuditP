@@ -120,14 +120,18 @@ class TestParseLine(unittest.TestCase):
         self.assertEqual(peas2json.FINAL_JSON, {})
 
     def test_title1_creates_main_section(self) -> None:
-        peas2json.parse_line("══════════════╣ System Information ╠══════════════")
+        peas2json.parse_line(
+            "══════════════╣ System Information ╠══════════════"
+        )
         self.assertIn("System Information", peas2json.FINAL_JSON)
         section = peas2json.FINAL_JSON["System Information"]
         self.assertEqual(section["lines"], [])
         self.assertEqual(section["infos"], [])
 
     def test_text_goes_to_current_main_section(self) -> None:
-        peas2json.parse_line("══════════════╣ System Information ╠══════════════")
+        peas2json.parse_line(
+            "══════════════╣ System Information ╠══════════════"
+        )
         peas2json.parse_line("some detail line")
         section = peas2json.FINAL_JSON["System Information"]
         self.assertEqual(len(section["lines"]), 1)
@@ -137,24 +141,37 @@ class TestParseLine(unittest.TestCase):
         self.assertEqual(entry["colors"], {})
 
     def test_title2_nested_under_main_section(self) -> None:
-        peas2json.parse_line("══════════════╣ System Information ╠══════════════")
+        peas2json.parse_line(
+            "══════════════╣ System Information ╠══════════════"
+        )
         peas2json.parse_line("╔══════════╣ Installed Tools")
         peas2json.parse_line("tool line")
         main = peas2json.FINAL_JSON["System Information"]
         self.assertIn("Installed Tools", main["sections"])
-        self.assertEqual(main["sections"]["Installed Tools"]["lines"][0]["raw_text"], "tool line")
+        self.assertEqual(
+            main["sections"]["Installed Tools"]["lines"][0]["raw_text"],
+            "tool line",
+        )
 
     def test_title3_nested_under_title2(self) -> None:
-        peas2json.parse_line("══════════════╣ System Information ╠══════════════")
+        peas2json.parse_line(
+            "══════════════╣ System Information ╠══════════════"
+        )
         peas2json.parse_line("╔══════════╣ Installed Tools")
         peas2json.parse_line("══╣ Check PE")
         peas2json.parse_line("pe line")
-        section = peas2json.FINAL_JSON["System Information"]["sections"]["Installed Tools"]
+        section = peas2json.FINAL_JSON["System Information"]["sections"][
+            "Installed Tools"
+        ]
         self.assertIn("Check PE", section["sections"])
-        self.assertEqual(section["sections"]["Check PE"]["lines"][0]["raw_text"], "pe line")
+        self.assertEqual(
+            section["sections"]["Check PE"]["lines"][0]["raw_text"], "pe line"
+        )
 
     def test_info_appended_to_current_section(self) -> None:
-        peas2json.parse_line("══════════════╣ System Information ╠══════════════")
+        peas2json.parse_line(
+            "══════════════╣ System Information ╠══════════════"
+        )
         peas2json.parse_line("╚ something noteworthy")
         section = peas2json.FINAL_JSON["System Information"]
         self.assertIn("something noteworthy", section["infos"])
@@ -179,13 +196,19 @@ class TestParseLine(unittest.TestCase):
         peas2json.parse_line("══╣ 2.3")
         self.assertIn("One", peas2json.FINAL_JSON)
         self.assertIn("Two", peas2json.FINAL_JSON)
-        self.assertIn("1.3", peas2json.FINAL_JSON["One"]["sections"]["1.2"]["sections"])
-        self.assertIn("2.3", peas2json.FINAL_JSON["Two"]["sections"]["2.2"]["sections"])
+        self.assertIn(
+            "1.3", peas2json.FINAL_JSON["One"]["sections"]["1.2"]["sections"]
+        )
+        self.assertIn(
+            "2.3", peas2json.FINAL_JSON["Two"]["sections"]["2.2"]["sections"]
+        )
 
 
 class TestParsePeass(unittest.TestCase):
     def _parse(self, content: str) -> dict[str, Any]:
-        with tempfile.NamedTemporaryFile("w", encoding="utf8", suffix=".out") as f:
+        with tempfile.NamedTemporaryFile(
+            "w", encoding="utf8", suffix=".out"
+        ) as f:
             f.write(content)
             f.flush()
             result = peas2json.parse_peass(f.name)
@@ -197,7 +220,9 @@ class TestParsePeass(unittest.TestCase):
         self.assertEqual(self._parse(""), {})
 
     def test_blank_and_color_only_lines_are_skipped(self) -> None:
-        content = "\n\n\x1b[1;31m\x1b[0m\n══════════════╣ System ╠══\n\n\x1b[0m\n"
+        content = (
+            "\n\n\x1b[1;31m\x1b[0m\n══════════════╣ System ╠══\n\n\x1b[0m\n"
+        )
         result = self._parse(content)
         self.assertIn("System", result)
         self.assertEqual(result["System"]["lines"], [])
@@ -206,7 +231,9 @@ class TestParsePeass(unittest.TestCase):
         first = self._parse("══════════════╣ First ╠══\nline\n")
         second = self._parse("══════════════╣ Second ╠══\n")
         self.assertNotIn("First", second)
-        self.assertEqual(second, {"Second": {"sections": {}, "lines": [], "infos": []}})
+        self.assertEqual(
+            second, {"Second": {"sections": {}, "lines": [], "infos": []}}
+        )
         self.assertIn("First", first)
 
     def test_colored_text_is_parsed_clean(self) -> None:
@@ -245,7 +272,9 @@ class TestParsePeass(unittest.TestCase):
 
     def test_parse_to_json_file(self) -> None:
         content = "══════════════╣ System ╠══\nline\n"
-        with tempfile.NamedTemporaryFile("w", encoding="utf8", suffix=".out") as src:
+        with tempfile.NamedTemporaryFile(
+            "w", encoding="utf8", suffix=".out"
+        ) as src:
             src.write(content)
             src.flush()
             with tempfile.NamedTemporaryFile("w", suffix=".json") as dst:

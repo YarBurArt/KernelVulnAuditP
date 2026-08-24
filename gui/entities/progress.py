@@ -71,7 +71,9 @@ class ProgressAdapter:
             self._label = label
         self._emit(note=note)
 
-    def step(self, amount: int = 1, label: str | None = None, note: str = "") -> None:
+    def step(
+        self, amount: int = 1, label: str | None = None, note: str = ""
+    ) -> None:
         self.update(self._n + amount, label, note)
 
     def detail(self, label: str, note: str = "") -> None:

@@ -102,7 +102,9 @@ class ParseVmResults:
         if len(res) >= 2:
             resources["stat"] = "\n".join(res[1:])
 
-        modules = [line for line in sections.get("modules", []) if line.strip()]
+        modules = [
+            line for line in sections.get("modules", []) if line.strip()
+        ]
         if not modules:
             dmesg = sections.get("dmesg", [])
             for line in dmesg:
@@ -111,7 +113,9 @@ class ParseVmResults:
                     modules.append(match.group(1))
 
         files = [
-            line for line in sections.get("filesystem_snapshot", []) if line.strip()
+            line
+            for line in sections.get("filesystem_snapshot", [])
+            if line.strip()
         ]
         processes = [
             line for line in sections.get("process_list", []) if line.strip()

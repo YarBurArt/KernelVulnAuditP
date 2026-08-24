@@ -83,12 +83,14 @@ class LocalRecon:
         # from /proc/version file if available
         if os.path.exists("/proc/version"):
             try:
-                with open("/proc/version", "r") as f:
+                with open("/proc/version") as f:
                     kernel_info["proc_version"] = f.read().strip()
             except OSError as e:
                 logger.debug("kernel /proc/version error: %s", e)
 
-        logger.info("collected kernel version: %s", kernel_info["kernel_version"])
+        logger.info(
+            "collected kernel version: %s", kernel_info["kernel_version"]
+        )
         logger.debug("kernel info: %s", kernel_info)
         return kernel_info
 
@@ -97,7 +99,9 @@ class LocalRecon:
         """get information about the environment"""
         # base system information
         os_rel_info = platform.freedesktop_os_release()
-        distro_name = os_rel_info.get("PRETTY_NAME") or os_rel_info.get("NAME", "")
+        distro_name = os_rel_info.get("PRETTY_NAME") or os_rel_info.get(
+            "NAME", ""
+        )
         env_info = {
             "platform": platform.platform(),
             "system": platform.system(),
@@ -125,7 +129,9 @@ class LocalRecon:
     @staticmethod
     def get_kernel_version_simple():
         """kernel version string"""
-        return ".".join(re.split(r"[+-]", platform.release())[0].split(".")[:3])
+        return ".".join(
+            re.split(r"[+-]", platform.release())[0].split(".")[:3]
+        )
 
     @staticmethod
     def get_kernel_build_date(version) -> int:
@@ -146,7 +152,7 @@ class LocalRecon:
                     date_str = line.replace("Date:", "").strip()
                     try:
                         parsed = parsedate_to_datetime(date_str)
-                    except (TypeError, ValueError):
+                    except TypeError, ValueError:
                         # date-only variant (e.g. "Mon, 14 Aug 2023"): interpret
                         # as UTC midnight so .timestamp() never depends on the
                         # host's local timezone
@@ -165,7 +171,10 @@ class LocalRecon:
             logger.warning(
                 "kernel build date lookup failed for %s (%s): %s",
                 version,
-                url or CH_API_URL.format(major=version.split(".")[0], version=version),
+                url
+                or CH_API_URL.format(
+                    major=version.split(".")[0], version=version
+                ),
                 e,
             )
 
@@ -174,7 +183,10 @@ class LocalRecon:
                 "no kernel build date found for %s (checked %s); CVE age and "
                 "KEV correlations will be limited",
                 version,
-                url or CH_API_URL.format(major=version.split(".")[0], version=version),
+                url
+                or CH_API_URL.format(
+                    major=version.split(".")[0], version=version
+                ),
             )
         _BUILD_DATE_CACHE[version] = result
         return result
@@ -206,7 +218,11 @@ class LocalRecon:
                     check=True,
                     timeout=RECON_TOOL_TIMEOUT_SEC,
                 )
-        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError) as e:
+        except (
+            subprocess.CalledProcessError,
+            subprocess.TimeoutExpired,
+            OSError,
+        ) as e:
             reason = (
                 f"timed out after {RECON_TOOL_TIMEOUT_SEC}s"
                 if isinstance(e, subprocess.TimeoutExpired)
@@ -239,7 +255,9 @@ class LocalRecon:
 
             Path(output_path).unlink(missing_ok=True)
             self.run_linpeas(output_path)
-            data: dict = self.parser.convert_linpeas_to_dict(output_path=output_path)
+            data: dict = self.parser.convert_linpeas_to_dict(
+                output_path=output_path
+            )
             return self.parser.extract_useful_info_peas(data)
         except ValueError as e:
             # PEAS output was present but unparseable
@@ -279,7 +297,11 @@ class LocalRecon:
             dest.write_text(proc.stdout, encoding="utf-8")
             logger.info("LES scan completed and saved to: %s", dest)
             return True
-        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError) as e:
+        except (
+            subprocess.CalledProcessError,
+            subprocess.TimeoutExpired,
+            OSError,
+        ) as e:
             reason = (
                 f"timed out after {RECON_TOOL_TIMEOUT_SEC}s"
                 if isinstance(e, subprocess.TimeoutExpired)
@@ -388,7 +410,11 @@ class LocalRecon:
                             status=(
                                 "ok"
                                 if ok_s
-                                else ("missing" if actual_raw == "" else "mismatch")
+                                else (
+                                    "missing"
+                                    if actual_raw == ""
+                                    else "mismatch"
+                                )
                             ),
                             severity="medium",
                             source="lynis",
@@ -404,7 +430,8 @@ class LocalRecon:
                     )
 
             logger.debug(
-                "prepared %d lynis kernel hardening recommendations", len(results)
+                "prepared %d lynis kernel hardening recommendations",
+                len(results),
             )
             return results
 
@@ -450,7 +477,7 @@ class LocalRecon:
         """build per-boolean hardening recommendations by comparing the
         hardened state from selinux_params.json with the live getsebool value,
         based on https://access.redhat.com/articles/7047896
-        and https://github.com/fedora-selinux/selinux-playbooks """
+        and https://github.com/fedora-selinux/selinux-playbooks"""
         params = self.parser.load_selinux_params(params_path)
         current = self.parser.getsebool_values()
 
@@ -496,7 +523,9 @@ class LocalRecon:
                     )
                 )
 
-        logger.info("prepared %d SELinux hardening recommendations", len(results))
+        logger.info(
+            "prepared %d SELinux hardening recommendations", len(results)
+        )
         return results
 
     def get_pids_caps(self) -> list[HostProcessCapabilities]:
@@ -526,7 +555,9 @@ class LocalRecon:
             result = [
                 caps
                 for caps in pool.map(
-                    lambda pid: self._read_pid_caps(proc_root / str(pid) / "status", pid),
+                    lambda pid: self._read_pid_caps(
+                        proc_root / str(pid) / "status", pid
+                    ),
                     pids,
                 )
                 if caps is not None
@@ -543,7 +574,9 @@ class LocalRecon:
         try:
             if not status_file.is_file():
                 return None
-            status_text = status_file.read_text(encoding="utf-8", errors="ignore")
+            status_text = status_file.read_text(
+                encoding="utf-8", errors="ignore"
+            )
         except (PermissionError, OSError) as e:
             logger.debug("skip pid %s status: %s", pid, e)
             return None
@@ -676,7 +709,8 @@ class LocalRecon:
                     ),
                     field_name=proc_label,
                     expected_value="none",
-                    actual_value=",".join(eff_names) or (pc.cap_effective or ""),
+                    actual_value=",".join(eff_names)
+                    or (pc.cap_effective or ""),
                     status=status,
                     severity=severity,
                     source="proc",

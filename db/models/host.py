@@ -26,7 +26,9 @@ class HostEnvironmentVariable(Base):
 
     __tablename__ = "host_environment_variables"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(
+        Integer, primary_key=True, autoincrement=True
+    )
     host_info_id: Mapped[int] = mapped_column(
         Integer,
         ForeignKey("host_info.id", ondelete="CASCADE"),
@@ -36,7 +38,9 @@ class HostEnvironmentVariable(Base):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     value: Mapped[str | None] = mapped_column(Text)
 
-    host_info: Mapped[HostInfo] = relationship(back_populates="environment_variables")
+    host_info: Mapped[HostInfo] = relationship(
+        back_populates="environment_variables"
+    )
 
     __table_args__ = (
         UniqueConstraint("host_info_id", "name", name="uq_host_env_var"),
@@ -56,7 +60,9 @@ class HostKernelParameter(Base):
 
     __tablename__ = "host_kernel_parameters"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(
+        Integer, primary_key=True, autoincrement=True
+    )
     host_info_id: Mapped[int] = mapped_column(
         Integer,
         ForeignKey("host_info.id", ondelete="CASCADE"),
@@ -66,10 +72,14 @@ class HostKernelParameter(Base):
     parameter_name: Mapped[str] = mapped_column(String(255), nullable=False)
     parameter_value: Mapped[str | None] = mapped_column(String(500))
 
-    host_info: Mapped[HostInfo] = relationship(back_populates="kernel_parameters")
+    host_info: Mapped[HostInfo] = relationship(
+        back_populates="kernel_parameters"
+    )
 
     __table_args__ = (
-        UniqueConstraint("host_info_id", "parameter_name", name="uq_host_kernel_param"),
+        UniqueConstraint(
+            "host_info_id", "parameter_name", name="uq_host_kernel_param"
+        ),
     )
 
     def to_dict(self) -> dict[str, Any]:
@@ -86,7 +96,9 @@ class HostBootParameter(Base):
 
     __tablename__ = "host_boot_parameters"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(
+        Integer, primary_key=True, autoincrement=True
+    )
     host_info_id: Mapped[int] = mapped_column(
         Integer,
         ForeignKey("host_info.id", ondelete="CASCADE"),
@@ -96,10 +108,14 @@ class HostBootParameter(Base):
     parameter_name: Mapped[str] = mapped_column(String(255), nullable=False)
     parameter_value: Mapped[str | None] = mapped_column(String(1000))
 
-    host_info: Mapped[HostInfo] = relationship(back_populates="boot_parameters")
+    host_info: Mapped[HostInfo] = relationship(
+        back_populates="boot_parameters"
+    )
 
     __table_args__ = (
-        UniqueConstraint("host_info_id", "parameter_name", name="uq_host_boot_param"),
+        UniqueConstraint(
+            "host_info_id", "parameter_name", name="uq_host_boot_param"
+        ),
     )
 
     def to_dict(self) -> dict[str, Any]:
@@ -116,14 +132,18 @@ class HostKernelModule(Base):
 
     __tablename__ = "host_kernel_modules"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(
+        Integer, primary_key=True, autoincrement=True
+    )
     host_info_id: Mapped[int] = mapped_column(
         Integer,
         ForeignKey("host_info.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
-    module_name: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    module_name: Mapped[str] = mapped_column(
+        String(255), nullable=False, index=True
+    )
     size: Mapped[int | None] = mapped_column(Integer)
     refcount: Mapped[int | None] = mapped_column(Integer)
     used_by: Mapped[str | None] = mapped_column(String(500))
@@ -150,14 +170,18 @@ class HostKernelHardening(Base):
 
     __tablename__ = "host_kernel_hardening"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(
+        Integer, primary_key=True, autoincrement=True
+    )
     host_info_id: Mapped[int] = mapped_column(
         Integer,
         ForeignKey("host_info.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
-    test_id: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
+    test_id: Mapped[str] = mapped_column(
+        String(50), nullable=False, index=True
+    )
     category: Mapped[str | None] = mapped_column(String(100))
     description: Mapped[str | None] = mapped_column(Text)
     field_name: Mapped[str | None] = mapped_column(String(255))
@@ -169,7 +193,9 @@ class HostKernelHardening(Base):
     solution: Mapped[str | None] = mapped_column(Text)
     details: Mapped[str | None] = mapped_column(Text)
 
-    host_info: Mapped[HostInfo] = relationship(back_populates="kernel_hardening")
+    host_info: Mapped[HostInfo] = relationship(
+        back_populates="kernel_hardening"
+    )
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -194,7 +220,9 @@ class HostSELinuxBoolean(Base):
 
     __tablename__ = "host_selinux_booleans"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(
+        Integer, primary_key=True, autoincrement=True
+    )
     host_info_id: Mapped[int] = mapped_column(
         Integer,
         ForeignKey("host_info.id", ondelete="CASCADE"),
@@ -204,10 +232,14 @@ class HostSELinuxBoolean(Base):
     boolean_name: Mapped[str] = mapped_column(String(255), nullable=False)
     value: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
-    host_info: Mapped[HostInfo] = relationship(back_populates="selinux_booleans")
+    host_info: Mapped[HostInfo] = relationship(
+        back_populates="selinux_booleans"
+    )
 
     __table_args__ = (
-        UniqueConstraint("host_info_id", "boolean_name", name="uq_host_selinux_bool"),
+        UniqueConstraint(
+            "host_info_id", "boolean_name", name="uq_host_selinux_bool"
+        ),
     )
 
     def to_dict(self) -> dict[str, Any]:
@@ -224,20 +256,26 @@ class HostUser(Base):
 
     __tablename__ = "host_users"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(
+        Integer, primary_key=True, autoincrement=True
+    )
     host_info_id: Mapped[int] = mapped_column(
         Integer,
         ForeignKey("host_info.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
-    username: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    username: Mapped[str] = mapped_column(
+        String(100), nullable=False, index=True
+    )
     uid: Mapped[int | None] = mapped_column(Integer)
     gid: Mapped[int | None] = mapped_column(Integer)
     home_dir: Mapped[str | None] = mapped_column(String(1000))
     shell: Mapped[str | None] = mapped_column(String(255))
     gecos: Mapped[str | None] = mapped_column(String(500))
-    last_login: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_login: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
     locked: Mapped[bool | None] = mapped_column(Boolean)
 
     host_info: Mapped[HostInfo] = relationship(back_populates="users")
@@ -256,7 +294,9 @@ class HostUser(Base):
             "home_dir": self.home_dir,
             "shell": self.shell,
             "gecos": self.gecos,
-            "last_login": self.last_login.isoformat() if self.last_login else None,
+            "last_login": self.last_login.isoformat()
+            if self.last_login
+            else None,
             "locked": self.locked,
         }
 
@@ -266,14 +306,18 @@ class HostGroup(Base):
 
     __tablename__ = "host_groups"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(
+        Integer, primary_key=True, autoincrement=True
+    )
     host_info_id: Mapped[int] = mapped_column(
         Integer,
         ForeignKey("host_info.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
-    group_name: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    group_name: Mapped[str] = mapped_column(
+        String(100), nullable=False, index=True
+    )
     gid: Mapped[int | None] = mapped_column(Integer)
 
     host_info: Mapped[HostInfo] = relationship(back_populates="groups")
@@ -301,7 +345,9 @@ class HostGroupMember(Base):
 
     __tablename__ = "host_group_members"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(
+        Integer, primary_key=True, autoincrement=True
+    )
     host_group_id: Mapped[int] = mapped_column(
         Integer,
         ForeignKey("host_groups.id", ondelete="CASCADE"),
@@ -313,7 +359,9 @@ class HostGroupMember(Base):
     group: Mapped[HostGroup] = relationship(back_populates="members")
 
     __table_args__ = (
-        UniqueConstraint("host_group_id", "username", name="uq_host_group_member"),
+        UniqueConstraint(
+            "host_group_id", "username", name="uq_host_group_member"
+        ),
     )
 
     def to_dict(self) -> dict[str, Any]:
@@ -329,7 +377,9 @@ class HostNamespace(Base):
 
     __tablename__ = "host_namespaces"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(
+        Integer, primary_key=True, autoincrement=True
+    )
     host_info_id: Mapped[int] = mapped_column(
         Integer,
         ForeignKey("host_info.id", ondelete="CASCADE"),
@@ -365,7 +415,9 @@ class HostCgroup(Base):
 
     __tablename__ = "host_cgroups"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(
+        Integer, primary_key=True, autoincrement=True
+    )
     host_info_id: Mapped[int] = mapped_column(
         Integer,
         ForeignKey("host_info.id", ondelete="CASCADE"),
@@ -403,7 +455,9 @@ class HostProcess(Base):
 
     __tablename__ = "host_processes"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(
+        Integer, primary_key=True, autoincrement=True
+    )
     host_info_id: Mapped[int] = mapped_column(
         Integer,
         ForeignKey("host_info.id", ondelete="CASCADE"),
@@ -445,7 +499,9 @@ class HostFile(Base):
 
     __tablename__ = "host_files"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(
+        Integer, primary_key=True, autoincrement=True
+    )
     host_info_id: Mapped[int] = mapped_column(
         Integer,
         ForeignKey("host_info.id", ondelete="CASCADE"),
@@ -503,7 +559,9 @@ class HostFileCapabilities(Base):
 
     __tablename__ = "host_file_capabilities"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(
+        Integer, primary_key=True, autoincrement=True
+    )
     host_info_id: Mapped[int] = mapped_column(
         Integer,
         ForeignKey("host_info.id", ondelete="CASCADE"),
@@ -518,7 +576,9 @@ class HostFileCapabilities(Base):
     cap_bounding: Mapped[str | None] = mapped_column(String(100))
     cap_ambient: Mapped[str | None] = mapped_column(String(100))
 
-    host_info: Mapped[HostInfo] = relationship(back_populates="file_capabilities")
+    host_info: Mapped[HostInfo] = relationship(
+        back_populates="file_capabilities"
+    )
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -539,7 +599,9 @@ class HostProcessCapabilities(Base):
 
     __tablename__ = "host_process_capabilities"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(
+        Integer, primary_key=True, autoincrement=True
+    )
     host_info_id: Mapped[int] = mapped_column(
         Integer,
         ForeignKey("host_info.id", ondelete="CASCADE"),
@@ -557,7 +619,9 @@ class HostProcessCapabilities(Base):
     secbits: Mapped[str | None] = mapped_column(String(100))
     no_new_privs: Mapped[bool | None] = mapped_column(Boolean)
 
-    host_info: Mapped[HostInfo] = relationship(back_populates="process_capabilities")
+    host_info: Mapped[HostInfo] = relationship(
+        back_populates="process_capabilities"
+    )
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -586,7 +650,9 @@ class HostInfo(Base):
 
     __tablename__ = "host_info"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(
+        Integer, primary_key=True, autoincrement=True
+    )
     captured_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), index=True
     )
@@ -624,9 +690,11 @@ class HostInfo(Base):
         onupdate=datetime.now(UTC),
     )
 
-    environment_variables: Mapped[list[HostEnvironmentVariable]] = relationship(
-        back_populates="host_info",
-        cascade="all, delete-orphan",
+    environment_variables: Mapped[list[HostEnvironmentVariable]] = (
+        relationship(
+            back_populates="host_info",
+            cascade="all, delete-orphan",
+        )
     )
     kernel_parameters: Mapped[list[HostKernelParameter]] = relationship(
         back_populates="host_info",
@@ -684,7 +752,9 @@ class HostInfo(Base):
     def to_dict(self) -> dict[str, Any]:
         return {
             "id": self.id,
-            "captured_at": self.captured_at.isoformat() if self.captured_at else None,
+            "captured_at": self.captured_at.isoformat()
+            if self.captured_at
+            else None,
             "hostname": self.hostname,
             "kernel_version": self.kernel_version,
             "kernel_release": self.kernel_release,
@@ -710,9 +780,15 @@ class HostInfo(Base):
             "selinux_mode": self.selinux_mode,
             "selinux_mount": self.selinux_mount,
             "notes": self.notes,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
-            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
-            "environment_variables": [e.to_dict() for e in self.environment_variables],
+            "created_at": self.created_at.isoformat()
+            if self.created_at
+            else None,
+            "updated_at": self.updated_at.isoformat()
+            if self.updated_at
+            else None,
+            "environment_variables": [
+                e.to_dict() for e in self.environment_variables
+            ],
             "kernel_parameters": [p.to_dict() for p in self.kernel_parameters],
             "boot_parameters": [b.to_dict() for b in self.boot_parameters],
             "kernel_modules": [m.to_dict() for m in self.kernel_modules],
@@ -724,7 +800,9 @@ class HostInfo(Base):
             "cgroups": [c.to_dict() for c in self.cgroups],
             "processes": [p.to_dict() for p in self.processes],
             "files": [f.to_dict() for f in self.files],
-            "file_capabilities": [fc.to_dict() for fc in self.file_capabilities],
+            "file_capabilities": [
+                fc.to_dict() for fc in self.file_capabilities
+            ],
             "process_capabilities": [
                 pc.to_dict() for pc in self.process_capabilities
             ],

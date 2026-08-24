@@ -27,7 +27,10 @@ def update_config_file(config_path: Path, updates: dict[str, str]) -> None:
             pattern = rf'^{key}\s*=\s*["\'].*["\']'
 
         config_content = re.sub(
-            pattern, f"{key} = {replacement}", config_content, flags=re.MULTILINE
+            pattern,
+            f"{key} = {replacement}",
+            config_content,
+            flags=re.MULTILINE,
         )
 
     config_path.write_text(config_content, encoding="utf-8")

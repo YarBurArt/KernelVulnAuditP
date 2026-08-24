@@ -55,7 +55,7 @@ def generate_report(raw_d):
 
 if __name__ == "__main__":
     try:
-        with open("report_data.json", "r") as f:
+        with open("report_data.json") as f:
             data = json.load(f)
             generate_report(data)
     except FileNotFoundError as e:

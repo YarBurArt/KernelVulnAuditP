@@ -40,6 +40,7 @@ _STATUS_RANK = {
     "ok": 5,
 }
 
+
 def _comparison_status(expected: str, actual: str) -> str:
     """Return ok/mismatch/missing for a recommended-vs-current comparison.
     pipe-delimited recommended value (e.g. 2|3|4) is treated as an allowed
@@ -75,8 +76,10 @@ def collect_sandbox_modules(data: dict[str, Any]) -> set[str]:
 
 def host_module_set(host_info: Any) -> set[str]:
     """Set of module names from a host info snapshot"""
-    modules = host_info.get("kernel_modules", []) if isinstance(host_info, dict) else (
-        getattr(host_info, "kernel_modules", []) or []
+    modules = (
+        host_info.get("kernel_modules", [])
+        if isinstance(host_info, dict)
+        else (getattr(host_info, "kernel_modules", []) or [])
     )
     result: set[str] = set()
     for mod in modules or []:
@@ -92,14 +95,18 @@ def host_module_names(host_info: Any) -> list[str]:
 
 def host_param_map(host_info: Any) -> dict[str, str]:
     """Map kernel parameter name -> value from a host info snapshot."""
-    params = host_info.get("kernel_parameters", []) if isinstance(
-        host_info, dict
-    ) else (getattr(host_info, "kernel_parameters", []) or [])
+    params = (
+        host_info.get("kernel_parameters", [])
+        if isinstance(host_info, dict)
+        else (getattr(host_info, "kernel_parameters", []) or [])
+    )
     result: dict[str, str] = {}
     for param in params or []:
         name = safe_get_attr(param, "parameter_name")
         if name:
-            result[str(name)] = str(safe_get_attr(param, "parameter_value", "") or "")
+            result[str(name)] = str(
+                safe_get_attr(param, "parameter_value", "") or ""
+            )
     return result
 
 
@@ -163,7 +170,11 @@ def build_param_diff(
     """
     rows: list[dict[str, Any]] = []
     for rec in kernel_recs or []:
-        key = safe_get_attr(rec, "field_name") or safe_get_attr(rec, "test_id") or "?"
+        key = (
+            safe_get_attr(rec, "field_name")
+            or safe_get_attr(rec, "test_id")
+            or "?"
+        )
         expected = str(safe_get_attr(rec, "expected_value", "") or "")
         actual = str(safe_get_attr(rec, "actual_value", "") or "")
         rows.append(
@@ -182,9 +193,11 @@ def build_param_diff(
 
 def host_selinux_map(host_info: Any) -> dict[str, bool]:
     """Map SELinux boolean name -> current value from a host snapshot."""
-    bools = host_info.get("selinux_booleans", []) if isinstance(
-        host_info, dict
-    ) else (getattr(host_info, "selinux_booleans", []) or [])
+    bools = (
+        host_info.get("selinux_booleans", [])
+        if isinstance(host_info, dict)
+        else (getattr(host_info, "selinux_booleans", []) or [])
+    )
     result: dict[str, bool] = {}
     for b in bools or []:
         name = safe_get_attr(b, "boolean_name")
@@ -202,8 +215,10 @@ def _load_json_cfg(path: str | Path) -> dict[str, Any]:
         return {}
 
 
-def load_selinux_params(path: str | Path = "recon/selinux_params.json") -> dict[str, Any]:
-    return _load_json_cfg(path) # config taken from RedHat hardening playbooks
+def load_selinux_params(
+    path: str | Path = "recon/selinux_params.json",
+) -> dict[str, Any]:
+    return _load_json_cfg(path)  # config taken from RedHat hardening playbooks
 
 
 def build_selinux_diff(
@@ -213,8 +228,10 @@ def build_selinux_diff(
 ) -> list[dict[str, Any]]:
     """SELinux boolean hardening: recommended (selinux_params.json) vs current"""
     current = host_selinux_map(host_info)
-    params = selinux_params if selinux_params is not None else _load_json_cfg(
-        params_path
+    params = (
+        selinux_params
+        if selinux_params is not None
+        else _load_json_cfg(params_path)
     )
     rows: list[dict[str, Any]] = []
     for section in (params or {}).values():
@@ -248,16 +265,20 @@ def build_selinux_diff(
 
 
 def _host_file_caps(host_info: Any) -> list[dict[str, Any]]:
-    entry = host_info.get("file_capabilities", []) if isinstance(
-        host_info, dict
-    ) else (getattr(host_info, "file_capabilities", []) or [])
+    entry = (
+        host_info.get("file_capabilities", [])
+        if isinstance(host_info, dict)
+        else (getattr(host_info, "file_capabilities", []) or [])
+    )
     return list(entry or [])
 
 
 def _host_proc_caps(host_info: Any) -> list[dict[str, Any]]:
-    entry = host_info.get("process_capabilities", []) if isinstance(
-        host_info, dict
-    ) else (getattr(host_info, "process_capabilities", []) or [])
+    entry = (
+        host_info.get("process_capabilities", [])
+        if isinstance(host_info, dict)
+        else (getattr(host_info, "process_capabilities", []) or [])
+    )
     return list(entry or [])
 
 
@@ -283,8 +304,20 @@ def build_caps_diff(
         rows: list[dict[str, Any]] = []
         for fc in _host_file_caps(host_info):
             names = sorted(
-                {c for c in (safe_get_attr(fc, "cap_effective") or "").split(",") if c}
-                | {c for c in (safe_get_attr(fc, "cap_permitted") or "").split(",") if c}
+                {
+                    c
+                    for c in (safe_get_attr(fc, "cap_effective") or "").split(
+                        ","
+                    )
+                    if c
+                }
+                | {
+                    c
+                    for c in (safe_get_attr(fc, "cap_permitted") or "").split(
+                        ","
+                    )
+                    if c
+                }
             )
             if not names:
                 continue
@@ -319,19 +352,27 @@ def build_caps_diff(
     return build_hardening_diff(cap_recs or [], "capability")
 
 
-def build_hardening_diff(recs: list[Any], diff_type: str) -> list[dict[str, Any]]:
+def build_hardening_diff(
+    recs: list[Any], diff_type: str
+) -> list[dict[str, Any]]:
     """FAIL/WARNING hardening divergences (capabilities / SELinux)."""
     rows: list[dict[str, Any]] = []
     for rec in recs or []:
         status = str(safe_get_attr(rec, "status", "")).upper()
         if status not in ("FAIL", "WARNING"):
             continue
-        key = safe_get_attr(rec, "field_name") or safe_get_attr(rec, "test_id") or "?"
+        key = (
+            safe_get_attr(rec, "field_name")
+            or safe_get_attr(rec, "test_id")
+            or "?"
+        )
         rows.append(
             {
                 "type": diff_type,
                 "key": str(key),
-                "expected": str(safe_get_attr(rec, "expected_value", "") or ""),
+                "expected": str(
+                    safe_get_attr(rec, "expected_value", "") or ""
+                ),
                 "actual": str(safe_get_attr(rec, "actual_value", "") or ""),
                 "status": status,
                 "detail": str(safe_get_attr(rec, "description", "") or ""),
@@ -359,10 +400,14 @@ def build_diff(
     """Aggregate all diff rows, sorted by (section, severity, key)."""
     # if host_info is given, capabilities come from it
     cap_rows = build_caps_diff(host_info) if host_info is not None else []
-    selinux_rows = build_selinux_diff(
-        host_info=host_info,
-        selinux_params=selinux_params,
-    ) if host_info is not None else []
+    selinux_rows = (
+        build_selinux_diff(
+            host_info=host_info,
+            selinux_params=selinux_params,
+        )
+        if host_info is not None
+        else []
+    )
 
     rows = build_module_diff(sandbox_modules, host_modules)
     rows += build_param_diff(kernel_recs)
@@ -531,7 +576,11 @@ def _holder_lines_from_procs(procs: dict[str, list[str]]) -> list[str]:
         pids: list[str] = []
         for n in sorted(names):
             pids += procs[n]
-        label = f"{base}/{unicode_glyph('…', '...')}" if len(names) > 1 else names[0]
+        label = (
+            f"{base}/{unicode_glyph('…', '...')}"
+            if len(names) > 1
+            else names[0]
+        )
         lines.append(_process_label(label, _sort_pids(pids)))
     return lines
 
@@ -545,7 +594,9 @@ def _build_capability_section(
     """
     groups: dict[tuple[str, ...], dict[str, Any]] = {}
     for row in capability_rows:
-        caps = tuple(name for name in str(row.get("actual") or "").split(",") if name)
+        caps = tuple(
+            name for name in str(row.get("actual") or "").split(",") if name
+        )
         status = str(row.get("status") or "").lower()
         group = groups.setdefault(
             caps,
@@ -573,7 +624,9 @@ def _build_capability_section(
             owner = ""
             if "owner:" in detail:
                 owner = detail.split("owner:", 1)[1].strip().rstrip(")")
-            group["files"].append(_cap_holder_label(str(row.get("key") or "?"), owner))
+            group["files"].append(
+                _cap_holder_label(str(row.get("key") or "?"), owner)
+            )
 
     rows: list[dict[str, Any]] = []
     for caps, group in groups.items():
@@ -648,10 +701,16 @@ def build_diff_columns(
 
         if kind == "module":
             sandbox_only = [
-                str(r["key"]) for r in rows if str(r.get("status", "")).lower() == "new"
+                str(r["key"])
+                for r in rows
+                if str(r.get("status", "")).lower() == "new"
             ]
             host_only = sorted(
-                {str(r["key"]) for r in rows if str(r.get("status", "")).lower() != "new"}
+                {
+                    str(r["key"])
+                    for r in rows
+                    if str(r.get("status", "")).lower() != "new"
+                }
             )
             groups = []
             if sandbox_only:
@@ -671,7 +730,11 @@ def build_diff_columns(
             sections[kind] = {
                 "label": label,
                 "layout": "module",
-                "rows": [r for r in rows if str(r.get("status", "")).lower() == "new"],
+                "rows": [
+                    r
+                    for r in rows
+                    if str(r.get("status", "")).lower() == "new"
+                ],
                 "groups": groups,
             }
         elif kind == "capability":

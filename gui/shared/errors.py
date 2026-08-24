@@ -38,12 +38,21 @@ APP_ERRORS = (
 )
 
 
-def log_error(log_terminal: Any, exc: Exception, prefix: str = "Error") -> None:
+def log_error(
+    log_terminal: Any, exc: Exception, prefix: str = "Error"
+) -> None:
     """Report an exception through the app console logger, never raising.
     If the console itself fails, redirect to the kernel_audit logger"""
     try:
         log_terminal(f"{prefix}: {exc}", "FAIL")
-    except (TypeError, ValueError, AttributeError, NoMatches, OSError, RuntimeError):
+    except (
+        TypeError,
+        ValueError,
+        AttributeError,
+        NoMatches,
+        OSError,
+        RuntimeError,
+    ):
         logger.exception("Console failed while reporting %r", exc)
 
 
