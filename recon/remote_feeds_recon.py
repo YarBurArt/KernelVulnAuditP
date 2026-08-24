@@ -200,7 +200,7 @@ class ReconFeeds:
                     except TypeError, ValueError:
                         retry_after = 0.0
                 delay = retry_after or (_NVD_MIN_INTERVAL * (2**attempts))
-                delay += random.uniform(0, 1)
+                delay += random.uniform(0, 1)  # noqa: S311
                 logger.warning(
                     "NVD rate-limited (%s); backing off %.1fs (attempt %d/%d)",
                     url,

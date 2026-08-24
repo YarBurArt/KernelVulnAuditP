@@ -11,6 +11,7 @@ Real virtme-ng runs are included but skipped when the tool is unavailable.
 
 from __future__ import annotations
 
+import shutil
 import subprocess
 import time
 from pathlib import Path
@@ -44,8 +45,11 @@ def test_run_cmd_timeout_kills_whole_process_tree():
             text=True,
         )
     time.sleep(0.3)
+    pgrep_cmd = shutil.which("pgrep")
+    if not pgrep_cmd:
+        raise RuntimeError("pgrep utility not found in PATH")
     gone = subprocess.run(
-        ["pgrep", "-f", "sleep 120"],
+        [pgrep_cmd, "-f", "sleep 120"],
         capture_output=True,
         text=True,
         check=False,

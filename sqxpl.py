@@ -32,6 +32,33 @@ import httpx
 from config import POCS_BASE_PATH, REQUIREMENTS_RE, VERSIONS_RE
 
 logger = logging.getLogger(f"kernel_audit.{__name__}")
+_GITHUB_HTTPS_RE = re.compile(
+    r"^https://github\.com/"
+    r"(?P<owner>[\w.-]+)/"
+    r"(?P<repo>[\w.-]+)"
+    r"/?$"
+)
+
+_CVE_ID_RE = re.compile(r"^CVE-\d{4}-\d+$")
+_SAFE_NAME_RE = re.compile(r"^[\w.-]+$")
+
+
+def _safe_repo_dir_name(url: str) -> tuple[str, str, str]:
+    """
+    Validate URL and return (owner, repo, safe_dir_name),
+    like in CVE-2022-24439
+    """
+    m = _GITHUB_HTTPS_RE.match(url)
+    if not m:
+        raise ValueError(f"URL does not match allowed GitHub pattern: {url!r}")
+    owner = m.group("owner")
+    repo = m.group("repo")
+    safe_name = f"{owner}_{repo.replace('.', '_').lower()}"
+    if not _SAFE_NAME_RE.match(safe_name):
+        raise ValueError(
+            f"Derived repo name contains unsafe characters: {safe_name!r}"
+        )
+    return owner, repo, safe_name
 
 
 class PocInfo(TypedDict):
@@ -182,7 +209,7 @@ class GitHubExploitSearcher:
             "order": "desc",
             "per_page": pool_size,
         }
-
+        results = []
         try:
             response = self._github_get(self.SEARCH_REPOS, params=params)
             if response.status_code != 200:
@@ -195,7 +222,6 @@ class GitHubExploitSearcher:
                 return []
             data = response.json()
 
-            results = []
             for repo in data.get("items", []):
                 repo_info = self._extract_repo_info(repo, cve_id)
                 if repo_info:
@@ -452,22 +478,44 @@ class GitHubExploitSearcher:
             cve_id: str | None = xpl.get("cve_id", None)
             if not url or not cve_id:
                 continue
-            # extract username and repo from URL for path
-            parts = url.rstrip("/").split("/")
-            if len(parts) < 2:  # invalid url
-                continue
-            username = parts[-2]
-            repo = parts[-1].replace(".", "_").lower()
-            repo_name = f"{username}_{repo}"
-            target_dir = base_dir / cve_id / repo_name
 
-            # clean existing folder
+            if not _CVE_ID_RE.match(cve_id):
+                logger.warning("Skipping malformed CVE id: %s", cve_id)
+                continue
+
+            try:
+                owner, repo, repo_name = _safe_repo_dir_name(url)
+            except ValueError as exc:
+                logger.warning("Skipping unsafe repo URL: %s — %s", url, exc)
+                continue
+
+            target_dir = (base_dir / cve_id / repo_name).resolve()
+            # target_dir MUST be inside base_dir
+            if not target_dir.is_relative_to(base_dir.resolve()):
+                logger.warning("Path traversal detected for %s; skipping", url)
+                continue
+
             if target_dir.exists():
                 shutil.rmtree(target_dir)
+
             target_dir.parent.mkdir(parents=True, exist_ok=True)
+
             try:
-                subprocess.run(
-                    ["git", "clone", url, str(target_dir)],
+                git_cmd = shutil.which("git")
+                if not git_cmd:
+                    raise RuntimeError("git utility not found in PATH")
+
+                # -- blocks -u/--upload-pack injection
+                subprocess.run(  # noqa: S603, validated for CVE-2022-24439
+                    [
+                        git_cmd,
+                        "clone",
+                        "--depth",
+                        "1",
+                        "--",
+                        url,
+                        str(target_dir),
+                    ],
                     check=True,
                     capture_output=True,
                 )
@@ -475,7 +523,8 @@ class GitHubExploitSearcher:
                 _fix_stale_compile_cmd(xpl, target_dir)
                 downloaded_l.append(xpl)
             except subprocess.CalledProcessError:
-                continue  # FIXME:
+                continue
+
         return downloaded_l
 
 

@@ -19,6 +19,9 @@ from isolate.parse_vm_internal_results import (
     ParseVmResults,
 )
 
+# Reject names that could inject into guest shell scripts or look like options
+_SAFE_NAME_RE = re.compile(r"^[A-Za-z0-9_.][A-Za-z0-9._-]*$")
+
 
 class QemuEnvironment(IsolationEnvironment):
     def __init__(
@@ -179,15 +182,24 @@ class QemuEnvironment(IsolationEnvironment):
 
         self._write_guest_init(root)
         self._write_guest_script(root)
+        if not _SAFE_NAME_RE.match(self.binary_path.name):
+            raise ValueError(
+                f"Binary name contains unsafe characters:"
+                f" {self.binary_path.name}"
+            )
         shutil.copy2(self.binary_path, root / self.binary_path.name)
         (root / self.binary_path.name).chmod(0o755)
 
         archive = workdir / "initrd.cpio"
 
+        find_cmd = shutil.which("find")
+        if not find_cmd:
+            raise RuntimeError("find utility not found in PATH")
+
         with (
             archive.open("wb") as archive_file,
-            subprocess.Popen(
-                ["find", ".", "-print0"],
+            subprocess.Popen(  # noqa: S603 - fixed argv, binary resolved via shutil.which
+                [find_cmd, ".", "-print0"],
                 cwd=root,
                 stdout=subprocess.PIPE,
             ) as find_proc,
@@ -195,8 +207,11 @@ class QemuEnvironment(IsolationEnvironment):
             if find_proc.stdout is None:
                 raise ValueError("no proc stdout found")
             try:
-                subprocess.run(
-                    ["cpio", "--null", "-ov", "--format=newc"],
+                cpio_cmd = shutil.which("cpio")
+                if not cpio_cmd:
+                    raise RuntimeError("cpio utility not found in PATH")
+                subprocess.run(  # noqa: S603 - fixed argv, binary resolved via shutil.which
+                    [cpio_cmd, "--null", "-ov", "--format=newc"],
                     cwd=root,
                     stdin=find_proc.stdout,
                     stdout=archive_file,
@@ -221,10 +236,13 @@ class QemuEnvironment(IsolationEnvironment):
         code = self._load_asset("init.c")
         (root / "init.c").write_text(code)
 
+        musl_gcc_cmd = shutil.which("musl-gcc")
+        if not musl_gcc_cmd:
+            raise RuntimeError("musl-gcc utility not found in PATH")
         out = root / "init"
-        subprocess.run(
+        subprocess.run(  # noqa: S603 - fixed argv, binary resolved via shutil.which
             [
-                "musl-gcc",
+                musl_gcc_cmd,
                 "-static",
                 "-Os",
                 "-s",
@@ -238,6 +256,11 @@ class QemuEnvironment(IsolationEnvironment):
         (root / "init.c").unlink()
 
     def _write_guest_script(self, root: Path) -> None:
+        if not _SAFE_NAME_RE.match(self.binary_path.name):
+            raise ValueError(
+                f"Binary name contains unsafe characters: "
+                f"{self.binary_path.name}"
+            )
         script = self._load_asset("guest_script.sh").replace(
             "__POC_NAME__", self.binary_path.name
         )
@@ -252,8 +275,11 @@ class QemuEnvironment(IsolationEnvironment):
 
     def _log_initrd(self, archive: Path) -> None:
         with archive.open("rb") as f:
-            listing = subprocess.run(
-                ["cpio", "-it"],
+            cpio_cmd = shutil.which("cpio")
+            if not cpio_cmd:
+                raise RuntimeError("ldd utility not found in PATH")
+            listing = subprocess.run(  # noqa: S603 - fixed argv, binary resolved via shutil.which
+                [cpio_cmd, "-it"],
                 stdin=f,
                 text=True,
                 capture_output=True,
@@ -276,8 +302,11 @@ class QemuEnvironment(IsolationEnvironment):
             if not binary.is_file():
                 continue
             try:
-                proc = subprocess.run(
-                    ["ldd", str(binary)],
+                ldd_cmd = shutil.which("ldd")
+                if not ldd_cmd:
+                    raise RuntimeError("ldd utility not found in PATH")
+                proc = subprocess.run(  # noqa: S603 - fixed argv, binary resolved via shutil.which
+                    [ldd_cmd, str(binary)],
                     capture_output=True,
                     text=True,
                     timeout=30,

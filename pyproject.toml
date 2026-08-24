@@ -55,4 +55,14 @@ ignore = []
 [tool.ruff.lint.per-file-ignores]
 "tests/**/*.py" = ["S101"]
 "tests_integration/**/*.py" = ["S101"]
+# Tests only run hard-coded commands with checks
+"tests/**" = ["S603", "S604"]
+"tests_integration/**" = ["S603", "S604"]
+# GUI report controller launches a static local streamlit instance
+"gui/features/report_controller.py" = ["S603"]
+# recon tools run only system utilities with static flags
+"recon/local_target_recon.py" = ["S603"]
+"recon/parse_recon_reports.py" = ["S603"]
+# prototype helpers that run uname/file with zero external input
+"prototype.py" = ["S603"]
 

@@ -12,6 +12,7 @@ exceptions, so callers can persist and render them without try/except walls.
 import logging
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import tempfile
@@ -21,9 +22,47 @@ from pathlib import Path
 
 from config import COMPILE_TIMEOUT_SEC
 from core.entities import SandboxRunResult
-from isolate.isolate import Isolate, run_cmd, timeout_text
+from isolate.isolate import Isolate, run_cmd
 
 logger = logging.getLogger(f"kernel_audit.{__name__}")
+
+_ALLOWED_COMPILERS = frozenset(
+    {
+        "gcc",
+        "cc",
+        "clang",
+        "clang++",
+        "g++",
+        "make",
+        "cmake",
+        "musl-gcc",
+        "musl-clang",
+        "go",
+        "rustc",
+        "cargo",
+    }
+)
+_SHELL_METAS = re.compile(r"[;|&`$(){}[\]<>\\]")
+
+
+def _validate_compile_tokens(tokens: list[str]) -> list[str]:
+    """
+    Raise ValueError if tokens look like shell injection
+    or use a disallowed compiler
+    """
+    if not tokens:
+        raise ValueError("Empty compile command")
+    first = tokens[0].strip().lower()
+    # absolute paths that end with an allowed compiler name
+    basename = Path(first).name
+    if basename not in _ALLOWED_COMPILERS:
+        raise ValueError(f"Disallowed compiler/driver: {basename!r}")
+    for tok in tokens:
+        if _SHELL_METAS.search(tok):
+            raise ValueError(
+                f"Shell metacharacters detected in token: {tok!r}"
+            )
+    return tokens
 
 
 @dataclass(frozen=True)
@@ -50,7 +89,6 @@ def compile_poc(
     on_output: Callable[[str], None] | None = None,
 ) -> None:
     """Run the PoC compile command inside its cloned repo directory.
-
     PoCs are built statically with musl-gcc: the qemu initrd is a minimal
     rootfs without glibc, and glibc-linked binaries abort there. A gcc/cc
     shim plus CC/CFLAGS force make-based builds to do the same.
@@ -58,23 +96,29 @@ def compile_poc(
     The build is bounded by timeout and killed as a whole process
     tree; on_output receives each stdout/stderr line as it is produced
     so the TUI can show live compile progress instead of a silent wait.
+
+    compile_cmd originates from random untrusted READMEs !
     """
-    cmd = compile_cmd
+    try:
+        tokens = shlex.split(compile_cmd)
+    except ValueError as exc:
+        raise ValueError(f"Unparseable compile command: {exc}") from exc
+
+    tokens = _validate_compile_tokens(tokens)
+    musl_gcc = shutil.which("musl-gcc")
     env = os.environ.copy()
     shim_dir: Path | None = None
-    musl_gcc = shutil.which("musl-gcc")
 
     if musl_gcc:
-        # direct gcc/cc invocations -> musl-gcc -static (only these get
-        # the -static flag; make/other tools must not see it as an option)
-        compiler_direct = bool(re.match(r"^\s*(?:gcc|cc)\s+", cmd))
-        cmd = re.sub(r"^\s*(?:gcc|cc)\s+", "musl-gcc ", cmd, count=1)
-        if (
-            compiler_direct
-            and "-static" not in cmd
-            and not re.search(r"-shared\b", cmd)
+        # Rewrite first token if it is a plain gcc/cc
+        first_lower = tokens[0].lower()
+        if first_lower in ("gcc", "cc") or Path(first_lower).name in (
+            "gcc",
+            "cc",
         ):
-            cmd = f"{cmd} -static"
+            tokens[0] = musl_gcc
+            if "-static" not in tokens and "-shared" not in tokens:
+                tokens.append("-static")
         # musl-gcc is a thin wrapper that execs $REALGCC
         # point it at the real binary so a gcc/cc shim never recurses
         real_gcc = shutil.which("gcc")
@@ -94,9 +138,9 @@ def compile_poc(
         env["CFLAGS"] = f"{env.get('CFLAGS', '')} -static".strip()
 
     try:
-        proc = run_cmd(
-            cmd,
-            shell=True,
+        run_cmd(
+            tokens,  # each token is a literal argv element
+            shell=False,
             cwd=repo_path,
             env=env,
             capture_output=True,
@@ -104,19 +148,9 @@ def compile_poc(
             timeout=timeout,
             line_callback=on_output,
         )
-    except subprocess.TimeoutExpired as exc:
-        out_text, err_text = timeout_text(exc)
-        partial = (err_text or out_text).strip()[:400]
-        raise RuntimeError(
-            f"compile timed out after {timeout}s\n{partial}"
-        ) from exc
     finally:
         if shim_dir is not None:
             shutil.rmtree(shim_dir, ignore_errors=True)
-
-    if proc.returncode != 0:
-        detail = (proc.stderr or proc.stdout or "").strip()[:400]
-        raise RuntimeError(f"rc={proc.returncode}: {detail}")
 
 
 def resolve_poc_binary(

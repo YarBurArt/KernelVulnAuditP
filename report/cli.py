@@ -409,11 +409,11 @@ class CLIReportRenderer:
         left += [""] * (n - len(left))
         right += [""] * (n - len(right))
         result = []
-        for l, r in zip(left, right, strict=False):
+        for i, r in zip(left, right, strict=False):
             if r:
-                result.append(f"      {_arrow()} {l:<{col}}   {r}")
-            elif l:
-                result.append(f"      {_arrow()} {l}")
+                result.append(f"      {_arrow()} {i:<{col}}   {r}")
+            elif i:
+                result.append(f"      {_arrow()} {i}")
             else:
                 result.append("")
         return result

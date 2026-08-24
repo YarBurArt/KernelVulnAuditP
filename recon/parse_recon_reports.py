@@ -505,7 +505,7 @@ class ParseReports:
             chunk = binaries[start : start + chunk_size]
             try:
                 proc = subprocess.run(
-                    [getcap] + chunk,
+                    [getcap, "--"] + chunk,  # -- blocks option injection
                     check=True,
                     text=True,
                     capture_output=True,
