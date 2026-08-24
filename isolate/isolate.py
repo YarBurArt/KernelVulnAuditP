@@ -4,6 +4,7 @@ Supports virtme-ng/virtme, QEMU microvm,
 and host execution with comprehensive logging
 """
 
+import contextlib
 import logging
 import os
 import signal
@@ -34,14 +35,10 @@ class _Dataclass(Protocol):
 
 def _kill_tree(proc: subprocess.Popen) -> None:
     """SIGKILL the whole process group, then the group leader itself."""
-    try:
+    with contextlib.suppress(ProcessLookupError, PermissionError):
         os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
-    except ProcessLookupError, PermissionError:
-        pass
-    try:
+    with contextlib.suppress(ProcessLookupError):
         proc.kill()
-    except ProcessLookupError:
-        pass
 
 
 def timeout_text(exc: subprocess.TimeoutExpired) -> tuple[str, str]:
@@ -386,7 +383,9 @@ class Isolate:
         return None
 
     def run_binary(self, binary_path: Path) -> SandboxRunResult | None:
-        """Pick a sandbox backend from config.SANDBOX_BACKEND and run the binary"""
+        """
+        Pick a sandbox backend from config.SANDBOX_BACKEND and run the binary
+        """
         from isolate.qemu_vm import QemuEnvironment
         from isolate.virtme_ng_vm import VirtmeNGEnvironment
 

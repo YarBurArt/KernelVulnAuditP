@@ -44,9 +44,11 @@ _LOG_LEVEL_MAP = {
 
 
 class KernelVulnTUI(App[str]):
-    """The Textual application (single scan page + report in Engine stdout).
-    long-running flows run off the UI thread and marshal results back, and the shared
-    widgets (console, stages, progress) are updated only from the UI thread.
+    """
+    The Textual application (single scan page + report in Engine stdout).
+    long-running flows run off the UI thread and marshal results back,
+    and the shared widgets (console, stages, progress)
+    are updated only from the UI thread.
     """
 
     TITLE = "Kernel Vulnerability Auditor"
@@ -83,7 +85,8 @@ class KernelVulnTUI(App[str]):
         """Route the kernel_audit logger into the Engine-stdout console."""
         logger_local = logging.getLogger("kernel_audit")
         self._tui_handler = TUIHandler(self)
-        assert self._tui_handler is not None
+        if self._tui_handler is None:
+            raise ValueError("kernel_audit logger tui_handler not initialized")
         logger_local.addHandler(self._tui_handler)
         # other loggers (httpx, sqlalchemy, ...) would otherwise fall
         # through to the stderr lastResort handler and corrupt the TUI screen

@@ -45,8 +45,8 @@ class _FakeResponse:
 
 
 class _FakeHTTP:
-    """route-based httpx stub: route(url[, json]) sets a canned response.
-    json optionally restricts the route to a matching request body, which
+    """route-based httpx stub: route(url[, JSON]) sets a canned response.
+    JSON optionally restricts the route to a matching request body, which
     is used to simulate OSV pagination where several POSTs share one URL.
     """
 
@@ -103,7 +103,9 @@ class _FakeHTTP:
 
 
 class _FakeClient:
-    """fake httpx.AsyncClient used by ReconFeeds, routing to a shared _FakeHTTP"""
+    """
+    fake httpx.AsyncClient used by ReconFeeds, routing to a shared _FakeHTTP
+    """
 
     def __init__(self, http, *args, **kwargs):
         self._http = http
@@ -133,12 +135,16 @@ def fake_http(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def _no_nvd_gate(monkeypatch):
-    """zero the NVD min-interval so rate-limit tests are not slowed by sleeps"""
+    """
+    zero the NVD min-interval so rate-limit tests are not slowed by sleeps
+    """
     monkeypatch.setattr("recon.remote_feeds_recon._NVD_MIN_INTERVAL", 0.0)
 
 
 def _run(coro):
-    """run a single ReconFeeds coroutine in a fresh event loop (pytest is sync)"""
+    """
+    run a single ReconFeeds coroutine in a fresh event loop (pytest is sync)
+    """
     return asyncio.run(coro)
 
 
@@ -186,7 +192,8 @@ def _cve_org_payload(
                 "descriptions": [
                     {
                         "lang": "en",
-                        "value": "Use-after-free in nftables leading to privilege escalation.",
+                        "value": "Use-after-free in nftables "
+                        "leading to privilege escalation.",
                     }
                 ],
                 "metrics": [metric],
@@ -236,7 +243,8 @@ def _nist_raw_payload(
                     "descriptions": [
                         {
                             "lang": "en",
-                            "value": "nftables use-after-free leads to privilege escalation.",
+                            "value": "nftables use-after-free "
+                            "leads to privilege escalation.",
                         }
                     ],
                     "metrics": {
@@ -246,7 +254,8 @@ def _nist_raw_payload(
                                 "type": "Primary",
                                 "cvssData": {
                                     "version": "3.1",
-                                    "vectorString": "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H",
+                                    "vectorString": "CVSS:3.1/AV:L/AC:L/PR:L/"
+                                    "UI:N/S:U/C:H/I:H/A:H",
                                     "baseScore": 7.8,
                                     "baseSeverity": "HIGH",
                                 },
@@ -786,7 +795,9 @@ def test_osv_search_posts_version_payload(fake_http, rf):
 
 @pytest.mark.integration
 def test_osv_search_real_vulnerable_versions(fake_http, rf):
-    """OSV search try on vulnerable versions like 4.19 / 5.3 longterm kernels"""
+    """
+    OSV search try on vulnerable versions like 4.19 / 5.3 long term kernels
+    """
     fake_http.route(
         OSV_API_URL,
         json={
@@ -891,7 +902,9 @@ def test_osv_search_follows_pagination(fake_http, rf):
 
 @pytest.mark.integration
 def test_osv_search_enriches_cvss_from_nist(fake_http, rf):
-    """OSV records carry no numeric CVSS score; missing data comes from NIST API"""
+    """
+    OSV records carry no numeric CVSS score; missing data comes from NIST API
+    """
     fake_http.route(OSV_API_URL, payload=_osv_payload())
     fake_http.route(
         CVEORG_BASE_URL + "CVE-2024-1086", payload=_cve_org_payload()

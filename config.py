@@ -22,7 +22,11 @@ CH_API_URL = (
     "https://cdn.kernel.org/pub/linux/kernel/v{major}.x/ChangeLog-{version}"
 )
 
-REQUIREMENTS_RE = r"(?:requirements?|prerequisites?|dependencies|kernel version|affected versions?)[\s:]+([^\n#]+(?:\n(?!#)[^\n]+)*)"
+REQUIREMENTS_RE = (
+    r"(?:requirements?|prerequisites?|dependencies|"
+    r"kernel version|affected versions?)"
+    r"[\s:]+([^\n#]+(?:\n(?!#)[^\n]+)*)"
+)
 VERSIONS_RE = r"(?:tested on|works on|vulnerable)[\s:]+([^\n#]+)"
 
 LYNIS_BINARY = "lynis"

@@ -257,7 +257,8 @@ class CLIApp:
         print(f"\nLinux Exploit Suggester CVEs ({len(les)}):")
         for cve in les:
             print(
-                f"  - {cve.get('cve_id', 'N/A')}: {cve.get('title', '') or 'N/A'}"
+                f"  - {cve.get('cve_id', 'N/A')}:"
+                f" {cve.get('title', '') or 'N/A'}"
             )
             if cve.get("download_urls"):
                 for url in cve["download_urls"][:3]:
@@ -272,7 +273,8 @@ class CLIApp:
         ]
         if hardened:
             print(
-                f"  {len(hardened)} hardened (off): {', '.join(b['boolean_name'] for b in hardened[:5])}"
+                f"  {len(hardened)} hardened (off): "
+                f"{', '.join(b['boolean_name'] for b in hardened[:5])}"
                 + (" ..." if len(hardened) > 5 else "")
             )
 
@@ -315,7 +317,8 @@ class CLIApp:
         print(f"GitHub PoCs found: {len(pocs)}")
         for poc in pocs:
             print(
-                f"  - {poc.get('repo_name', 'N/A')} ({poc.get('stars', 0)} stars): "
+                f"  - {poc.get('repo_name', 'N/A')}"
+                f" ({poc.get('stars', 0)} stars): "
                 f"{(poc.get('description') or 'No description')[:110]}"
             )
             if poc.get("repo_url"):
@@ -349,14 +352,18 @@ class CLIApp:
         timestamp_str = format_run_timestamp(run.run_timestamp)
 
         print(
-            f"\n  {_paint_sev(severity)} {cve_id} [{platform}] exit:{exit_code} "
-            f"hash:{hash_short} {timestamp_str} stdout:{len(stdout)} stderr:{len(stderr)}"
+            f"\n  {_paint_sev(severity)} {cve_id}"
+            f" [{platform}] exit:{exit_code} "
+            f"hash:{hash_short} {timestamp_str}"
+            f" stdout:{len(stdout)} stderr:{len(stderr)}"
         )
 
         kernel_info = run.kernel_info or {}
         if kernel_info:
             print(
-                f"    Kernel: {kernel_info.get('uname', kernel_info.get('date', 'N/A'))}"
+                f"    Kernel: {
+                    kernel_info.get('uname', kernel_info.get('date', 'N/A'))
+                }"
             )
         modules = run.modules or []
         if modules:
@@ -385,9 +392,9 @@ class CLIApp:
 
 
 _QUICK_START = r"""
- _  _ ____ ____ _  _ ____ _       _  _ _  _ _    _  _    ____ _  _ ___  _ ___     ___
- |_/  |___ |__/ |\ | |___ |       |  | |  | |    |\ |    |__| |  | |  \ |  |      |__]
- | \_ |___ |  \ | \| |___ |___     \/  |__| |___ | \|    |  | |__| |__/ |  |  ___ |
+ _  _ ____ ____ _  _ ____ _       _  _ _  _ _    _  _    ____ _  _ ___  _ ___
+ |_/  |___ |__/ |\ | |___ |       |  | |  | |    |\ |    |__| |  | |  \ |  | 
+ | \_ |___ |  \ | \| |___ |___     \/  |__| |___ | \|    |  | |__| |__/ |  | 
 
      Kernel Vulnerability Auditor
 """
@@ -501,7 +508,8 @@ def build_parser() -> argparse.ArgumentParser:
         "--set",
         nargs="+",
         metavar="KEY=VALUE",
-        help="Set a config value (e.g. --set LOG_LEVEL=INFO ISOLATION_TIMEOUT_SEC=30)",
+        help="Set a config value "
+        "(e.g. --set LOG_LEVEL=INFO ISOLATION_TIMEOUT_SEC=30)",
     )
     parser.add_argument(
         "--verbose", "-v", action="store_true", help="Enable verbose output"

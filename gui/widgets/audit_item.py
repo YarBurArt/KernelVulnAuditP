@@ -18,9 +18,11 @@ def _clip(text: str, width: int) -> str:
 
 
 class AuditItem(Static):
-    """One hardening finding on a single aligned line: severity, test id, field, diff and a short hint.
-    field_width pads the field column to the widest field in the list so
-    the diff starts at the same column in term on every row
+    """
+    One hardening finding on a single aligned line: severity, test id,
+    field, diff and a short hint. field_width pads the field column
+    to the widest field in the list so the diff starts at the same column
+    in term on every row
     """
 
     def __init__(
@@ -59,7 +61,8 @@ class AuditItem(Static):
             exp = _clip(markup_escape(expected or ""), exp_width)
             act = _clip(markup_escape(actual or "missing"), act_width)
             parts.append(
-                f"([bold {color}]expected {exp}[/] | [bold {color}]actual {act}[/])"
+                f"([bold {color}]expected {exp}[/] "
+                f"| [bold {color}]actual {act}[/])"
             )
         desc = str(rec.description or "").strip()
         if desc.lower() == "no description":

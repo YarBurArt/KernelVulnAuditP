@@ -1,3 +1,4 @@
+import contextlib
 import logging
 import re
 from collections.abc import Callable
@@ -32,10 +33,8 @@ class ParseVmResults:
         exit_code = 0
         for line in output.splitlines():
             if line.startswith("EXIT_CODE="):
-                try:
+                with contextlib.suppress(ValueError):
                     exit_code = int(line.removeprefix("EXIT_CODE="))
-                except ValueError:
-                    pass
         return exit_code
 
     @staticmethod
@@ -60,7 +59,6 @@ class ParseVmResults:
 
             if line.startswith("==========") and line.endswith("=========="):
                 current = line.strip("= ").lower().replace(" ", "_")
-                assert current is not None
                 sections[current] = []
                 continue
 

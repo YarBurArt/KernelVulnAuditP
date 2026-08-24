@@ -409,7 +409,7 @@ class CLIReportRenderer:
         left += [""] * (n - len(left))
         right += [""] * (n - len(right))
         result = []
-        for l, r in zip(left, right):
+        for l, r in zip(left, right, strict=False):
             if r:
                 result.append(f"      {_arrow()} {l:<{col}}   {r}")
             elif l:
@@ -440,12 +440,16 @@ class CLIReportRenderer:
         what_w = max(len(r["what"]) for r in references) + 2
         how_w = len(how_label) + 2
         out = "  References:\n"
-        out += f"    {'Capability':<{what_w}}  {'How it works':<{how_w}}  Why dangerous\n"
+        out += (
+            f"    {'Capability':<{what_w}}  "
+            f"{'How it works':<{how_w}}  Why dangerous\n"
+        )
         out += "    " + "-" * (what_w + how_w + 6) + "\n"
         for ref in references:
             why = link(why_label, ref["why"]) if ref.get("why") else "-"
             out += (
-                f"    {ref['what']:<{what_w}}  {link(how_label, ref['how']):<{how_w}}"
+                f"    {ref['what']:<{what_w}}"
+                f"  {link(how_label, ref['how']):<{how_w}}"
                 f"  {why}\n"
             )
         return out

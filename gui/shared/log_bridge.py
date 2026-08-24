@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import threading
 import time
@@ -53,13 +54,10 @@ class TUIHandler(logging.Handler):
         else:
             # Worker thread, then marshal the whole emit to the event loop so
             # widget lookups never touch Textual off-thread.
-            try:
+            with contextlib.suppress(RuntimeError):  # drop line
                 self._tui.call_from_thread(
                     self._write, level, message, record.levelname, skip_console
                 )
-            except RuntimeError:
-                # drop the log line on closing
-                pass
 
     def _write(
         self,
@@ -88,8 +86,6 @@ class TUIHandler(logging.Handler):
             if len(message) <= _TOAST_MAX_LEN
             else message[:_TOAST_MAX_LEN] + "…"
         )
-        try:
-            self._tui.notify(capped, severity=severity)
-        except RuntimeError:
+        with contextlib.suppress(RuntimeError):
             # toast rack may already be gone while the app is tearing down
-            pass
+            self._tui.notify(capped, severity=severity)

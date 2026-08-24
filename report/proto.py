@@ -9,7 +9,6 @@ except ImportError:
 
 
 def generate_report(raw_d):
-    assert st is not None
     st.set_page_config(page_title="Kernel Report", layout="wide")
 
     st.title("System scan report")

@@ -1,6 +1,7 @@
 """Diff builder for kernel vulnerability reports.
 
-Produce a unified, sorted list of divergences between the host and hardening checks (kernel params,
+Produce a unified, sorted list of divergences between
+the host and hardening checks (kernel params,
 capabilities and SELinux) as recommended-vs-current rows.
 """
 
@@ -127,7 +128,8 @@ def build_module_diff(
                 "expected": "not loaded",
                 "actual": "loaded in sandbox",
                 "status": "new",
-                "detail": "module loaded by the sandbox run but missing on the host",
+                "detail": "module loaded by the sandbox run "
+                "but missing on the host",
             }
         )
     for name in sorted(host - sandbox):
@@ -138,7 +140,8 @@ def build_module_diff(
                 "expected": "loaded",
                 "actual": "not loaded in sandbox",
                 "status": "removed",
-                "detail": "module present on the host but not loaded in the sandbox",
+                "detail": "module present on the host "
+                "but not loaded in the sandbox",
             }
         )
     return rows
@@ -226,7 +229,9 @@ def build_selinux_diff(
     selinux_params: dict[str, Any] | None = None,
     params_path: str | Path = "recon/selinux_params.json",
 ) -> list[dict[str, Any]]:
-    """SELinux boolean hardening: recommended (selinux_params.json) vs current"""
+    """
+    SELinux boolean hardening: recommended (selinux_params.json) vs current
+    """
     current = host_selinux_map(host_info)
     params = (
         selinux_params
@@ -283,7 +288,9 @@ def _host_proc_caps(host_info: Any) -> list[dict[str, Any]]:
 
 
 def _cap_status(names: list[str]) -> str:
-    """Any capability is a hardening finding; high-risk caps escalate to FAIL."""
+    """
+    Any capability is a hardening finding; high-risk caps escalate to FAIL.
+    """
     if any(cap in HIGH_RISK_CAPS for cap in names):
         return "FAIL"
     return "WARNING" if names else "ok"
@@ -328,7 +335,9 @@ def build_caps_diff(
                     "expected": "none",
                     "actual": ",".join(names),
                     "status": _cap_status(names),
-                    "detail": f"file capabilities (owner: {safe_get_attr(fc, 'owner_name') or '?'})",
+                    "detail": f"file capabilities (owner: {
+                        safe_get_attr(fc, 'owner_name') or '?'
+                    })",
                 }
             )
         for pc in _host_proc_caps(host_info):
@@ -337,7 +346,10 @@ def build_caps_diff(
             )
             if not names:
                 continue
-            label = f"{safe_get_attr(pc, 'process_name') or '?'}/{safe_get_attr(pc, 'pid') or '?'}"
+            label = (
+                f"{safe_get_attr(pc, 'process_name') or '?'}"
+                f"/{safe_get_attr(pc, 'pid') or '?'}"
+            )
             rows.append(
                 {
                     "type": "capability",
@@ -345,7 +357,9 @@ def build_caps_diff(
                     "expected": "none",
                     "actual": ",".join(names),
                     "status": _cap_status(names),
-                    "detail": f"process capabilities (owner: {safe_get_attr(pc, 'username') or '?'})",
+                    "detail": f"process capabilities (owner: {
+                        safe_get_attr(pc, 'username') or '?'
+                    })",
                 }
             )
         return rows
@@ -716,14 +730,16 @@ def build_diff_columns(
             if sandbox_only:
                 groups.append(
                     {
-                        "title": "module loaded by the sandbox run but missing on the host",
+                        "title": "module loaded by the sandbox run "
+                        "but missing on the host",
                         "items": sorted(sandbox_only),
                     }
                 )
             if host_only:
                 groups.append(
                     {
-                        "title": "module present on the host but not loaded in the sandbox",
+                        "title": "module present on the host "
+                        "but not loaded in the sandbox",
                         "items": host_only,
                     }
                 )
@@ -748,7 +764,7 @@ def build_diff_columns(
         else:
             two_col = build_two_column(rows, ("Recommended", "Current"))
             body = []
-            for row, item in zip(rows, two_col["rows"]):
+            for row, item in zip(rows, two_col["rows"], strict=False):
                 body.append(
                     {
                         **item,

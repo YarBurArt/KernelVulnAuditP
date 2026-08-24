@@ -44,7 +44,6 @@ class StreamlitReportRenderer:
 
     def _render_header(self) -> None:
         """Render header metrics split into two rows."""
-        assert st is not None
 
         r1a, r1b, r1c = st.columns(3)
         r1a.metric("Kernel", self.data.get("kernel_version", "N/A"))
@@ -59,7 +58,6 @@ class StreamlitReportRenderer:
     def _render_kev_stats(self) -> None:
         """Render KEV stats section."""
         kev_data = self.data.get("kev_data", [])
-        assert st is not None
         with st.expander(f"KEV Stats ({len(kev_data)})"):
             if kev_data:
                 st.markdown(
@@ -78,7 +76,6 @@ class StreamlitReportRenderer:
 
     def _render_execution_logs(self) -> None:
         """Render execution logs section."""
-        assert st is not None
         st.subheader("Execution Logs")
         runs = self.data.get("runs", [])
         for idx, run in enumerate(runs):
@@ -105,7 +102,6 @@ class StreamlitReportRenderer:
         stats = self.data.get("statistics", {})
         if not stats:
             return
-        assert st is not None
         st.subheader("Database Statistics")
         s1, s2, s3, s4 = st.columns(4)
         s1.metric("Total Vulnerabilities", stats.get("total", 0))
@@ -118,7 +114,6 @@ class StreamlitReportRenderer:
         """Render exploits/POCs section."""
         if not exploits:
             return
-        assert st is not None
         with st.expander(f"Exploits / POCs ({len(exploits)})"):
             for expl in exploits:
                 c1, c2, c3 = st.columns([1, 1, 3])
@@ -136,7 +131,6 @@ class StreamlitReportRenderer:
         """Render references section."""
         if not references:
             return
-        assert st is not None
         with st.expander(f"References ({len(references)})"):
             for ref in references:
                 c1, c2, c3 = st.columns([1, 1, 3])
@@ -153,7 +147,6 @@ class StreamlitReportRenderer:
         success = run.get("execution_success", False)
         exit_code = run.get("exit_code", -1)
 
-        assert st is not None
         if success:
             st.success(f"Execution successful (exit code: {exit_code})")
         elif exit_code == 0:
@@ -177,7 +170,6 @@ class StreamlitReportRenderer:
     @staticmethod
     def _render_sandbox_io(run: dict[str, Any]) -> None:
         """Render sandbox I/O section."""
-        assert st is not None
         with st.expander("View I/O"):
             stdout = run.get("stdout")
             if stdout:
@@ -193,7 +185,6 @@ class StreamlitReportRenderer:
     def _render_sandbox_artifacts(run: dict[str, Any]) -> None:
         """Render sandbox processes and files."""
         procs = run.get("open_processes") or []
-        assert st is not None
         if procs:
             st.write("Processes:", ", ".join(procs))
         files = run.get("open_files") or []
@@ -213,7 +204,6 @@ class StreamlitReportRenderer:
         """Render sandbox runs section."""
         if not sandbox_runs:
             return
-        assert st is not None
         with st.expander(f"Sandbox Runs ({len(sandbox_runs)})"):
             all_modules = set()
             for run in sandbox_runs:
@@ -228,7 +218,6 @@ class StreamlitReportRenderer:
 
     def _render_vulnerability(self, vuln: dict[str, Any]) -> None:
         """Render single vulnerability."""
-        assert st is not None
         with st.expander(
             f"{vuln.get('cve_id')} - {vuln.get('severity', 'N/A')} "
             f"(CVSS: {vuln.get('cvss_v3_score', 'N/A')})"
@@ -248,14 +237,14 @@ class StreamlitReportRenderer:
         vulns = self.data.get("vulnerabilities", [])
         if not vulns:
             return
-        assert st is not None
         st.subheader(f"Vulnerabilities ({len(vulns)})")
         for vuln in vulns:
             self._render_vulnerability(vuln)
 
     _DIFF_SECTIONS = DIFF_SECTIONS
 
-    #: severity class -> CSS text color (from core.status_severity classification)
+    #: severity class -> CSS text color
+    # (from core.status_severity classification)
     _SEV_CLASS_COLORS: ClassVar[dict[str, str]] = {
         "CRIT": "#b00020",
         "WARN": "#b26a00",
@@ -275,7 +264,8 @@ class StreamlitReportRenderer:
         """Build an HTML table for a two-column comparison (cuz no pandas).
 
         Only the differing Current (right) cell's text is colored by the
-        row status severity (red = FAIL/mismatch/new, yellow = WARNING/missing/removed, green = ok/perfect)
+        row status severity (red = FAIL/mismatch/new,
+        yellow = WARNING/missing/removed, green = ok/perfect)
         Non-ok rows show their detail below the row.
         """
         headers, rows = table["headers"], table["rows"]
@@ -287,9 +277,11 @@ class StreamlitReportRenderer:
                 " font-family:monospace; font-size:0.85em;'>"
             ),
             (
-                "<tr><th style='text-align:left; padding:4px 8px;'>Parameter</th>"
+                "<tr>"
+                "<th style='text-align:left; padding:4px 8px;'>Parameter</th>"
                 f"<th style='text-align:left; padding:4px 8px;'>{left_h}</th>"
-                f"<th style='text-align:left; padding:4px 8px;'>{right_h}</th></tr>"
+                f"<th style='text-align:left; padding:4px 8px;'>{right_h}</th>"
+                f"</tr>"
             ),
         ]
         for row in rows:
@@ -333,7 +325,6 @@ class StreamlitReportRenderer:
         diff = self.data.get("diff") or []
         if not diff:
             return
-        assert st is not None
         st.subheader(f"Hardening & Diff ({count_findings(diff)} findings)")
 
         sections = build_diff_columns(diff)
@@ -393,9 +384,11 @@ class StreamlitReportRenderer:
                 " font-family:monospace; font-size:0.85em;'>"
             ),
             (
-                "<tr><th style='text-align:left; padding:4px 8px;'>"
+                "<tr>"
+                "<th style='text-align:left; padding:4px 8px;'>"
                 "Capability set</th>"
-                "<th style='text-align:left; padding:4px 8px;'>Holders</th></tr>"
+                "<th style='text-align:left; padding:4px 8px;'>Holders</th>"
+                "</tr>"
             ),
         ]
         for row in rows:
@@ -447,7 +440,9 @@ class StreamlitReportRenderer:
 
     @staticmethod
     def _references_table(references: list[dict[str, str]]) -> str:
-        """Capability references as a what | how works | why dangerous table."""
+        """
+        Capability references as a what | how works | why dangerous table.
+        """
         if not references:
             return ""
         rows = [
@@ -456,13 +451,24 @@ class StreamlitReportRenderer:
                 " font-family:monospace; font-size:0.85em;'>"
             ),
             (
-                "<tr><th style='text-align:left; padding:4px 8px;'>Capability</th>"
-                "<th style='text-align:left; padding:4px 8px;'>How it works</th>"
-                "<th style='text-align:left; padding:4px 8px;'>Why dangerous</th></tr>"
+                "<tr>"
+                "<th style='text-align:left; padding:4px 8px;'>"
+                "Capability"
+                "</th>"
+                "<th style='text-align:left; padding:4px 8px;'>"
+                "How it works"
+                "</th>"
+                "<th style='text-align:left; padding:4px 8px;'>"
+                "Why dangerous"
+                "</th>"
+                "</tr>"
             ),
         ]
         for ref in references:
-            how = f"<a href='{ref['how']}' target='_blank'>MAN / capabilities.7</a>"
+            how = (
+                f"<a href='{ref['how']}' target='_blank'>"
+                f"MAN / capabilities.7</a>"
+            )
             why_label = (
                 "Hacktricks" if ref.get("escalates") else "Hacktricks (info)"
             )

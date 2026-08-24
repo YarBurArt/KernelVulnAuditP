@@ -9,8 +9,10 @@ from typing import Any
 
 from sqlalchemy.exc import SQLAlchemyError
 
+from db import get_db
 from log_conf import LOG_FILE
 from presentation.formatting import format_timestamp
+from recon.local_target_recon import LocalRecon
 from report.diff import (
     build_diff,
     collect_sandbox_modules,
@@ -18,6 +20,7 @@ from report.diff import (
     load_selinux_params,
 )
 from report.export import REPORT_FORMATS, emit_report, save_report
+from report.streamlit_rep import StreamlitReportRenderer
 
 logger = logging.getLogger(f"kernel_audit.{__name__}")
 
@@ -27,10 +30,6 @@ try:
     STREAMLIT_AVAILABLE = True
 except ImportError:
     STREAMLIT_AVAILABLE = False
-
-from db import get_db
-from recon.local_target_recon import LocalRecon
-from report.streamlit_rep import StreamlitReportRenderer
 
 
 def format_report(data: dict) -> dict:

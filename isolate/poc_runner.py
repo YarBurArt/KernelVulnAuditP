@@ -1,7 +1,8 @@
 """Build and run one PoC in the sandbox.
 
-Owns the whole on-host build story for a downloaded exploit/PoC: the musl static
-compile shim (so the produced binary runs in the minimal initrd), the
+Owns the whole on-host build story for a downloaded exploit/PoC:
+the musl static compile shim
+(so the produced binary runs in the minimal initrd), the
 executable resolution, and handing the binary to the Isolate backend.
 Expected failures, a failing compile, no executable produced, no sandbox
 backend available, come back as a typed PocRunOutcome instead of

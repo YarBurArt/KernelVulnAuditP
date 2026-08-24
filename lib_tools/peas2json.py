@@ -6,14 +6,16 @@ import sys
 from typing import Any
 
 # Pattern to identify main section titles
-TITLE1_PATTERN = r"══════════════╣"  # The size of the first pattern varies, but at least should be that large
+# The size of the first pattern varies, but at least should be that large
+TITLE1_PATTERN = r"══════════════╣"
 TITLE2_PATTERN = r"╔══════════╣"
 TITLE3_PATTERN = r"══╣"
 INFO_PATTERN = r"╚ "
 TITLE_CHARS = ["═", "╔", "╣", "╚"]
 
 # Patterns for colors
-## The order is important, the first string colored with a color will be the one selected (the same string cannot be colored with different colors)
+# The order is important, the first string colored with a color will be
+# the one selected (the same string cannot be colored with different colors)
 COLORS = {
     "REDYELLOW": ["\x1b[1;31;103m"],
     "RED": ["\x1b[1;31m"],
@@ -62,7 +64,8 @@ def get_colors(line: str) -> dict[str, list[str]]:
             if split_color and len(split_color) > 1:
                 split_color = split_color[1:]
 
-                # For each potential color, find the string before any possible color terminatio
+                # For each potential color, find the string before
+                # any possible color terminatio
                 for potential_color_str in split_color:
                     color_str1 = potential_color_str.split("\x1b")[0]
                     color_str2 = potential_color_str.split("\\[0")[0]
@@ -212,6 +215,8 @@ if __name__ == "__main__":
         parse_peass(outputpath, jsonpath)
     except IndexError:
         print(
-            "Error: Please pass the peas.out file and the path to save the json\npeas2json.py <output_file> <json_file.json>"
+            "Error: Please pass the peas.out file "
+            "and the path to save the json"
+            "\npeas2json.py <output_file> <json_file.json>"
         )
         sys.exit(1)

@@ -108,7 +108,7 @@ class AppServices:
 
         # lynis, linpeas, les are long-running subprocess audits; the host
         # snapshot scans are independent file/table walks. Running them
-        # concurrently overlaps the subprocess waits instead of serializing them
+        # concurrently overlaps the subprocess waits instead of serializing
         lynis_task = asyncio.to_thread(
             self.lr.get_lynis_kernel_hardening_details
         )
@@ -237,7 +237,8 @@ class AppServices:
         )
         host_id = self.db.add_host_info(host)
         logger.info(
-            "host snapshot %d saved: %d booleans, %d process caps, %d file caps",
+            "host snapshot %d saved: %d booleans,"
+            " %d process caps, %d file caps",
             host_id,
             len(selinux_booleans),
             len(process_capabilities),
@@ -393,7 +394,8 @@ class AppServices:
             logger.warning("Failed to load CISA KEV catalog: %s", e)
             return 0
 
-        # fetch metadata for all KEV CVEs concurrently, then write to DB serially
+        # fetch metadata for all KEV CVEs concurrently,
+        # then write to DB serially
         cve_ids = [
             str(item["cveID"])
             for item in self.rf.kev_kern_vuln

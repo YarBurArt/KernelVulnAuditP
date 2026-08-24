@@ -1,4 +1,6 @@
-"""Scan page controller, wires AppServices concurrent results into the TUI page"""
+"""
+Scan page controller, wires AppServices concurrent results into the TUI page
+"""
 
 from __future__ import annotations
 
@@ -34,7 +36,10 @@ SANDBOX = "sandbox_list"
 
 
 class ScanController:
-    """Runs scan flows and renders their results into the scan page lists on each tab"""
+    """
+    Runs scan flows and renders their results
+    into the scan page lists on each tab
+    """
 
     def __init__(self, app: KernelVulnTUI, services: Services) -> None:
         self._app = app
@@ -131,7 +136,10 @@ class ScanController:
 
     @staticmethod
     def _field_width(recs: list) -> int:
-        """widest field label in the list, so the diff column lines up for TUI table like"""
+        """
+        widest field label in the list,
+        so the diff column lines up for TUI table like
+        """
         width = 12
         for rec in recs or []:
             name = str(rec.field_name or rec.category or "")
@@ -163,7 +171,10 @@ class ScanController:
             source = str(getattr(rec, "source", "") or "")
             raw = getattr(rec, "raw_data", {}) or {}
             if isinstance(raw, dict) and source == "proc":
-                detail = f"process capabilities (owner: {raw.get('username') or '?'})"
+                detail = (
+                    f"process capabilities "
+                    f"(owner: {raw.get('username') or '?'})"
+                )
             else:
                 owner = "?"
                 m = re.search(r"owner:\s*([^)]+)", str(rec.description or ""))
@@ -331,7 +342,8 @@ class ScanController:
             entries = report.entries
             runs = sum(len(entry.pocs) for entry in entries)
             self._app.log_terminal(
-                f"Verification payload complete: {len(entries)} CVEs, {runs} PoC runs",
+                f"Verification payload complete: {len(entries)} CVEs,"
+                f" {runs} PoC runs",
                 "OK",
             )
             logger.debug(
@@ -369,7 +381,9 @@ class ScanController:
             self._finish_stage("exec", summary)
 
     def _finish_stage(self, key: str, summary: str = "") -> None:
-        """Mark a stage done; if local+feeds done, the full cycle is done too."""
+        """
+        Mark a stage done; if local+feeds done, the full cycle is done too.
+        """
         self._recon_done.add(key)
         self._running.discard(key)
         self._app.set_stage(key, "done")

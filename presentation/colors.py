@@ -1,8 +1,9 @@
 """Color palettes for the CLI, TUI, and Streamlit report renderers.
 
 Single source for severity -> color so the renderers do not each re-map the
-same severity labels. Three palettes live here because the renderers emit to
-different targets (ANSI escapes, hex for Textual styles, CSS like for Streamlit).
+same severity labels. Three palettes live here because
+the renderers emit to different targets
+(ANSI escapes, hex for Textual styles, CSS like for Streamlit)
 """
 
 RESET = "\033[0m"

@@ -215,8 +215,7 @@ class ParseReports:
 
     def parse_les_report(self, report: str | None = None) -> list[LesCVEItem]:
         """Parse LES plain-text output into a list of findings"""
-        assert report is not None  # DEBUG
-        path = Path(report)
+        path = Path(str(report))
         if not path.exists():
             logger.info("LES report not found: %s", report)
             return []
@@ -385,7 +384,9 @@ class ParseReports:
     def load_selinux_params(
         params_path: str | Path = "recon/selinux_params.json",
     ) -> dict[str, Any]:
-        """load combined SELinux boolean definitions (recon/selinux_params.json)"""
+        """
+        load combined SELinux boolean definitions (recon/selinux_params.json)
+        """
         try:
             with Path(params_path).open("r", encoding="utf-8") as f:
                 return json.load(f)
@@ -539,7 +540,9 @@ class ParseReports:
 
     @staticmethod
     def split_capabilities(raw: str) -> dict[str, list[str]]:
-        """split a getcap caps-string (e.g. 'cap_net_raw=ep') into sets by flag"""
+        """
+        split a getcap caps-string (e.g. 'cap_net_raw=ep') into sets by flag
+        """
         sets: dict[str, list[str]] = {"e": [], "p": [], "i": [], "a": []}
         if not isinstance(raw, str):
             return sets
@@ -647,7 +650,9 @@ class ParseReports:
     def parse_nist_findings(
         data: dict, min_ts: int | None = None
     ) -> list[CVEFinding]:
-        """parse NIST CVE 2.0 search payload into CVEFinding list, date-filtered"""
+        """
+        parse NIST CVE 2.0 search payload into CVEFinding list, date-filtered
+        """
         raw = filter_items_by_date(
             (data or {}).get("vulnerabilities", []),
             date_field="published",
@@ -772,7 +777,9 @@ class ParseReports:
 
     @staticmethod
     def extract_cve_details(data: dict, nist_url: str) -> dict:
-        """extract {description, cvss, severity, raw} from a cve.org/NIST record"""
+        """
+        extract {description, cvss, severity, raw} from a cve.org/NIST record
+        """
         containers = data.get("containers", {}) or {}
         cna = containers.get("cna", {}) or {}
         # cve.org / reformatted NIST use containers.cna, raw NIST 2.0 uses cve

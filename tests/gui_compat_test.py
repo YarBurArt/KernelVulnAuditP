@@ -7,7 +7,9 @@ from gui import compat
 
 @pytest.fixture(autouse=True)
 def _restore_glyph_tables():
-    """Restore Textual's glyph tables and the memoization flag after each test."""
+    """
+    Restore Textual's glyph tables and the memoization flag after each test.
+    """
     from textual._border import BORDER_CHARS
     from textual.renderables.bar import Bar
     from textual.scrollbar import ScrollBarRender

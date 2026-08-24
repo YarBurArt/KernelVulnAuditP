@@ -405,7 +405,8 @@ def _check_child_types(host_data: HostInfo) -> None:
         for item in value:
             if not isinstance(item, expected):
                 raise TypeError(
-                    f"host_data.{field_info.name} must contain {expected.__name__} "
+                    f"host_data.{field_info.name} "
+                    f"must contain {expected.__name__} "
                     f"items, got {type(item).__name__}"
                 )
 

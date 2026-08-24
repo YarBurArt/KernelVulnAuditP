@@ -23,7 +23,7 @@ _DEFAULT_PATHS = {
 
 
 def default_report_path(fmt: str) -> str:
-    """Default report filename for a format (JSON keeps the historical name)."""
+    """Default report filename for a format (JSON keeps the historical name)"""
     return _DEFAULT_PATHS[fmt.lower()]
 
 

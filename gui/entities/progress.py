@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 from collections.abc import Callable
 from typing import Any
 
@@ -47,11 +48,9 @@ class ProgressAdapter:
                 self._on_label(label, final, note)
 
         if self._marshal is not None:
-            try:
+            with contextlib.suppress(RuntimeError):
+                # if event loop is shutdown, then drop the update
                 self._marshal(_update)
-            except RuntimeError:
-                # event loop is shutdown, then drop the update
-                pass
         else:
             _update()
 

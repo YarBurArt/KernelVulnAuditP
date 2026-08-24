@@ -1,1 +1,3 @@
-"""Application services: use cases that orchestrate adapters and domain rules"""
+"""
+Application services: use cases that orchestrate adapters and domain rules
+"""

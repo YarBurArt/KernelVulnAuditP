@@ -61,9 +61,12 @@ class QemuEnvironment(IsolationEnvironment):
             self._log("kernel_path", str(kernel))
             self._log("stage", "kernel_found")
             serial_log = workdir / "serial.log"
-            # a headless VM -nodefaults, -nographic with fixed resources -m, -smp ;
-            # it halts on crashes -no-reboot, panic=-1 oops=panic and pipes verbose serial logs
-            # to a file -serial, console=ttyS0, loglevel=7 for parsing, plus virtio-rng-pci for entropy
+            # a headless VM -nodefaults,
+            # -nographic with fixed resources -m, -smp
+            # it halts on crashes -no-reboot, panic=-1 oops=panic
+            # and pipes verbose serial logs
+            # to a file -serial, console=ttyS0, loglevel=7 for parsing,
+            # plus virtio-rng-pci for entropy
             cmd = [
                 "qemu-system-x86_64",
                 "-nodefaults",
@@ -161,8 +164,10 @@ class QemuEnvironment(IsolationEnvironment):
                 )
 
     def _build_initrd(self, workdir: Path) -> Path:
-        """assembles a minimal rootfs with Busybox parts and the target binary of PoC,
-        then packs into a cpio archive in tmp-like dir to early boot"""
+        """
+        assembles a minimal rootfs with Busybox parts and the target binary
+        of PoC, then packs into a cpio archive in tmp-like dir to early boot
+        """
         root = workdir / "rootfs"
         root.mkdir(parents=True, exist_ok=True)
 
@@ -187,8 +192,8 @@ class QemuEnvironment(IsolationEnvironment):
                 stdout=subprocess.PIPE,
             ) as find_proc,
         ):
-            assert find_proc.stdout is not None
-
+            if find_proc.stdout is None:
+                raise ValueError("no proc stdout found")
             try:
                 subprocess.run(
                     ["cpio", "--null", "-ov", "--format=newc"],
@@ -328,8 +333,9 @@ class QemuEnvironment(IsolationEnvironment):
             return matches[-1]
 
         raise RuntimeError(
-            "no kernel image found for qemu (looked in /boot, /run/booted-system, "
-            "/lib/modules); install a kernel or set the vmlinuz path"
+            "no kernel image found for qemu "
+            "(looked in /boot, /run/booted-system, /lib/modules); "
+            "install a kernel or set the vmlinuz path"
         )
 
     @staticmethod

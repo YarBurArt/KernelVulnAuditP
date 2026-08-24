@@ -63,7 +63,8 @@ class InMemoryThreatDB(ThreatDB):
             self._vulns[cve_id] = vuln
 
         vuln.criticality_score = calculate_criticality_score(asdict(vuln))
-        assert vuln.id is not None
+        if vuln.id is None:
+            raise ValueError("Vulnerability id is None, probably not added")
         return vuln.id
 
     def get_vulnerability(self, cve_id: str) -> Vulnerability | None:
@@ -233,6 +234,8 @@ class InMemoryThreatDB(ThreatDB):
         rec = copy.deepcopy(rec_data)
         rec.id = len(self._recommendations) + 1
         self._recommendations.append(rec)
+        if rec.id is None:
+            raise ValueError("No ID, recommendation can't be added")
         return rec.id
 
     def bulk_insert_recommendations(
@@ -313,7 +316,8 @@ class InMemoryThreatDB(ThreatDB):
             snapshot.created_at = now
         snapshot.updated_at = now
         self._host_infos.append(snapshot)
-        assert snapshot.id is not None
+        if snapshot.id is None:
+            raise ValueError("Snapshot id is None in host_info")
         return snapshot.id
 
     def get_host_info(self, host_info_id: int) -> HostInfo | None:

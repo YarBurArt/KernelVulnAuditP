@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import time
 
 from textual.app import ComposeResult
@@ -83,9 +84,11 @@ def stage_for_label(label: str) -> str | None:
 
 
 class StageRow(Static):
-    """One stage: status marker + name on the first line, sub-steps below tree like.
-    Each sub-step carries an optional outcome note rendered after its label, and the header shows how
-    long the stage ran once it finishes.
+    """
+    One stage:
+        status marker + name on the first line, sub-steps below tree like.
+    Each sub-step carries an optional outcome note rendered after its label,
+    and the header shows how long the stage ran once it finishes.
     """
 
     def __init__(
@@ -169,7 +172,8 @@ class StageRow(Static):
         if self._status in ("done", "fail") and self._duration is not None:
             duration = f"  [dim]({self._format_duration(self._duration)})[/]"
         rows = [
-            f"[{color}]{marker}[/] [bold]{self._stage_name}[/]{suffix}{duration}{summary}"
+            f"[{color}]{marker}[/] [bold]{self._stage_name}"
+            f"[/]{suffix}{duration}{summary}"
         ]
         for label, note in self._done[-_MAX_SUB_STEPS:]:
             note_txt = f"  [dim]{_DOT} {note}[/]" if note else ""
@@ -256,31 +260,23 @@ class StagesPanel(VerticalScroll):
         self.styles.width = f"{width}"
 
     def set_stage(self, key: str, status: str) -> None:
-        try:
+        with contextlib.suppress(NoMatches):
             self.query_one(f"#stage-{key}", StageRow).set_status(status)
-        except NoMatches:
-            pass
         self._autoscale()
 
     def set_running(self, key: str, detail: str, note: str = "") -> None:
-        try:
+        with contextlib.suppress(NoMatches):
             self.query_one(f"#stage-{key}", StageRow).set_running(detail, note)
-        except NoMatches:
-            pass
         self._autoscale()
 
     def finish_stage(self, key: str, detail: str = "", note: str = "") -> None:
-        try:
+        with contextlib.suppress(NoMatches):
             self.query_one(f"#stage-{key}", StageRow).finish(detail, note)
-        except NoMatches:
-            pass
         self._autoscale()
 
     def set_stage_summary(self, key: str, summary: str) -> None:
-        try:
+        with contextlib.suppress(NoMatches):
             self.query_one(f"#stage-{key}", StageRow).set_summary(summary)
-        except NoMatches:
-            pass
         self._autoscale()
 
 

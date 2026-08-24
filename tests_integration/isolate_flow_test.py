@@ -228,7 +228,7 @@ def test_stages_panel_renders_descriptions():
             panel = app.query_one(StagesPanel)
             rows = list(panel.query(StageRow))
             assert len(rows) == len(STAGES)
-            for row, (_, name, description) in zip(rows, STAGES):
+            for row, (_, name, description) in zip(rows, STAGES, strict=False):
                 assert name in str(row.render())
                 assert description in str(row.render())
             assert _HEADLINE_LABELS  # non-empty dedup set

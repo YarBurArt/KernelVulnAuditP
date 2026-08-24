@@ -1,4 +1,6 @@
-"""Normalized scan host info snapshots for TUI, consumed by the scan page renderer"""
+"""
+Normalized scan host info snapshots for TUI, consumed by the scan page renderer
+"""
 
 from __future__ import annotations
 

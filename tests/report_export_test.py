@@ -1,4 +1,6 @@
-"""Unit tests for the report export helpers (txt/json/yaml rendering + saving)."""
+"""
+Unit tests for the report export helpers (txt/json/yaml rendering + saving).
+"""
 
 import json
 from pathlib import Path

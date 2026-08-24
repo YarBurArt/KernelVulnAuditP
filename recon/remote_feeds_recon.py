@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import json
 import logging
 import os
@@ -30,8 +31,10 @@ _OSV_TRANSIENT_ERRORS = (httpx.TransportError,)
 _OSV_RETRIES = 2
 _OSV_RETRY_BASE_DELAY = 1.0
 _DETAILS_WORKERS = 4
-# NIST pages its CVE catalog server-side; the largest page keeps the request count minimal,
-# so only one page's JSON is ever resident instead of the whole catalog, near was leak
+# NIST pages its CVE catalog server-side
+# the largest page keeps the request count minimal,
+# so only one page's JSON is ever resident
+# instead of the whole catalog, near was leak
 _NIST_PAGE_SIZE = 2000
 # truncated with a warning instead of hammering the API.
 _MAX_NIST_PAGES = 8
@@ -41,7 +44,8 @@ _FEEDS_USER_AGENT = "kernelvulnauditp/0.1.1"
 _OSV_READ_TIMEOUT = 40.0
 
 # NVD API 2.0 allows around 5 requests per 30s without an API key
-# With NVD_API_KEY set the interval drops to the faster tier; both are overridable with NVD_MIN_INTERVAL.
+# With NVD_API_KEY set the interval drops to the faster tier,
+# both are overridable with NVD_MIN_INTERVAL.
 _NVD_API_KEY = os.environ.get("NVD_API_KEY", "")
 _NVD_MIN_INTERVAL = float(
     os.environ.get("NVD_MIN_INTERVAL", "0.6" if _NVD_API_KEY else "6.0")
@@ -84,13 +88,17 @@ _KEV_FIELDS = (
 
 
 def _write_bytes(path: str, content: bytes) -> None:
-    """blocking file write helper, run off the event loop via asyncio.to_thread"""
+    """
+    blocking file write helper, run off the event loop via asyncio.to_thread
+    """
     with open(path, "wb") as f:
         f.write(content)
 
 
 def _read_text(path: str) -> str:
-    """blocking file read helper, run off the event loop via asyncio.to_thread"""
+    """
+    blocking file read helper, run off the event loop via asyncio.to_thread
+    """
     with open(path, encoding="utf-8") as f:
         return f.read()
 
@@ -112,7 +120,7 @@ class ReconFeeds:
         self._summary_cache: dict[str, dict[str, Any]] = {}
         self._client: httpx.AsyncClient | None = None
         self._client_loop: asyncio.AbstractEventLoop | None = None
-        # NVD politeness gate; keyed to the running loop like the client because
+        # NVD politeness gate; keyed to the running loop like the client cuz
         # asyncio.Lock binds to the loop it is first used on.
         self._nvd_lock: asyncio.Lock | None = None
         self._nvd_lock_loop: asyncio.AbstractEventLoop | None = None
@@ -135,6 +143,8 @@ class ReconFeeds:
                 follow_redirects=True,
             )
             self._client_loop = loop
+        if self._client is None:
+            raise ValueError("No httpx.AsyncClient available")
         return self._client
 
     async def _drop_client(self) -> None:
@@ -142,18 +152,18 @@ class ReconFeeds:
         client, self._client = self._client, None
         self._client_loop = None
         if client is not None:
-            try:
+            # loop already closed (asyncio.run teardown), and if py>=3.14t
+            with contextlib.suppress(RuntimeError):
                 await client.aclose()
-            except RuntimeError:
-                # loop already closed (asyncio.run teardown), and if py>=3.14t
-                pass
 
     async def close(self) -> None:
         """close the shared HTTP session and its pooled connections"""
         await self._drop_client()
 
     async def _nvd_get(self, url: str, **params: Any) -> httpx.Response:
-        """rate-limited NVD GET: min-interval gate ... and 429 Retry-After backoff"""
+        """
+        rate-limited NVD GET: min-interval gate ... and 429 Retry-After backoff
+        """
         loop = asyncio.get_running_loop()
         if self._nvd_lock is None or self._nvd_lock_loop is not loop:
             self._nvd_lock = asyncio.Lock()
@@ -163,7 +173,8 @@ class ReconFeeds:
         client = await self._get_client()
         headers = {"apiKey": _NVD_API_KEY} if _NVD_API_KEY else None
 
-        assert self._nvd_lock is not None
+        if self._nvd_lock is None:
+            raise ValueError("No NVD lock available")
         async with self._nvd_lock:
             wait = _NVD_MIN_INTERVAL - (loop.time() - self._nvd_last_ts)
             if wait > 0:
@@ -257,7 +268,10 @@ class ReconFeeds:
         return pocs
 
     async def _cve_org_details(self, cve_id: str) -> dict[str, Any]:
-        """get cve details from cve.org MITRE API, if not accessible then NIST v2 API"""
+        """
+        get cve details from cve.org MITRE API,
+        if not accessible then NIST v2 API
+        """
         client = await self._get_client()
         if self._mitre_available:
             try:
@@ -280,8 +294,10 @@ class ReconFeeds:
         """Search for vulnerabilities in NIST database.
 
         The NVD CVE API uses offset pagination (max 2,000 results per page),
-        loads one page at a time to save memory. Pagination is appended to the CPE-filtered URL;
-        httpx can remove the filter when params used. go through _nvd_get, which enforces NVD's rate limits
+        loads one page at a time to save memory.
+        Pagination is appended to the CPE-filtered URL;
+        httpx can remove the filter when params used.
+        go through _nvd_get, which enforces NVD's rate limits
         """
         findings: list[CVEFinding] = []
         base_url = NIST_API_URL.format(version=kern_r_version)
@@ -325,7 +341,9 @@ class ReconFeeds:
         return findings
 
     async def osv_search(self, kern_r_version) -> list[CVEFinding]:
-        """Search for Linux kernel CVEs in OSV, enriching missing data from NIST."""
+        """
+        Search for Linux kernel CVEs in OSV, enriching missing data from NIST
+        """
         client = await self._get_client()
         payload = {
             "version": kern_r_version,
@@ -415,9 +433,10 @@ class ReconFeeds:
                     finding.cvss_score = float(score)
 
     async def get_cve_details(self, cve_id: str) -> dict[str, Any]:
-        """filter CVE metadata using the configured API for db.
-
-        Returns the full extracted record; only a trimmed summary is kept in the cache
+        """
+        filter CVE metadata using the configured API for db.
+        Returns the full extracted record,
+        only a trimmed summary is kept in the cache
         """
         cached = self._details_cache.get(cve_id)
         if cached is not None:

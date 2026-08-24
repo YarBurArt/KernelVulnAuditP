@@ -153,7 +153,7 @@ class LocalRecon:
                     try:
                         parsed = parsedate_to_datetime(date_str)
                     except TypeError, ValueError:
-                        # date-only variant (e.g. "Mon, 14 Aug 2023"): interpret
+                        # date-only variant (e.g. "Mon, 14 Aug 2023"):interpret
                         # as UTC midnight so .timestamp() never depends on the
                         # host's local timezone
                         try:
@@ -308,7 +308,8 @@ class LocalRecon:
                 else str(e)
             )
             logger.warning(
-                "LES run failed (cmd: %s); install linux-exploit-suggester with "
+                "LES run failed (cmd: %s); "
+                "install linux-exploit-suggester with "
                 "./install_tools.sh or 'nix develop': %s",
                 " ".join(cmd),
                 reason,
@@ -346,7 +347,8 @@ class LocalRecon:
         try:
             if not root.exists():
                 logger.warning(
-                    "/proc/sys not found; sysctl kernel-hardening checks skipped"
+                    "/proc/sys not found; "
+                    "sysctl kernel-hardening checks skipped"
                 )
                 return values
 
@@ -438,7 +440,8 @@ class LocalRecon:
         except FileNotFoundError as e:
             logger.warning(
                 "lynis params.prf not found (%s); install lynis with "
-                "./install_tools.sh or 'nix develop' to get kernel hardening checks: %s",
+                "./install_tools.sh or 'nix develop' "
+                "to get kernel hardening checks: %s",
                 params_path,
                 e,
             )
@@ -535,7 +538,8 @@ class LocalRecon:
         proc_root = Path("/proc")
         if not proc_root.exists():
             logger.warning(
-                "/proc not found; process capability checks skipped (not a Linux procfs?)"
+                "/proc not found; process capability "
+                "checks skipped (not a Linux procfs?)"
             )
             return result
 
@@ -570,7 +574,9 @@ class LocalRecon:
     def _read_pid_caps(
         self, status_file: Path, pid: int
     ) -> HostProcessCapabilities | None:
-        """parse one /proc/<pid>/status into capability data, or None to skip"""
+        """
+        parse one /proc/<pid>/status into capability data, or None to skip
+        """
         try:
             if not status_file.is_file():
                 return None
@@ -683,8 +689,8 @@ class LocalRecon:
         file_caps: list[HostFileCapabilities] | None = None,
     ) -> list[SecurityRecommendationType]:
         """summarise process + PATH-file capabilities as hardening findings.
-        process_caps / file_caps may be supplied by the caller, so /proc and getcap are
-        only scanned once per recon run
+        process_caps / file_caps may be supplied by the caller,
+        so /proc and getcap are only scanned once per recon run
         """
         results: list[SecurityRecommendationType] = []
         idx = 0

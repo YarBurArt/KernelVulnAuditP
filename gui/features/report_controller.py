@@ -17,7 +17,10 @@ logger = logging.getLogger("kernel_audit.gui")
 
 
 class ReportController:
-    """Runs the report build off the TUI thread and streams its output concurrently"""
+    """
+    Runs the report build off the TUI thread
+    and streams its output concurrently
+    """
 
     def __init__(self, app: KernelVulnTUI) -> None:
         self._app = app
@@ -34,7 +37,10 @@ class ReportController:
         self._app.run_task(self._build, self._on_done, self._on_error)
 
     def _build(self) -> list[str]:
-        """Run in a worker thread; returns the lines to append, need for streamlit process"""
+        """
+        Run in a worker thread; returns the lines to append,
+        need for streamlit process
+        """
         report_path = (
             Path(__file__).resolve().parent.parent.parent / "report.py"
         )
@@ -78,7 +84,7 @@ class ReportController:
                 + "\nReport generated (CLI mode)\n"
             )
         except APP_ERRORS as exc:
-            # only for Engine-stdout tab instead of being hidden by the error line
+            # only for Engine-stdout tab instead of being hidden by the error
             logger.exception("CLI report generation failed")
             return f"CLI report error: {exc}\n"
 

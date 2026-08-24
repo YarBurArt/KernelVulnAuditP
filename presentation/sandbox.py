@@ -18,7 +18,9 @@ _BINARY_OUTPUT_END = "========== BINARY OUTPUT END =========="
 
 
 def binary_output(stdout: str) -> str:
-    """Filter VM logs: keep only the payload between the binary output markers."""
+    """
+    Filter VM logs: keep only the payload between the binary output markers.
+    """
     start = stdout.find(_BINARY_OUTPUT_START)
     end = stdout.find(_BINARY_OUTPUT_END)
     if start == -1 or end == -1:
@@ -92,12 +94,14 @@ def format_sandbox_detail(data: dict[str, Any]) -> str:
     modules = data.get("modules") or []
     if modules:
         add(
-            f"modules ({len(modules)}):      {', '.join(str(m) for m in modules)}"
+            f"modules ({len(modules)}):"
+            f"      {', '.join(str(m) for m in modules)}"
         )
     processes = data.get("open_processes") or []
     if processes:
         add(
-            f"processes ({len(processes)}):  {', '.join(str(p) for p in processes)}"
+            f"processes ({len(processes)}):"
+            f"  {', '.join(str(p) for p in processes)}"
         )
     files = data.get("open_files") or []
     if files:
@@ -177,7 +181,11 @@ def format_execution_report(report: ExecutionReport) -> str:
         add(
             f"[{index}] CVE {entry.cve_id or 'N/A'} | "
             f"{entry.severity or 'N/A'} | "
-            f"CVSS {entry.cvss_v3_score if entry.cvss_v3_score is not None else 'N/A'}"
+            f"CVSS {
+                entry.cvss_v3_score
+                if entry.cvss_v3_score is not None
+                else 'N/A'
+            }"
         )
         description = str(entry.description or "").strip()
         if description:
@@ -190,7 +198,8 @@ def format_execution_report(report: ExecutionReport) -> str:
             add("    PoCs:        none")
         for poc in pocs:
             add(
-                f"    PoC: {poc.url or 'N/A'} [{poc.language or '?'} stars:{poc.stars}]"
+                f"    PoC: {poc.url or 'N/A'} [{poc.language or '?'}"
+                f" stars:{poc.stars}]"
             )
             if poc.compile_cmd:
                 add(f"      compile: {poc.compile_cmd}")
@@ -228,7 +237,8 @@ def format_execution_report(report: ExecutionReport) -> str:
             modules = sandbox.modules
             if modules:
                 add(
-                    f"      modules ({len(modules)}): {', '.join(str(m) for m in modules)}"
+                    f"      modules ({len(modules)}): "
+                    f"{', '.join(str(m) for m in modules)}"
                 )
             processes = sandbox.processes
             if processes:
@@ -239,7 +249,8 @@ def format_execution_report(report: ExecutionReport) -> str:
             files = sandbox.files
             if files:
                 add(
-                    f"      files ({len(files)}): {', '.join(str(f) for f in files)}"
+                    f"      files ({len(files)}): "
+                    f"{', '.join(str(f) for f in files)}"
                 )
             for key, label in (("stdout", "STDOUT"), ("stderr", "STDERR")):
                 blob = getattr(sandbox, key)

@@ -68,7 +68,9 @@ _APPLIED = False
 
 
 def apply_glyph_compat() -> bool:
-    """Swap Textual hard-coded glyphs for ASCII when the terminal cannot draw them"""
+    """
+    Swap Textual hard-coded glyphs for ASCII when the terminal cannot draw them
+    """
     global _APPLIED
     if _APPLIED:
         return True

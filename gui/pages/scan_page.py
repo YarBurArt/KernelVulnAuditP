@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import ClassVar
+from typing import ClassVar, cast
 
 from textual.app import ComposeResult
 from textual.binding import Binding
@@ -53,8 +53,7 @@ class ScanPage(BaseScreen):
         Binding("]", "next_tab", "Next tab", show=False),
     ]
 
-    @staticmethod
-    def compose() -> ComposeResult:
+    def compose(self) -> ComposeResult:
         with Vertical(classes="page"):
             with Vertical(id="toolbar_area"):
                 with Horizontal(classes="toolbar", id="toolbar"):
@@ -93,7 +92,12 @@ class ScanPage(BaseScreen):
         self._tabbed().active = pane_id
 
     def _tab_order(self) -> list[str]:
-        return [pane.id for pane in self._tabbed().query(TabPane) if pane.id]
+        result: list[str | None] = [
+            pane.id for pane in self._tabbed().query(TabPane) if pane.id
+        ]
+        if not result:
+            raise ValueError("No tab panes with valid IDs found")
+        return cast(list[str], result)
 
     def action_next_tab(self) -> None:
         tabbed = self._tabbed()
@@ -124,7 +128,9 @@ class ScanPage(BaseScreen):
         self._place_progress()
 
     def _place_progress(self) -> None:
-        """Move the progress box to its best spot in TUI, guarded against races"""
+        """
+        Move the progress box to its best spot in TUI, guarded against races
+        """
         if self._relocating:
             return
         self._relocating = True
@@ -148,7 +154,8 @@ class ScanPage(BaseScreen):
         inline = self._toolbar_fits_inline(toolbar)
         in_toolbar = box in toolbar.children
         if not in_toolbar and box.parent is not area:
-            # box is detached, park it back before deciding, so it is never left outside the TUI DOM
+            # box is detached, park it back before deciding,
+            # so it is never left outside the TUI DOM
             await area.mount(box)
             in_toolbar = False
         if inline == in_toolbar:

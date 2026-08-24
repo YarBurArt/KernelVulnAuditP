@@ -11,7 +11,10 @@ from presentation.glyphs import unicode_glyph
 
 
 class ReferencesBar(Collapsible):
-    """Collapsed "References (N)" block listing unique links for a section, cuz structure of Kernel docs"""
+    """
+    Collapsed "References (N)" block listing unique links for a section,
+    cuz structure of Kernel docs
+    """
 
     def __init__(self, links: list[Any], *args, **kwargs) -> None:
         self._links = [str(link) for link in links]

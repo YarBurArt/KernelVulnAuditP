@@ -228,7 +228,9 @@ class SandboxItem(Collapsible):
         if self._kernel_info:
             children.append(
                 Static(
-                    f"Kernel: {markup_escape(format_kernel_line(self._kernel_info))}",
+                    f"Kernel: {
+                        markup_escape(format_kernel_line(self._kernel_info))
+                    }",
                     classes="mono",
                 )
             )
