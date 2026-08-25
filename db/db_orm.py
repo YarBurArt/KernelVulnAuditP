@@ -24,8 +24,8 @@ from core.entities import (
     Vulnerability,
     VulnerabilityDetail,
 )
-from db.db import ThreatDB
 from db.host_info_repo import HostInfoRepository
+from db.interfaces import ThreatDB
 from db.models import (
     AffectedProduct as AffectedProductRow,
 )

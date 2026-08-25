@@ -105,17 +105,23 @@ def test_virtme_ng_guest_markers_and_exit_code(tmp_path):
 
 
 @pytest.mark.integration
-def test_execute_poc_compile_failure_reports_sandbox_error(tmp_path):
-    """A failing PoC compile is a legitimate outcome: it must surface as a
-    sandbox_error row, not vanish from the report (the old TUI bug)."""
+def test_execute_poc_missing_toolchain_reports_compile_failed(tmp_path):
+    """A build that cannot even start (allowlisted compiler absent) must
+    surface as a sandbox_error row whose reason says 'compile failed',
+    not vanish from the report (the old TUI bug)."""
     from app_services import AppServices
     from isolate import Isolate, PoCRunner
+
+    if shutil_which("musl-clang"):
+        pytest.skip(
+            "musl-clang present; missing-toolchain scenario unavailable"
+        )
 
     svc = AppServices.__new__(AppServices)
     svc.poc_runner = PoCRunner(Isolate())
     poc = {
         "local_path": str(tmp_path),
-        "compile_cmd": "false",
+        "compile_cmd": "musl-clang x.c",
         "test_cmd": None,
         "url": "https://example.com/poc",
     }
@@ -123,12 +129,39 @@ def test_execute_poc_compile_failure_reports_sandbox_error(tmp_path):
 
     assert out.sandbox is None
     assert out.sandbox_error is not None
-    assert "compile" in out.sandbox_error
+    assert "compile failed" in out.sandbox_error
+
+
+@pytest.mark.integration
+def test_execute_poc_silent_build_failure_yields_error_row(tmp_path):
+    """A compile command that exits nonzero without raising (run_cmd's
+    check=False contract) still yields a sandbox_error row; the pinned
+    reason documents the current pipeline end-to-end. Needs a real gcc,
+    so it skips on toolchain-less hosts (the OSError path is covered by
+    test_execute_poc_missing_toolchain_reports_compile_failed)."""
+    from app_services import AppServices
+    from isolate import Isolate, PoCRunner
+
+    if not shutil_which("gcc"):
+        pytest.skip("gcc unavailable; silent-rc scenario needs a real one")
+
+    svc = AppServices.__new__(AppServices)
+    svc.poc_runner = PoCRunner(Isolate())
+    poc = {
+        "local_path": str(tmp_path),
+        "compile_cmd": "gcc --definitely-not-a-flag",
+        "test_cmd": None,
+        "url": "https://example.com/poc",
+    }
+    out = svc._execute_poc("CVE-2099-0001", poc)
+
+    assert out.sandbox is None
+    assert out.sandbox_error == "no executable produced by the PoC build"
 
 
 @pytest.mark.integration
 def test_execute_poc_sandbox_error_when_no_backend(tmp_path):
-    """When the compile succeeds but no sandbox backend is available the
+    """When the PoC needs no build and no sandbox backend is available the
     outcome is a sandbox_error, so the TUI shows a failure row."""
     from app_services import AppServices
     from isolate import PoCRunner
@@ -145,7 +178,7 @@ def test_execute_poc_sandbox_error_when_no_backend(tmp_path):
     svc.poc_runner = PoCRunner(_FakeIsolate())
     poc = {
         "local_path": str(tmp_path),
-        "compile_cmd": "true",
+        "compile_cmd": None,
         "test_cmd": "./poc",
         "url": "https://example.com/poc",
     }

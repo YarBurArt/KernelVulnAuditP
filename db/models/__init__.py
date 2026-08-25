@@ -1,5 +1,4 @@
-from sqlalchemy.orm import DeclarativeBase
-
+from db.models.base import Base
 from db.models.host import (
     HostBootParameter,
     HostCgroup,
@@ -27,11 +26,6 @@ from db.models.vulnerability import (
     SandboxRun,
     Vulnerability,
 )
-
-
-class Base(DeclarativeBase):
-    pass
-
 
 __all__ = [
     "AffectedProduct",

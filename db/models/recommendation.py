@@ -15,7 +15,7 @@ from sqlalchemy.orm import (
     mapped_column,
 )
 
-from db.models import Base
+from db.models.base import Base
 
 
 class SecurityRecommendation(Base):

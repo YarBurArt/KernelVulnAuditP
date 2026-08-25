@@ -18,7 +18,7 @@ from sqlalchemy.orm import (
     relationship,
 )
 
-from db.models import Base
+from db.models.base import Base
 
 
 class HostEnvironmentVariable(Base):

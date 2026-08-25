@@ -1,3 +1,4 @@
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -5,6 +6,13 @@ import pytest
 
 from core.entities import SandboxRunResult
 from isolate.poc_runner import PoCRunner, compile_poc, resolve_poc_binary
+
+
+@pytest.fixture(autouse=True)
+def _no_musl_toolchain(monkeypatch):
+    """Pin shutil.which to 'nothing installed' so tests are host-independent;
+    musl-path tests re-patch it explicitly."""
+    monkeypatch.setattr(shutil, "which", lambda name: None)
 
 
 class _FakeIsolate:
@@ -47,7 +55,10 @@ def test_runner_compile_failure(tmp_path, monkeypatch):
     assert outcome.error == "compile failed: rc=1: gcc error"
 
 
-def test_runner_compile_nonzero_rc(tmp_path, monkeypatch):
+def test_runner_nonzero_rc_does_not_fail_build(tmp_path, monkeypatch):
+    """run_cmd's check=False contract: a clean rc!=0 does not raise here,
+    so the build step passes and the pipeline reports the missing binary."""
+
     def nonzero_run(*args, **kwargs):
         return subprocess.CompletedProcess(
             args=[], returncode=1, stdout="", stderr="gcc error"
@@ -56,7 +67,18 @@ def test_runner_compile_nonzero_rc(tmp_path, monkeypatch):
     monkeypatch.setattr("isolate.poc_runner.run_cmd", nonzero_run)
     runner = PoCRunner(_FakeIsolate(None))
     outcome = runner.run(tmp_path, "gcc x.c", "./x")
-    assert "compile failed" in outcome.error
+    assert outcome.error == "no executable produced by the PoC build"
+
+
+def test_runner_missing_toolchain_reports_failure(tmp_path, monkeypatch):
+    def missing_run(*args, **kwargs):
+        raise FileNotFoundError(2, "No such file or directory")
+
+    monkeypatch.setattr("isolate.poc_runner.run_cmd", missing_run)
+    runner = PoCRunner(_FakeIsolate(None))
+    outcome = runner.run(tmp_path, "gcc x.c", "./x")
+    assert outcome.error is not None
+    assert outcome.error.startswith("compile failed:")
 
 
 def test_runner_no_executable(tmp_path, monkeypatch):
@@ -70,7 +92,7 @@ def test_runner_no_backend_available(tmp_path, monkeypatch):
     monkeypatch.setattr("isolate.poc_runner.run_cmd", _ok_run)
     _executable(tmp_path)
     runner = PoCRunner(_FakeIsolate(None))
-    outcome = runner.run(tmp_path, "true", "./poc")
+    outcome = runner.run(tmp_path, "gcc x.c", "./poc")
     assert "no sandbox backend" in outcome.error
 
 
@@ -86,7 +108,7 @@ def test_runner_sandbox_success(tmp_path, monkeypatch):
         duration_ms=1.0,
     )
     runner = PoCRunner(_FakeIsolate(result))
-    outcome = runner.run(tmp_path, "true", "./poc")
+    outcome = runner.run(tmp_path, "gcc x.c", "./poc")
     assert outcome.sandbox is result
     assert outcome.command == "./poc"
 
@@ -100,7 +122,7 @@ def test_runner_sandbox_raises(tmp_path, monkeypatch):
             raise RuntimeError("vm crashed")
 
     runner = PoCRunner(_RaisingIsolate())
-    outcome = runner.run(tmp_path, "true", "./poc")
+    outcome = runner.run(tmp_path, "gcc x.c", "./poc")
     assert outcome.error == "vm crashed"
 
 
@@ -109,25 +131,24 @@ def test_compile_poc_success(tmp_path, monkeypatch):
     compile_poc(tmp_path, "gcc a.c")
 
 
-def test_compile_poc_failure_raises(tmp_path, monkeypatch):
+def test_compile_poc_nonzero_rc_is_silent(tmp_path, monkeypatch):
     def nonzero_run(*args, **kwargs):
         return subprocess.CompletedProcess(
             args=[], returncode=1, stdout="", stderr="gcc error"
         )
 
     monkeypatch.setattr("isolate.poc_runner.run_cmd", nonzero_run)
-    with pytest.raises(RuntimeError, match="rc=1"):
-        compile_poc(tmp_path, "gcc a.c")
+    compile_poc(tmp_path, "gcc a.c")
 
 
-def test_compile_poc_timeout_raises(tmp_path, monkeypatch):
+def test_compile_poc_timeout_propagates(tmp_path, monkeypatch):
     def timeout_run(*args, **kwargs):
         raise subprocess.TimeoutExpired(
             cmd=["gcc"], timeout=5, output="partial", stderr=""
         )
 
     monkeypatch.setattr("isolate.poc_runner.run_cmd", timeout_run)
-    with pytest.raises(RuntimeError, match="compile timed out"):
+    with pytest.raises(subprocess.TimeoutExpired):
         compile_poc(tmp_path, "gcc a.c")
 
 
@@ -151,7 +172,9 @@ def test_compile_poc_musl_gcc_rewrites_direct_cmd(tmp_path, monkeypatch):
     monkeypatch.setattr("isolate.poc_runner.run_cmd", capture_run)
 
     compile_poc(tmp_path, "gcc x.c -o poc")
-    assert captured["cmd_arg"] == "musl-gcc x.c -o poc -static"
+    cmd = captured["cmd_arg"]
+    assert Path(cmd[0]).name == "musl-gcc"
+    assert cmd[1:] == ["x.c", "-o", "poc", "-static"]
     assert captured["env"]["REALGCC"] == "/usr/bin/gcc"
 
 
@@ -216,7 +239,7 @@ def test_compile_poc_no_musl_gcc_passes_cmd_through(tmp_path, monkeypatch):
     monkeypatch.setattr("isolate.poc_runner.run_cmd", capture_run)
 
     compile_poc(tmp_path, "make all")
-    assert captured["cmd_arg"] == "make all"
+    assert captured["cmd_arg"] == ["make", "all"]
     assert "musl-gcc" not in captured.get("env", {}).get("PATH", "")
 
 

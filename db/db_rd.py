@@ -17,7 +17,7 @@ from core.entities import (
     VulnerabilityDetail,
 )
 from core.scoring import calculate_criticality_score
-from db import ThreatDB
+from db.interfaces import ThreatDB
 from db.mappers import entity_write_dict
 
 logger = logging.getLogger(f"kernel_audit.{__name__}")

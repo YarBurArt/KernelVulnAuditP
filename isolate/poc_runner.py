@@ -119,21 +119,36 @@ def compile_poc(
             tokens[0] = musl_gcc
             if "-static" not in tokens and "-shared" not in tokens:
                 tokens.append("-static")
-        # musl-gcc is a thin wrapper that execs $REALGCC
-        # point it at the real binary so a gcc/cc shim never recurses
+        # musl-gcc is a thin wrapper that execs $REALGCC; point it at a
+        # real (non-ccache) gcc: ccache re-resolves "gcc" through PATH,
+        # finds the shim below and both recurse until the timeout kills
+        # the whole process tree
         real_gcc = shutil.which("gcc")
+        if real_gcc and "/ccache/" in real_gcc:
+            real_gcc = (
+                "/usr/bin/gcc" if Path("/usr/bin/gcc").is_file() else None
+            )
         if real_gcc:
             env["REALGCC"] = real_gcc
         # Makefile builds call $(CC)/$(CFLAGS) or hardcode gcc; a shim
         # named gcc/cc forces every such invocation through musl-gcc -static
-        # (glibc and dynamic-musl binaries abort in the minimal initrd)
-        shim_dir = Path(tempfile.mkdtemp(prefix="kernaudit-cc-"))
-        shim_script = f'#!/bin/sh\nexec {musl_gcc} -static "$@"\n'
-        for name in ("gcc", "cc"):
-            shim = shim_dir / name
-            shim.write_text(shim_script)
-            shim.chmod(0o755)
-        env["PATH"] = f"{shim_dir}:{env.get('PATH', '')}"
+        # (glibc and dynamic-musl binaries abort in the minimal initrd).
+        # Without a real gcc the shims would turn any nested bare "gcc"
+        # lookup into a musl<->shim recursion, so install them only when
+        # one was found and let such builds fail fast instead.
+        if real_gcc is None:
+            logger.warning(
+                "%s: no real gcc found, musl cc shims not installed",
+                repo_path,
+            )
+        else:
+            shim_dir = Path(tempfile.mkdtemp(prefix="kernaudit-cc-"))
+            shim_script = f'#!/bin/sh\nexec {musl_gcc} -static "$@"\n'
+            for name in ("gcc", "cc"):
+                shim = shim_dir / name
+                shim.write_text(shim_script)
+                shim.chmod(0o755)
+            env["PATH"] = f"{shim_dir}:{env.get('PATH', '')}"
         env["CC"] = "musl-gcc -static"
         env["CFLAGS"] = f"{env.get('CFLAGS', '')} -static".strip()
 
