@@ -1,0 +1,11 @@
+.venv/
+venv/
+.git/
+__pycache__/
+
+tests/
+tests_integration/
+
+lib_tools/
+assets/
+config.py

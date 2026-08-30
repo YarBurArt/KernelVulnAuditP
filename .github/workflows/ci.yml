@@ -24,6 +24,21 @@ jobs:
           confidence: "medium"
           exclude: ".venv,venv,.git,__pycache__,tests,tests_integration,migrations,lib_tools,assets,config.py"
           targets: "."
+  semgrep:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run Semgrep Analysis
+        uses: returntocorp/semgrep-action@v1
+        continue-on-error: true
+        with:
+          config: p/python
+          extra_args: --metrics=off
   pylint:
     runs-on: ubuntu-latest
 

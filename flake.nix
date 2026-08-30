@@ -72,6 +72,8 @@
           p.textual
           p.pyyaml # report yaml export
           p.streamlit # optional web report (kishirika-report)
+		  p.anyio
+          p.dishka
         ]);
 
         appSrc = pkgs.lib.cleanSourceWith {
@@ -186,6 +188,7 @@
             pkgs.git
             pkgs.coreutils
             pkgs.findutils
+			pkgs.semgrep
           ];
           shellHook = ''
             export KERNEL_AUDIT_SANDBOX=qemu
