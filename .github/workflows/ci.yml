@@ -29,7 +29,10 @@ jobs:
     permissions:
       contents: read
       security-events: write
-
+    
+    container:
+      image: semgrep/semgrep
+  
     steps:
       - uses: actions/checkout@v4
 
